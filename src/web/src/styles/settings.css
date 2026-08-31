@@ -1,0 +1,395 @@
+.tms-mde-settings-backdrop {
+	padding: 24px;
+}
+
+.tms-mde-settings-dialog {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	width: min(960px, 96vw);
+	height: min(760px, 92vh);
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	overflow: hidden;
+	background: var(--tms-mde-color-surface);
+	box-shadow: var(--tms-mde-shadow);
+}
+
+.tms-mde-settings-header,
+.tms-mde-settings-footer {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 14px 18px;
+	border-color: var(--tms-mde-color-border);
+	background: var(--tms-mde-color-surface);
+}
+
+.tms-mde-settings-header {
+	justify-content: space-between;
+	border-bottom: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-settings-header h2 {
+	margin: 0;
+	font-size: 20px;
+}
+
+.tms-mde-settings-footer {
+	border-top: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-settings-layout {
+	display: grid;
+	grid-template-columns: 190px minmax(0, 1fr);
+	min-height: 0;
+}
+
+.tms-mde-settings-navigation {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 12px;
+	border-right: 1px solid var(--tms-mde-color-border);
+	overflow-y: auto;
+	background: var(--tms-mde-color-bg);
+}
+
+.tms-mde-settings-nav-button,
+.tms-mde-settings-dialog button {
+	padding: 7px 10px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+	cursor: pointer;
+}
+
+.tms-mde-settings-nav-button {
+	width: 100%;
+	border-color: transparent;
+	text-align: left;
+}
+
+.tms-mde-settings-nav-button:hover,
+.tms-mde-settings-nav-button.is-active,
+.tms-mde-settings-dialog button:hover:not(:disabled) {
+	border-color: var(--tms-mde-color-primary);
+	color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-settings-nav-button.is-active {
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 12%, var(--tms-mde-color-surface));
+	font-weight: 600;
+}
+
+.tms-mde-settings-dialog button:disabled,
+.tms-mde-settings-dialog input:disabled,
+.tms-mde-settings-dialog select:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.tms-mde-settings-sections {
+	min-width: 0;
+	overflow-y: auto;
+}
+
+.tms-mde-settings-section {
+	padding: 20px 24px 32px;
+}
+
+.tms-mde-settings-section[hidden] {
+	display: none;
+}
+
+.tms-mde-settings-section h3 {
+	margin: 0 0 18px;
+	font-size: 18px;
+}
+
+.tms-mde-settings-row {
+	display: grid;
+	grid-template-columns: minmax(190px, 1fr) minmax(180px, 1.4fr) auto;
+	align-items: center;
+	gap: 12px;
+	min-height: 48px;
+	padding: 8px 0;
+	border-bottom: 1px solid color-mix(in srgb, var(--tms-mde-color-border) 55%, transparent);
+}
+
+.tms-mde-settings-label {
+	font-weight: 500;
+}
+
+.tms-mde-settings-row input:not([type="checkbox"]),
+.tms-mde-settings-row select {
+	width: 100%;
+	min-width: 0;
+	padding: 7px 9px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	outline: none;
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+}
+
+.tms-mde-settings-row input:focus,
+.tms-mde-settings-row select:focus {
+	border-color: var(--tms-mde-color-focus-ring);
+	box-shadow: 0 0 0 1px var(--tms-mde-color-focus-ring);
+}
+
+.tms-mde-settings-row input[type="checkbox"] {
+	justify-self: start;
+	width: 18px;
+	height: 18px;
+	accent-color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-settings-reset {
+	font-size: 12px !important;
+}
+
+.tms-mde-settings-description {
+	margin: 0 0 14px;
+	color: var(--tms-mde-color-text-muted);
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.tms-mde-settings-toolbar,
+.tms-mde-settings-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.tms-mde-settings-toolbar {
+	margin-bottom: 12px;
+}
+
+.tms-mde-settings-snippets {
+	display: grid;
+	gap: 6px;
+}
+
+.tms-mde-settings-snippet {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: center;
+	gap: 8px;
+	padding: 9px 10px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-bg);
+}
+
+.tms-mde-settings-inline-error {
+	grid-column: 2;
+	color: var(--tms-mde-color-error);
+	font-size: 12px;
+}
+
+.tms-mde-settings-decorations {
+	display: grid;
+	gap: 14px;
+}
+
+.tms-mde-settings-decoration {
+	min-width: 0;
+	margin: 0;
+	padding: 14px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-bg);
+}
+
+.tms-mde-settings-decoration legend {
+	padding: 0 6px;
+	font-weight: 600;
+}
+
+.tms-mde-settings-decoration-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.tms-mde-settings-decoration-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+}
+
+.tms-mde-settings-decoration-check input {
+	width: 18px;
+	height: 18px;
+	margin: 0;
+	accent-color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-settings-decoration-fields {
+	display: grid;
+	grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.6fr) minmax(160px, 1fr);
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.tms-mde-settings-decoration-field {
+	display: grid;
+	gap: 6px;
+	min-width: 0;
+	font-size: 13px;
+	font-weight: 500;
+}
+
+.tms-mde-settings-decoration-field input {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	padding: 7px 9px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	outline: none;
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+}
+
+.tms-mde-settings-decoration-field input:focus {
+	border-color: var(--tms-mde-color-focus-ring);
+	box-shadow: 0 0 0 1px var(--tms-mde-color-focus-ring);
+}
+
+.tms-mde-settings-decoration-field input[aria-invalid="true"] {
+	border-color: var(--tms-mde-color-error);
+	box-shadow: 0 0 0 1px var(--tms-mde-color-error);
+}
+
+.tms-mde-settings-decoration-code {
+	font-family: var(--tms-mde-font-mono) !important;
+}
+
+.tms-mde-settings-decoration .tms-mde-settings-description {
+	margin: 10px 0 0;
+}
+
+.tms-mde-shortcut-input {
+	font-family: var(--tms-mde-font-mono) !important;
+	cursor: pointer;
+}
+
+.tms-mde-settings-section h4 {
+	margin: 22px 0 8px;
+	font-size: 15px;
+}
+
+.tms-mde-settings-context-menu-list {
+	display: grid;
+	gap: 3px;
+	margin-bottom: 12px;
+}
+
+.tms-mde-settings-context-menu-item {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	min-height: 34px;
+	padding: 3px 7px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: 3px;
+	background: var(--tms-mde-color-bg);
+	font-size: 13px;
+}
+
+.tms-mde-settings-context-menu-item.is-separator {
+	color: var(--tms-mde-color-text-muted);
+	background: color-mix(in srgb, var(--tms-mde-color-border) 18%, var(--tms-mde-color-bg));
+}
+
+.tms-mde-settings-context-menu-item>input {
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	accent-color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-settings-context-menu-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tms-mde-settings-context-menu-actions {
+	display: flex;
+	gap: 4px;
+}
+
+.tms-mde-settings-context-menu-actions button {
+	min-width: 44px;
+	padding: 3px 7px;
+	font-size: 12px;
+}
+
+.tms-mde-settings-status {
+	flex: 1;
+	margin: 0;
+	color: var(--tms-mde-color-text-muted);
+	font-size: 13px;
+	text-align: right;
+}
+
+.tms-mde-settings-status.is-error,
+.tms-mde-settings-danger {
+	color: var(--tms-mde-color-error) !important;
+}
+
+@media (width <=720px) {
+
+	.tms-mde-settings-backdrop {
+		padding: 8px;
+	}
+
+	.tms-mde-settings-dialog {
+		width: 100%;
+		height: 96vh;
+	}
+
+	.tms-mde-settings-layout {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+
+	.tms-mde-settings-navigation {
+		flex-direction: row;
+		border-right: none;
+		border-bottom: 1px solid var(--tms-mde-color-border);
+		overflow-x: auto;
+	}
+
+	.tms-mde-settings-nav-button {
+		width: auto;
+		white-space: nowrap;
+	}
+
+	.tms-mde-settings-row {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	.tms-mde-settings-row>input:not([type="checkbox"]),
+	.tms-mde-settings-row>select,
+	.tms-mde-settings-row>.tms-mde-settings-row-actions {
+		grid-column: 1 / -1;
+	}
+
+	.tms-mde-settings-decoration-fields {
+		grid-template-columns: 1fr;
+	}
+}

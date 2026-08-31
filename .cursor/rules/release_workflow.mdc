@@ -1,0 +1,123 @@
+---
+alwaysApply: true
+---
+
+# リリース手順（必須順序）
+
+このリポジトリでは、GitHub Release 公開は **commit / push 後**に行う。
+
+インストーラは Inno Setup で生成し、`gh release create/upload` で公開する。
+
+## 正しい順序
+
+1. `Directory.Build.props` の `<Version>` を更新する
+2. 動作確認する
+3. `pwsh scripts/build-all.ps1 -Configuration Release` / `npm run lint` / `npm run test` で検証する
+4. テスト・動作確認で起動した `TmsMdEditor.exe` が残っていないことを確認する
+5. **git commit**（バージョン更新と変更をすべて含める）
+6. **git push origin main**
+7. `git status` が clean で、`HEAD` と `origin/main` が一致していることを確認する
+8. **`pwsh scripts/dist.ps1`** でインストーラを生成する
+9. GitHub Release へインストーラを公開する
+10. **タグの一致を確認する**（下記「公開後の確認」）
+
+## dist 前の確認
+
+- `git status` が clean（未コミットの version 変更がない）
+- `git rev-parse HEAD` と `git rev-parse origin/main` が一致している
+- テスト・動作確認で起動した `TmsMdEditor.exe` が残っていない
+- **コミット済み**の `Directory.Build.props` の `<Version>` が今回のリリース番号と一致している
+    - ローカルだけ version を上げて未コミットのままビルドすると、インストーラ内容と Release タグの対応がずれる
+- GitHub Release 公開前に `gh auth status --hostname github.com` で必要な権限の認証状態を確認する
+    - 公開リポジトリの自動更新取得にトークンは不要
+    - 認証情報の値を README、設定ファイル、コミット履歴、配布物へ含めない
+
+## GitHub Release 用トークン（AppsLauncher / GREP と共通）
+
+- `GH_TOKEN` は読み取り専用、`GITHUB_RELEASE_TOKEN` は Release 作成・asset アップロード用の読み書きトークンとして使い分ける。
+- `gh release create` / `gh release upload` / `gh release view` の実行時だけ、`GITHUB_RELEASE_TOKEN` をプロセス環境の `GH_TOKEN` へ一時割り当てする。
+- 割り当て前の `GH_TOKEN` を保存し、`finally` で元の値へ復元する。元々未設定だった場合だけ削除する。
+- `GITHUB_RELEASE_TOKEN` が未設定のまま keyring へフォールバックして公開しない。403 の場合も `GH_TOKEN` を単純に削除せず、読み書きトークンの設定と対象リポジトリ権限を確認する。
+- Fine-grained PAT には `TMSystems-Rights/Electron-Tms-MDEditor-For-Release` と `Contents: Read and write` を許可する。
+- トークン値をコンソール、ログ、ドキュメント、設定、コミット履歴、配布物へ出力・保存しない。
+
+## 必須成果物
+
+`scripts/dist.ps1` 実行後、`dist/` に次があることを確認する。
+
+- `TMS-MDEditor-<version>-setup.exe`
+
+ポータブル ZIP は v1.1.0 の対象であり、現時点の Release 必須成果物ではない。
+
+## GitHub Release 公開
+
+PowerShell 例:
+
+```powershell
+$props = [xml](Get-Content Directory.Build.props)
+$version = $props.Project.PropertyGroup.Version
+$tag = "v$version"
+$repo = "TMSystems-Rights/Electron-Tms-MDEditor-For-Release"
+$installer = "dist\TMS-MDEditor-$version-setup.exe"
+$target = git rev-parse HEAD
+$originalGhToken = $env:GH_TOKEN
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+
+try {
+	if ([string]::IsNullOrWhiteSpace($env:GITHUB_RELEASE_TOKEN)) {
+		throw "GITHUB_RELEASE_TOKEN が設定されていません。"
+	}
+
+	$env:GH_TOKEN = $env:GITHUB_RELEASE_TOKEN
+	gh auth status --hostname github.com
+	if ($LASTEXITCODE -ne 0) { throw "GitHub CLI の認証確認に失敗しました。" }
+
+	gh release view $tag --repo $repo *> $null
+	if ($LASTEXITCODE -eq 0) {
+		gh release upload $tag $installer --repo $repo --clobber
+	} else {
+		gh release create $tag $installer `
+			--repo $repo `
+			--target $target `
+			--title $tag `
+			--notes "TMS-MDEditor $tag`n`nSHA-256: ``$hash``"
+	}
+	if ($LASTEXITCODE -ne 0) { throw "GitHub Release の作成または更新に失敗しました。" }
+
+	gh release view $tag --repo $repo --json assets,url,tagName
+} finally {
+	if ($null -eq $originalGhToken) {
+		Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+	} else {
+		$env:GH_TOKEN = $originalGhToken
+	}
+}
+```
+
+最後の `gh release view` の出力で、GitHub Release の assets にインストーラがあることを確認する。Release ノートの SHA-256 は自動更新の改ざん検知に使う。
+
+## 公開後の確認（必須）
+
+Release 作成でリモートタグだけが作られ、ローカルタグがまだ無い場合がある。検証前にタグを取得する。
+
+```powershell
+git fetch origin tag v<version>
+pwsh -NoProfile -File scripts/verify-release-tag.ps1
+```
+
+- **確認すべきこと**: `v<version>` のローカル SHA == リモート SHA
+- **リリース後に README 等を push した場合**: `origin/main` はリリースコミットより先に進むため、タグと `origin/main` の SHA 一致は**必須ではない**
+
+### タグ不一致が起きる仕組み
+
+リリース作成時の `--target` が意図したコミットと違う、または未コミット状態からビルド / 公開すると、タグと成果物の対応がずれる。
+
+## 禁止・注意
+
+- **push 前に `scripts/dist.ps1` を実行しない**
+    - 未コミットの作業ツリーからビルドすると、インストーラは新内容でも Git タグが古いコミットを指し、ソースと Release の対応がずれる
+    - タグの付け直し（`git tag -f` / `git push -f`）が必要になる
+- Release 操作へ読み取り専用の `GH_TOKEN` をそのまま使わない。必ず `GITHUB_RELEASE_TOKEN` を一時割り当てし、終了時に元の値へ復元する
+- 認証トークンや個人環境の実パスを README、設定ファイル、コミット履歴、配布物へ含めない
+- テスト後に `TmsMdEditor.exe` を残したまま dist しない
+- バージョンを上げない軽微な修正（README・設計ドキュメント等）では Release 公開は不要（commit → push だけでよい）

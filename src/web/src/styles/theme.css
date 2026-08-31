@@ -1,0 +1,24 @@
+@media (prefers-reduced-motion: reduce) {
+
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+@media (prefers-contrast: more) {
+
+	:root,
+	body.tms-mde-theme-light {
+		--tms-mde-color-border: #000000;
+	}
+
+	body.tms-mde-theme-dark,
+	html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) {
+		--tms-mde-color-border: #8a8a8a;
+		--tms-mde-color-text-muted: #e0e0e0;
+	}
+}

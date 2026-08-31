@@ -1,0 +1,15 @@
+bin/
+obj/
+dist/
+release/
+node_modules/
+src/web/dist/
+src/web/node_modules/
+src/TmsMdEditor/webdist/
+tmp/
+css_snipets_test/
+*.user
+*.suo
+.vs/
+.DS_Store
+Thumbs.db

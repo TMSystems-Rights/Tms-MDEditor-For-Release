@@ -1,0 +1,22 @@
+{
+	"name": "tms-mdeditor",
+	"private": true,
+	"scripts": {
+		"build:web": "npm run build --prefix src/web",
+		"lint": "eslint . && node scripts/format-web-assets.mjs --check",
+		"lint:fix": "eslint . --fix && node scripts/format-web-assets.mjs",
+		"test:web": "npm run test --prefix src/web",
+		"test": "dotnet test && npm run test:web"
+	},
+	"devDependencies": {
+		"@eslint/js": "^9.39.4",
+		"@types/node": "^22.15.30",
+		"eslint": "^9.39.4",
+		"eslint-plugin-align-assignments": "^1.1.2",
+		"eslint-plugin-jsdoc": "^61.7.1",
+		"globals": "^16.5.0",
+		"prettier": "^3.9.5",
+		"typescript-eslint": "^8.32.1",
+		"vscode-css-languageservice": "^6.3.10"
+	}
+}

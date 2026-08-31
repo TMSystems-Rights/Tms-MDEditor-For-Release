@@ -1,0 +1,274 @@
+/* テーマ CSS 変数（ライトモード既定） */
+:root {
+	--tms-bg: #f5f5f5;
+	--tms-fg: #1a1a1a;
+	--tms-accent: #2563eb;
+	--tms-mde-color-bg: var(--tms-bg);
+	--tms-mde-color-surface: #ffffff;
+	--tms-mde-color-border: #c8c8c8;
+	--tms-mde-color-text: var(--tms-fg);
+	--tms-mde-color-text-muted: #555555;
+	--tms-mde-color-mark: #5c6773;
+	--tms-mde-color-syntax-keyword: #7c3aed;
+	--tms-mde-color-syntax-atom: #2563eb;
+	--tms-mde-color-syntax-number: #0f766e;
+	--tms-mde-color-syntax-string: #b91c1c;
+	--tms-mde-color-syntax-regexp: #c2410c;
+	--tms-mde-color-syntax-comment: #6b7280;
+	--tms-mde-color-syntax-variable: #1d4ed8;
+	--tms-mde-color-syntax-type: #0f766e;
+	--tms-mde-color-syntax-property: #0369a1;
+	--tms-mde-color-syntax-invalid: #dc2626;
+	--tms-mde-color-code-bg: #eef2f6;
+	--tms-mde-color-primary: var(--tms-accent);
+	--tms-mde-color-primary-hover: #1d4ed8;
+	--tms-mde-color-link: #0284c7;
+	--tms-mde-color-link-hover: #0369a1;
+	--tms-mde-color-active-line: rgba(37, 99, 235, 0.08);
+	--tms-mde-color-caret: #1a1a1a;
+	--tms-mde-caret-layer-z-index: 150;
+	--tms-mde-color-selection: #d97706;
+	--tms-mde-selection-opacity: 0.28;
+	--tms-mde-selection-opacity-focused: 0.34;
+	--tms-mde-color-selection-bg: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity) * 100%), transparent);
+	--tms-mde-color-selection-bg-focused: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity-focused) * 100%), transparent);
+	--tms-mde-selection-layer-z-index: 1;
+	--tms-mde-color-heading: #111827;
+	--tms-mde-color-focus-ring: #2563eb;
+	--tms-mde-color-highlight-bg: rgba(250, 204, 21, 0.4);
+	--tms-mde-color-tag: #1558d6;
+	--tms-mde-color-tag-bg: rgba(37, 99, 235, 0.12);
+	--tms-mde-color-tag-border: rgba(37, 99, 235, 0.28);
+	--tms-mde-color-search-match: rgba(250, 204, 21, 0.48);
+	--tms-mde-color-search-current: rgba(37, 99, 235, 0.34);
+	--tms-mde-color-error: #b91c1c;
+	--tms-mde-list-indent-unit: 4ch;
+	--tms-mde-font-family: "Segoe UI", "Meiryo", sans-serif;
+	--tms-mde-font-mono: Consolas, "Cascadia Mono", "Meiryo UI", monospace;
+	--tms-mde-radius: 6px;
+	--tms-mde-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* ダークテーマ（明示 dark / system+OSダーク）— 定義はここだけ */
+body.tms-mde-theme-dark,
+html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) {
+	--tms-bg: #1e1e1e;
+	--tms-fg: #f0f0f0;
+	--tms-accent: #3b82f6;
+	--tms-mde-color-bg: var(--tms-bg);
+	--tms-mde-color-surface: #2d2d2d;
+	--tms-mde-color-border: #5a5a5a;
+	--tms-mde-color-text: var(--tms-fg);
+	--tms-mde-color-text-muted: #bcbcbc;
+	--tms-mde-color-mark: #c5b052;
+	--tms-mde-color-syntax-keyword: #c4b5fd;
+	--tms-mde-color-syntax-atom: #93c5fd;
+	--tms-mde-color-syntax-number: #5eead4;
+	--tms-mde-color-syntax-string: #fca5a5;
+	--tms-mde-color-syntax-regexp: #fdba74;
+	--tms-mde-color-syntax-comment: #9ca3af;
+	--tms-mde-color-syntax-variable: #93c5fd;
+	--tms-mde-color-syntax-type: #6ee7b7;
+	--tms-mde-color-syntax-property: #7dd3fc;
+	--tms-mde-color-syntax-invalid: #f87171;
+	--tms-mde-color-code-bg: #343e5d;
+	--tms-mde-color-primary: var(--tms-accent);
+	--tms-mde-color-primary-hover: #60a5fa;
+	--tms-mde-color-link: #38bdf8;
+	--tms-mde-color-link-hover: #7dd3fc;
+	--tms-mde-color-active-line: rgba(96, 165, 250, 0.09);
+	--tms-mde-color-caret: #ffff00;
+	--tms-mde-color-selection: #ca8a04;
+	--tms-mde-selection-opacity: 0.42;
+	--tms-mde-selection-opacity-focused: 0.5;
+	--tms-mde-color-selection-bg: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity) * 100%), transparent);
+	--tms-mde-color-selection-bg-focused: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity-focused) * 100%), transparent);
+	--tms-mde-color-heading: #f8fafc;
+	--tms-mde-list-indent-unit: 4ch;
+	--tms-mde-color-focus-ring: #60a5fa;
+	--tms-mde-color-highlight-bg: rgba(250, 204, 21, 0.28);
+	--tms-mde-color-tag: #93c5fd;
+	--tms-mde-color-tag-bg: rgba(59, 130, 246, 0.18);
+	--tms-mde-color-tag-border: rgba(147, 197, 253, 0.35);
+	--tms-mde-color-search-match: rgba(250, 204, 21, 0.34);
+	--tms-mde-color-search-current: rgba(96, 165, 250, 0.42);
+	--tms-mde-color-error: #fca5a5;
+	--tms-mde-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	color-scheme: dark;
+}
+
+body.tms-mde-theme-light {
+	--tms-bg: #f5f5f5;
+	--tms-fg: #1a1a1a;
+	--tms-accent: #2563eb;
+	--tms-mde-color-bg: var(--tms-bg);
+	--tms-mde-color-surface: #ffffff;
+	--tms-mde-color-border: #c8c8c8;
+	--tms-mde-color-text: var(--tms-fg);
+	--tms-mde-color-text-muted: #555555;
+	--tms-mde-color-mark: #5c6773;
+	--tms-mde-color-syntax-keyword: #7c3aed;
+	--tms-mde-color-syntax-atom: #2563eb;
+	--tms-mde-color-syntax-number: #0f766e;
+	--tms-mde-color-syntax-string: #b91c1c;
+	--tms-mde-color-syntax-regexp: #c2410c;
+	--tms-mde-color-syntax-comment: #6b7280;
+	--tms-mde-color-syntax-variable: #1d4ed8;
+	--tms-mde-color-syntax-type: #0f766e;
+	--tms-mde-color-syntax-property: #0369a1;
+	--tms-mde-color-syntax-invalid: #dc2626;
+	--tms-mde-color-code-bg: #eef2f6;
+	--tms-mde-color-link: #0284c7;
+	--tms-mde-color-link-hover: #0369a1;
+	--tms-mde-color-active-line: rgba(37, 99, 235, 0.08);
+	--tms-mde-color-caret: #1a1a1a;
+	--tms-mde-color-selection: #d97706;
+	--tms-mde-selection-opacity: 0.28;
+	--tms-mde-selection-opacity-focused: 0.34;
+	--tms-mde-color-selection-bg: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity) * 100%), transparent);
+	--tms-mde-color-selection-bg-focused: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity-focused) * 100%), transparent);
+	--tms-mde-color-heading: #111827;
+	--tms-mde-list-indent-unit: 4ch;
+	--tms-mde-color-highlight-bg: rgba(250, 204, 21, 0.4);
+	--tms-mde-color-tag: #1558d6;
+	--tms-mde-color-tag-bg: rgba(37, 99, 235, 0.12);
+	--tms-mde-color-tag-border: rgba(37, 99, 235, 0.28);
+	--tms-mde-color-search-match: rgba(250, 204, 21, 0.48);
+	--tms-mde-color-search-current: rgba(37, 99, 235, 0.34);
+	--tms-mde-color-error: #b91c1c;
+	color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	overflow: hidden;
+}
+
+body.tms-mde-body {
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font-family: var(--tms-mde-font-family);
+}
+
+.tms-mde-header {
+	padding: 16px 20px;
+	border-bottom: 1px solid var(--tms-mde-color-border);
+	background: var(--tms-mde-color-surface);
+	box-shadow: var(--tms-mde-shadow);
+}
+
+.tms-mde-title {
+	margin: 0 0 8px;
+	font-size: 20px;
+	font-weight: 600;
+}
+
+.tms-mde-bridge-status {
+	margin: 0;
+	color: var(--tms-mde-color-text-muted);
+	font-family: var(--tms-mde-font-mono);
+	font-size: 13px;
+}
+
+.tms-mde-main {
+	flex: 1;
+	padding: 24px 20px;
+}
+
+.tms-mde-placeholder {
+	margin: 0 0 16px;
+	color: var(--tms-mde-color-text-muted);
+}
+
+.tms-mde-info-list {
+	margin: 0;
+}
+
+.tms-mde-info-row {
+	display: grid;
+	grid-template-columns: 120px 1fr;
+	gap: 12px;
+	padding: 8px 0;
+	border-bottom: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-info-row dt {
+	margin: 0;
+	font-weight: 600;
+}
+
+.tms-mde-info-row dd {
+	margin: 0;
+	font-family: var(--tms-mde-font-mono);
+	font-size: 13px;
+	word-break: break-all;
+}
+
+.tms-mde-file-panel {
+	margin-top: 24px;
+	padding-top: 20px;
+	border-top: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-file-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 16px;
+}
+
+.tms-mde-button {
+	padding: 8px 14px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+	cursor: pointer;
+}
+
+.tms-mde-button:hover:not(:disabled) {
+	border-color: var(--tms-mde-color-primary);
+	color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.tms-mde-editor-label {
+	display: block;
+	margin: 16px 0 8px;
+	font-weight: 600;
+}
+
+.tms-mde-editor {
+	width: 100%;
+	min-height: 220px;
+	padding: 12px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+	font-family: var(--tms-mde-font-mono);
+	font-size: 13px;
+	line-height: 1.5;
+	resize: vertical;
+}
+
+.tms-mde-file-status {
+	margin: 12px 0 0;
+	color: var(--tms-mde-color-text-muted);
+	font-family: var(--tms-mde-font-mono);
+	font-size: 13px;
+}

@@ -1,0 +1,511 @@
+/* ライブプレビュー装飾 */
+
+.tms-mde-editor-host .cm-md-hide {
+	display: inline-block;
+	overflow: hidden;
+	width: 0;
+	font-size: 0;
+	line-height: 0;
+	vertical-align: baseline;
+}
+
+.tms-mde-editor-host .cm-md-em {
+	font-style: italic;
+}
+
+.tms-mde-editor-host .cm-md-strong {
+	font-weight: 700;
+}
+
+.tms-mde-editor-host .cm-md-strike {
+	text-decoration: line-through;
+}
+
+/* カスタム装飾ルール例（config.json cssClass: tms-underline） */
+.tms-mde-editor-host .tms-underline {
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+}
+
+/* インラインコード。トークン色はハイライト用 CSS 変数に任せ、ここでは color を固定しない */
+.tms-mde-editor-host .cm-md-code {
+	padding: 0 0.2em;
+	border-radius: 3px;
+	background: var(--tms-mde-color-code-bg);
+	font-family: var(--tms-mde-font-mono);
+}
+
+.tms-mde-editor-host .cm-md-link {
+	color: var(--tms-mde-color-link);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-md-link {
+	cursor: pointer;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover .cm-content,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover .cm-line,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover .cm-md-link {
+	cursor: pointer !important;
+}
+
+.tms-mde-editor-host .cm-md-link:hover,
+.tms-mde-editor-host .cm-md-link-hovered {
+	color: var(--tms-mde-color-link-hover);
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h1,
+.tms-mde-editor-host .cm-line.cm-md-h2,
+.tms-mde-editor-host .cm-line.cm-md-h3,
+.tms-mde-editor-host .cm-line.cm-md-h4,
+.tms-mde-editor-host .cm-line.cm-md-h5,
+.tms-mde-editor-host .cm-line.cm-md-h6 {
+	color: var(--tms-mde-color-heading);
+}
+
+/* ライブプレビュー時のみ見出しラベル用の左余白（padding だと選択背景に巻き込まれるため margin） */
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-content {
+	margin-left: 2em;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h1::before,
+.tms-mde-editor-host .cm-line.cm-md-h2::before,
+.tms-mde-editor-host .cm-line.cm-md-h3::before,
+.tms-mde-editor-host .cm-line.cm-md-h4::before,
+.tms-mde-editor-host .cm-line.cm-md-h5::before,
+.tms-mde-editor-host .cm-line.cm-md-h6::before {
+	display: inline-block;
+	width: 1.7em;
+	margin-left: -1.7em;
+	color: var(--tms-mde-color-text-muted);
+	font-size: calc(var(--tms-mde-editor-font-size, 14px) * 0.75);
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	opacity: 0.75;
+	vertical-align: middle;
+	pointer-events: none;
+	user-select: none;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h1::before {
+	content: "h1";
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h2::before {
+	content: "h2";
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h3::before {
+	content: "h3";
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h4::before {
+	content: "h4";
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h5::before {
+	content: "h5";
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h6::before {
+	content: "h6";
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h1 {
+	font-weight: 700;
+	font-size: 1.75em;
+	line-height: 1.25;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h2 {
+	font-weight: 700;
+	font-size: 1.5em;
+	line-height: 1.3;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h3 {
+	font-weight: 700;
+	font-size: 1.25em;
+	line-height: 1.35;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h4 {
+	font-weight: 700;
+	font-size: 1.1em;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h5 {
+	font-weight: 700;
+	font-size: 1em;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-h6 {
+	font-weight: 700;
+	font-size: 0.95em;
+	opacity: 0.92;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-blockquote {
+	padding-left: 0.75em;
+	border-left: 3px solid var(--tms-mde-color-primary);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-editor-host .cm-activeLine.cm-md-blockquote {
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-editor-host .cm-line.cm-md-hr {
+	position: relative;
+	height: 1.6em;
+	min-height: 1.6em;
+	border-top: none;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-hr::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 50%;
+	border-top: 1px solid var(--tms-mde-color-border);
+	pointer-events: none;
+	transform: translateY(-50%);
+}
+
+.tms-mde-editor-host .cm-md-bullet-marker {
+	display: inline-block;
+	width: 1ch;
+	color: var(--tms-mde-color-text);
+	text-align: center;
+}
+
+.tms-mde-editor-host .cm-md-checkbox {
+	display: inline-block;
+	width: 3ch;
+	height: 1em;
+	margin: 0;
+	padding: 0;
+	vertical-align: -0.15em;
+	accent-color: var(--tms-mde-color-primary);
+	cursor: pointer;
+}
+
+.tms-mde-editor-host .cm-md-list-number {
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-editor-host .cm-md-highlight {
+	border-radius: 2px;
+	background: var(--tms-mde-color-highlight-bg);
+}
+
+.tms-mde-editor-host .cm-md-tag {
+	padding: 0 0.2em;
+	border: 1px solid var(--tms-mde-color-tag-border);
+	border-radius: 999px;
+	background: var(--tms-mde-color-tag-bg);
+	color: var(--tms-mde-color-tag);
+	font-weight: 600;
+	box-decoration-break: clone;
+}
+
+.tms-mde-editor-host .cm-md-wikilink {
+	color: var(--tms-mde-color-primary);
+	text-decoration: underline;
+	cursor: default;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout {
+	/* Obsidian 準拠: --callout-color は R, G, B トリプレット */
+	--tms-mde-callout-rgb: 8, 109, 221;
+	--tms-mde-callout-accent: rgb(var(--tms-mde-callout-rgb));
+	--tms-mde-callout-bg: rgba(var(--tms-mde-callout-rgb), 0.15);
+	padding: 0.15em 0.6em 0.15em 0.75em;
+	border-left: 4px solid var(--tms-mde-callout-accent);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-title {
+	background: var(--tms-mde-callout-bg);
+	font-weight: 600;
+	color: var(--tms-mde-callout-accent);
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-body {
+	background: rgba(var(--tms-mde-callout-rgb), 0.08);
+}
+
+/* Obsidian 既定 RGB（コミュニティで広く参照される app.css 値に準拠） */
+.tms-mde-editor-host .cm-line.cm-md-callout-note {
+	--tms-mde-callout-rgb: 8, 109, 221;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-abstract {
+	--tms-mde-callout-rgb: 0, 176, 255;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-info {
+	--tms-mde-callout-rgb: 8, 109, 221;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-todo {
+	--tms-mde-callout-rgb: 8, 109, 221;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-tip {
+	--tms-mde-callout-rgb: 0, 191, 165;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-success {
+	--tms-mde-callout-rgb: 8, 185, 78;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-question {
+	--tms-mde-callout-rgb: 224, 172, 0;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-warning {
+	--tms-mde-callout-rgb: 236, 117, 0;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-failure {
+	--tms-mde-callout-rgb: 233, 49, 71;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-danger {
+	--tms-mde-callout-rgb: 233, 49, 71;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-bug {
+	--tms-mde-callout-rgb: 233, 49, 71;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-example {
+	--tms-mde-callout-rgb: 120, 82, 238;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-callout-quote {
+	--tms-mde-callout-rgb: 158, 158, 158;
+}
+
+.tms-mde-editor-host .cm-md-callout-fold {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.2em;
+	margin-right: 0.35em;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--tms-mde-callout-accent, var(--tms-mde-color-text-muted));
+	font-size: 0.75em;
+	line-height: 1;
+	cursor: pointer;
+	vertical-align: middle;
+}
+
+.tms-mde-editor-host .cm-line.cm-md-fenced-code {
+	background: var(--tms-mde-color-code-bg);
+	font-family: var(--tms-mde-font-mono);
+}
+
+.tms-mde-editor-host .cm-layer.cm-selectionLayer .cm-selectionBackground {
+	background-color: var(--tms-mde-color-selection-bg);
+}
+
+.tms-mde-editor-host .cm-editor.cm-focused .cm-layer.cm-selectionLayer .cm-selectionBackground {
+	background-color: var(--tms-mde-color-selection-bg-focused);
+}
+
+.tms-mde-editor-host .cm-md-table-wrap {
+	display: block;
+	width: 100%;
+	margin: 0.35em 0;
+	overflow-x: auto;
+}
+
+.tms-mde-editor-host .cm-md-table {
+	width: max-content;
+	min-width: 40%;
+	max-width: 100%;
+	border-collapse: collapse;
+	font-size: inherit;
+	line-height: 1.4;
+}
+
+.tms-mde-editor-host .cm-md-table th,
+.tms-mde-editor-host .cm-md-table td {
+	padding: 0.35em 0.7em;
+	border: 1px solid var(--tms-mde-color-border);
+	outline: none;
+	text-align: left;
+	vertical-align: top;
+}
+
+.tms-mde-editor-host .cm-md-table th[contenteditable="plaintext-only"],
+.tms-mde-editor-host .cm-md-table td[contenteditable="plaintext-only"] {
+	cursor: text;
+}
+
+.tms-mde-editor-host .cm-md-table th.cm-md-table-cell-editing,
+.tms-mde-editor-host .cm-md-table td.cm-md-table-cell-editing {
+	box-shadow: inset 0 0 0 2px var(--tms-mde-color-primary);
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 12%, var(--tms-mde-color-surface));
+	white-space: pre-wrap;
+}
+
+.tms-mde-editor-host .cm-md-table-cell-editing .cm-md-table-source-mark {
+	display: none;
+}
+
+.tms-mde-editor-host .cm-md-table-cell-editing .cm-md-table-source-mark-active {
+	display: inline;
+}
+
+.tms-mde-editor-host .cm-md-table th {
+	color: #a3c8c9;
+	background: #253c45ed;
+	font-weight: 600;
+}
+
+.tms-mde-editor-host .cm-md-table tr:nth-child(even) td {
+	background: color-mix(in srgb, var(--tms-mde-color-surface) 65%, transparent);
+}
+
+.tms-mde-editor-host .cm-md-image-wrap {
+	display: inline-block;
+	max-width: 100%;
+	margin: 0.25em 0;
+	vertical-align: middle;
+}
+
+.tms-mde-editor-host .cm-md-image {
+	display: block;
+	max-width: min(100%, 720px);
+	max-height: 480px;
+	height: auto;
+	border-radius: 2px;
+}
+
+.tms-mde-editor-host .cm-md-image-fallback {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+	padding: 0.25em 0.5em;
+	border: 1px dashed var(--tms-mde-color-border);
+	border-radius: 3px;
+	color: var(--tms-mde-color-text-muted);
+	font-size: 0.9em;
+	background: var(--tms-mde-color-surface);
+}
+
+.tms-mde-editor-host .cm-md-callout-type-label {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.1em;
+	height: 1.1em;
+	margin-right: 0.4em;
+	color: var(--tms-mde-callout-accent, var(--tms-mde-color-text-muted));
+	vertical-align: middle;
+	user-select: none;
+}
+
+.tms-mde-editor-host .cm-md-callout-type-label svg {
+	display: block;
+	width: 1em;
+	height: 1em;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.tms-mde-editor-host .cm-md-html-u {
+	text-decoration: underline;
+}
+
+.tms-mde-editor-host .cm-md-html-mark {
+	background-color: var(--tms-mde-color-highlight, #ffe566);
+}
+
+.tms-mde-editor-host .cm-md-mermaid-wrap {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	margin: 0.4em 0;
+	padding: 0.75em 1em;
+	overflow-x: auto;
+	/* エディタ字体を継承しない（HTML ラベル計測と描画の不一致＝見切れ防止） */
+	color: #222;
+	font-family: "trebuchet ms", verdana, arial, "Segoe UI", Meiryo, sans-serif;
+	font-size: 16px;
+	line-height: 1.25;
+	background: #f7f7f7;
+	border: 1px solid var(--tms-mde-color-border, rgba(127, 127, 127, 0.35));
+	border-radius: 4px;
+}
+
+/* Mermaid 内部は content-box 前提。グローバル border-box による寸法ずれを避ける */
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid,
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid * {
+	box-sizing: content-box;
+}
+
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid foreignObject {
+	overflow: visible;
+}
+
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid .nodeLabel,
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid .edgeLabel,
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid .label {
+	line-height: 1.25;
+	font-size: 16px;
+	font-family: inherit;
+}
+
+.tms-mde-editor-host .cm-md-mermaid-status {
+	color: #666;
+	font-size: 0.9em;
+}
+
+.tms-mde-editor-host .cm-md-mermaid-error {
+	color: var(--tms-mde-color-danger, #c0392b);
+	font-size: 0.9em;
+	white-space: pre-wrap;
+}
+
+.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg {
+	display: block;
+	width: 100%;
+	max-width: none;
+	height: auto;
+	margin-right: auto;
+	margin-left: auto;
+}
+
+/* Obsidian 同様: 既定テーマのまま SVG を反転してダーク外観にする（classDef 色を維持） */
+body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-wrap,
+html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap {
+	color: var(--tms-mde-color-text);
+	background: transparent;
+	border-color: var(--tms-mde-color-border);
+}
+
+body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg,
+html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg {
+	filter: invert(100%) hue-rotate(180deg) saturate(1.25);
+}
+
+body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-status,
+html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-status {
+	color: var(--tms-mde-color-text-muted);
+}

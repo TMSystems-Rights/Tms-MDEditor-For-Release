@@ -1,0 +1,75 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				// IntelliSense を使用して、C# デバッグに存在する属性を確認します
+				// 既存の属性の説明にホバーを使用する
+				// 詳細については、https://github.com/dotnet/vscode-csharp/blob/main/debugger-launchjson.md を参照してください
+				"name": ".NET Core Launch (console)",
+				"type": "coreclr",
+				"request": "launch",
+				"preLaunchTask": "build",
+				// ターゲット フレームワークを変更した場合は、プログラム パスを更新するようにしてください。
+				"program": "${workspaceFolder}/src/TmsMdEditor/bin/Debug/net8.0-windows/TmsMdEditor.dll",
+				"args": [],
+				"cwd": "${workspaceFolder}/src/TmsMdEditor",
+				// 'console' フィールドの詳細については、https://aka.ms/VSCode-CS-LaunchJson-Console を参照してください
+				"console": "internalConsole",
+				"stopAtEntry": false
+			},
+			{
+				"name": ".NET Core Attach",
+				"type": "coreclr",
+				"request": "attach"
+			}
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "build",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"build",
+					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary;ForceNoAlign"
+				],
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "publish",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"publish",
+					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary;ForceNoAlign"
+				],
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "watch",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"watch",
+					"run",
+					"--project",
+					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj"
+				],
+				"problemMatcher": "$msCompile"
+			}
+		]
+	}
+}

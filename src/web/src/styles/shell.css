@@ -1,0 +1,747 @@
+.tms-mde-app-root {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	height: 100%;
+	overflow: hidden;
+}
+
+.tms-mde-workspace {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas: "editor outline";
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.tms-mde-workspace.is-outline-left {
+	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-areas: "outline editor";
+}
+
+.tms-mde-outline-panel {
+	display: grid;
+	grid-area: outline;
+	grid-template-rows: auto minmax(0, 1fr);
+	width: clamp(220px, 24vw, 340px);
+	min-height: 0;
+	border-left: 1px solid var(--tms-mde-color-border);
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-workspace.is-outline-left .tms-mde-outline-panel {
+	border-left: none;
+	border-right: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-outline-panel[hidden] {
+	display: none;
+}
+
+.tms-mde-outline-header {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 6px;
+	padding: 8px 10px;
+	border-bottom: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-outline-header-title-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.tms-mde-outline-header h2 {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.tms-mde-outline-header-close {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 1px solid transparent;
+	border-radius: var(--tms-mde-radius);
+	background: transparent;
+	color: var(--tms-mde-color-text-muted);
+	font: inherit;
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.tms-mde-outline-header-close:hover,
+.tms-mde-outline-header-close:focus-visible {
+	border-color: var(--tms-mde-color-border);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-outline-header-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.tms-mde-outline-fold-all {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 3px 6px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+	font-size: 11px;
+	line-height: 1.4;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.tms-mde-outline-fold-all:hover,
+.tms-mde-outline-fold-all:focus-visible {
+	border-color: var(--tms-mde-color-primary);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-outline-list {
+	--tms-mde-outline-indent: 14px;
+	--tms-mde-outline-guide-color: color-mix(in srgb, var(--tms-mde-color-border) 70%, var(--tms-mde-color-text-muted));
+	overflow-y: auto;
+	padding: 6px;
+}
+
+.tms-mde-outline-row {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	padding-left: calc(8px + (var(--tms-mde-outline-level) - 1) * var(--tms-mde-outline-indent));
+}
+
+.tms-mde-outline-row::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 8px;
+	width: calc((var(--tms-mde-outline-level) - 1) * var(--tms-mde-outline-indent));
+	pointer-events: none;
+	background-image: repeating-linear-gradient(to right,
+			transparent 0,
+			transparent 6px,
+			var(--tms-mde-outline-guide-color) 6px,
+			var(--tms-mde-outline-guide-color) 7px,
+			transparent 7px,
+			transparent var(--tms-mde-outline-indent));
+}
+
+.tms-mde-outline-twist {
+	flex: 0 0 16px;
+	width: 16px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: var(--tms-mde-color-text-muted);
+	font: inherit;
+	font-size: 9px;
+	font-weight: 400;
+	line-height: 22px;
+	text-align: center;
+	user-select: none;
+	cursor: pointer;
+}
+
+.tms-mde-outline-twist.is-leaf {
+	cursor: default;
+	pointer-events: none;
+}
+
+.tms-mde-outline-item {
+	display: block;
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 5px 8px 5px 2px;
+	overflow: hidden;
+	border: 1px solid transparent;
+	border-radius: var(--tms-mde-radius);
+	background-color: transparent;
+	color: var(--tms-mde-color-text-muted);
+	font: inherit;
+	font-size: 12px;
+	line-height: 1.4;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.tms-mde-outline-item:hover,
+.tms-mde-outline-item:focus-visible {
+	background-color: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-outline-item.is-active {
+	border-color: color-mix(in srgb, var(--tms-mde-color-primary) 45%, transparent);
+	background-color: color-mix(in srgb, var(--tms-mde-color-primary) 14%, transparent);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-outline-empty {
+	align-self: start;
+	margin: 0;
+	padding: 14px;
+	color: var(--tms-mde-color-text-muted);
+	font-size: 12px;
+}
+
+.tms-mde-outline-empty[hidden] {
+	display: none;
+}
+
+@media (width <=720px) {
+
+	.tms-mde-outline-panel {
+		width: min(220px, 45vw);
+	}
+}
+
+/*
+ * タブが増えてもペイン幅に収める。各タブは縮めず、バーだけ横スクロールする。
+ * グリッド子の min-width:auto だとバーが中身幅まで伸び、親の overflow:hidden で見切れる。
+ */
+.tms-mde-pane-tab-bar-wrap {
+	display: flex;
+	flex-shrink: 0;
+	align-items: stretch;
+	gap: 3px;
+	min-width: 0;
+	padding: 4px 6px 0;
+	background: var(--tms-mde-color-surface);
+	border-bottom: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-pane-tab-bar {
+	display: flex;
+	flex: 1 1 auto;
+	flex-wrap: nowrap;
+	gap: 3px;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: thin;
+}
+
+.tms-mde-pane-tab-bar::-webkit-scrollbar {
+	height: 8px;
+}
+
+.tms-mde-pane-tab-bar::-webkit-scrollbar-thumb {
+	border-radius: 4px;
+	background: var(--tms-mde-color-border);
+}
+
+.tms-mde-tab {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 4px;
+	max-width: 220px;
+	padding: 4px 8px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-bottom: none;
+	border-radius: var(--tms-mde-radius) var(--tms-mde-radius) 0 0;
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text-muted);
+	font-family: inherit;
+	font-size: 12px;
+	line-height: 1.25;
+	cursor: pointer;
+}
+
+.tms-mde-tab.is-active {
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	border-color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-tab.is-dirty .tms-mde-tab-title {
+	font-weight: 600;
+}
+
+.tms-mde-tab-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tms-mde-tab-dot {
+	color: var(--tms-mde-color-primary);
+	font-size: 8px;
+}
+
+.tms-mde-tab-close {
+	padding: 0 2px;
+	opacity: 0.7;
+}
+
+.tms-mde-new-tab-button {
+	flex-shrink: 0;
+	width: 28px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.tms-mde-editor-host {
+	display: grid;
+	grid-area: editor;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	background: var(--tms-mde-color-bg);
+}
+
+.tms-mde-pane-split {
+	display: grid;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.tms-mde-editor-pane {
+	position: relative;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.tms-mde-editor-pane.is-active {
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tms-mde-color-primary) 55%, transparent);
+}
+
+.tms-mde-pane-editor-surface {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.tms-mde-pane-editor-surface.is-tab-drag-over::after {
+	position: absolute;
+	inset: 6px;
+	z-index: 4;
+	border: 2px solid var(--tms-mde-color-primary);
+	border-radius: var(--tms-mde-radius);
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 16%, transparent);
+	pointer-events: none;
+	content: "";
+}
+
+.tms-mde-editor-pane[data-tab-drop-zone="left"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+	right: 50%;
+}
+
+.tms-mde-editor-pane[data-tab-drop-zone="right"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+	left: 50%;
+}
+
+.tms-mde-editor-pane[data-tab-drop-zone="top"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+	bottom: 50%;
+}
+
+.tms-mde-editor-pane[data-tab-drop-zone="bottom"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+	top: 50%;
+}
+
+.tms-mde-split-divider {
+	position: relative;
+	background: var(--tms-mde-color-border);
+	outline: none;
+	z-index: 5;
+}
+
+.tms-mde-pane-split.is-horizontal>.tms-mde-split-divider {
+	cursor: row-resize;
+}
+
+.tms-mde-pane-split.is-vertical>.tms-mde-split-divider {
+	cursor: col-resize;
+}
+
+.tms-mde-split-divider:hover,
+.tms-mde-split-divider:focus-visible,
+.tms-mde-split-divider.is-dragging {
+	background: var(--tms-mde-color-primary);
+}
+
+.tms-mde-editor-host .cm-editor {
+	height: 100%;
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-editor-host .cm-scroller {
+	overflow: auto;
+}
+
+/*
+ * CM は {dark: true} 未指定のためライト基調。基テーマの
+ * `&light .cm-gutters`（#f5f5f5 / #6c6c6c）が EditorView.theme の
+ * `.cm-gutters` より詳細度で勝つ。ダークでも白帯になるので !important で固定する。
+ */
+.tms-mde-editor-host .cm-editor .cm-gutters {
+	background-color: var(--tms-mde-color-surface) !important;
+	color: var(--tms-mde-color-text-muted) !important;
+	border-right: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-editor-host .cm-editor .cm-gutterElement {
+	color: var(--tms-mde-color-text-muted) !important;
+}
+
+.tms-mde-editor-host .cm-editor .cm-activeLineGutter {
+	background-color: var(--tms-mde-color-active-line) !important;
+}
+
+.tms-mde-editor-host .cm-panels.cm-panels-top {
+	border-bottom: 1px solid var(--tms-mde-color-border);
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-editor-host .cm-panel.tms-mde-search-panel {
+	display: grid;
+	gap: 6px;
+	padding: 8px 10px;
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+	font-family: var(--tms-mde-font-family);
+	font-size: 12px;
+}
+
+.tms-mde-search-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.tms-mde-search-row[hidden] {
+	display: none;
+}
+
+.tms-mde-editor-host .tms-mde-search-input {
+	width: min(360px, 42vw);
+	min-width: 140px;
+	padding: 5px 7px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: 4px;
+	outline: none;
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+}
+
+.tms-mde-editor-host .tms-mde-search-input:focus {
+	border-color: var(--tms-mde-color-focus-ring);
+	box-shadow: 0 0 0 1px var(--tms-mde-color-focus-ring);
+}
+
+.tms-mde-editor-host .tms-mde-search-panel .cm-button {
+	padding: 5px 9px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: 4px;
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+	cursor: pointer;
+}
+
+.tms-mde-editor-host .tms-mde-search-panel .cm-button:hover:not(:disabled) {
+	border-color: var(--tms-mde-color-primary);
+	color: var(--tms-mde-color-primary);
+}
+
+.tms-mde-editor-host .tms-mde-search-panel .cm-button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.tms-mde-search-close {
+	margin-left: auto;
+	font-size: 16px;
+	line-height: 1;
+}
+
+.tms-mde-search-count {
+	min-width: 62px;
+	color: var(--tms-mde-color-text-muted);
+	font-family: var(--tms-mde-font-mono);
+	text-align: center;
+}
+
+.tms-mde-search-options {
+	flex-wrap: wrap;
+	padding-left: 2px;
+	color: var(--tms-mde-color-text-muted);
+}
+
+.tms-mde-search-options label {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+}
+
+.tms-mde-search-error {
+	color: var(--tms-mde-color-error);
+}
+
+.tms-mde-editor-host .cm-searchMatch {
+	background: var(--tms-mde-color-search-match);
+	outline: 1px solid color-mix(in srgb, var(--tms-mde-color-search-match), var(--tms-mde-color-text) 18%);
+}
+
+.tms-mde-editor-host .cm-searchMatch.cm-searchMatch-selected {
+	background: var(--tms-mde-color-search-current);
+	outline: 1px solid var(--tms-mde-color-primary);
+}
+
+@media (width <=720px) {
+
+	.tms-mde-search-row {
+		flex-wrap: wrap;
+	}
+
+	.tms-mde-editor-host .tms-mde-search-input {
+		width: min(100%, 360px);
+		flex: 1 1 180px;
+	}
+}
+
+.tms-mde-editor-host .cm-editor.cm-focused.tms-mde-caret-hidden .cm-cursor {
+	opacity: 0;
+}
+
+/*
+ * ネイティブキャレットは CM ライトテーマ既定が黒。drawSelection で透明化するが、
+ * 選択レイヤーを行背景より前面へ出したあと WebView2 が黒キャレットを重ね描きすることがある。
+ * 本体は透明のまま隠し、表セル等の :focus 子孫だけテーマ色を使う。
+ */
+.tms-mde-editor-host .cm-content,
+.tms-mde-editor-host .cm-line {
+	caret-color: transparent !important;
+}
+
+.tms-mde-editor-host .cm-content :focus {
+	caret-color: var(--tms-mde-color-caret) !important;
+}
+
+.tms-mde-editor-host .cm-cursor,
+.tms-mde-editor-host .cm-dropCursor {
+	border-left-width: 2px;
+	border-left-style: solid;
+	border-left-color: var(--tms-mde-color-caret) !important;
+}
+
+/* CodeMirror は選択レイヤーへ inline で z-index:-1 を付けるため、不透明な行背景（コードブロック等）に隠れる。前面へ出し、クリックは透過する。 */
+.tms-mde-editor-host .cm-layer.cm-selectionLayer {
+	z-index: var(--tms-mde-selection-layer-z-index) !important;
+	pointer-events: none;
+}
+
+/* 選択レイヤー（既定 1）より前面。CM は cursorLayer へ inline で z-index:150 を付ける。 */
+.tms-mde-editor-host .cm-layer.cm-cursorLayer {
+	z-index: var(--tms-mde-caret-layer-z-index) !important;
+	pointer-events: none;
+}
+
+.tms-mde-editor-host .cm-eol-marker {
+	display: inline-block;
+	margin-left: 1px;
+	color: var(--tms-mde-color-text-muted);
+	opacity: 0.55;
+	pointer-events: none;
+	user-select: none;
+	font-family: var(--tms-mde-font-mono);
+	font-size: 0.9em;
+	line-height: 1;
+}
+
+.tms-mde-status-bar {
+	display: flex;
+	flex-shrink: 0;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 6px 10px;
+	border-top: 1px solid var(--tms-mde-color-border);
+	background: var(--tms-mde-color-surface);
+}
+
+.tms-mde-status-item {
+	padding: 4px 8px;
+	border: 1px solid transparent;
+	border-radius: var(--tms-mde-radius);
+	background: transparent;
+	color: var(--tms-mde-color-text-muted);
+	font-family: var(--tms-mde-font-mono);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.tms-mde-status-item:not(.tms-mde-status-static):hover {
+	border-color: var(--tms-mde-color-border);
+	color: var(--tms-mde-color-text);
+}
+
+.tms-mde-status-static {
+	cursor: default;
+}
+
+.tms-mde-status-warning {
+	color: #d97706;
+}
+
+.tms-mde-status-version {
+	margin-left: auto;
+}
+
+.tms-mde-dialog-backdrop {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.45);
+	z-index: 1000;
+}
+
+.tms-mde-dialog {
+	min-width: 360px;
+	max-width: 90vw;
+	padding: 20px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-surface);
+	box-shadow: var(--tms-mde-shadow);
+}
+
+.tms-mde-dialog-title {
+	margin: 0 0 12px;
+	font-size: 18px;
+}
+
+.tms-mde-dialog-message {
+	margin: 0 0 16px;
+	color: var(--tms-mde-color-text-muted);
+}
+
+.tms-mde-dialog-field {
+	display: grid;
+	gap: 6px;
+	margin-bottom: 12px;
+}
+
+.tms-mde-dialog-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
+.tms-mde-dialog-actions button,
+.tms-mde-context-menu button {
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+	cursor: pointer;
+}
+
+.tms-mde-dialog-actions button {
+	padding: 8px 12px;
+}
+
+.tms-mde-context-menu {
+	position: fixed;
+	display: grid;
+	min-width: 240px;
+	max-width: min(360px, calc(100vw - 8px));
+	max-height: calc(100vh - 8px);
+	padding: 3px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	overflow-y: auto;
+	background: var(--tms-mde-color-surface);
+	box-shadow: var(--tms-mde-shadow);
+	z-index: 1001;
+}
+
+.tms-mde-context-menu button {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 18px;
+	width: 100%;
+	min-height: 26px;
+	padding: 3px 7px;
+	border-color: transparent;
+	border-radius: 3px;
+	font-size: 13px;
+	line-height: 1.25;
+	text-align: left;
+}
+
+.tms-mde-context-menu button:hover:not(:disabled),
+.tms-mde-context-menu button:focus-visible {
+	border-color: var(--tms-mde-color-primary);
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 12%, var(--tms-mde-color-bg));
+	outline: none;
+}
+
+.tms-mde-context-menu-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tms-mde-context-menu-shortcut {
+	color: var(--tms-mde-color-text-muted);
+	font-family: var(--tms-mde-font-mono);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.tms-mde-context-menu-separator {
+	height: 1px;
+	margin: 3px 5px;
+	background: var(--tms-mde-color-border);
+}
+
+.tms-mde-context-menu button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}

@@ -1,0 +1,73 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TmsMdEditor</RootNamespace>
+    <AssemblyName>TmsMdEditor</AssemblyName>
+    <ApplicationIcon>$(MSBuildThisFileDirectory)..\..\build\icon.ico</ApplicationIcon>
+    <WebProjectDir>$(MSBuildThisFileDirectory)..\web\</WebProjectDir>
+    <WebDistDir>$(WebProjectDir)dist\</WebDistDir>
+    <OutputWebDistDir>$(OutputPath)webdist\</OutputWebDistDir>
+    <!-- WinForms のみ使用。WebView2 NuGet 同梱 WPF 参照との WindowsBase 競合警告は意図的に抑止 -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TmsMdEditor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <!-- WinForms のみ使用。NuGet 同梱の WPF 参照は解決前に除外する -->
+  <Target Name="ExcludeWebView2Wpf" BeforeTargets="ResolveReferences">
+    <ItemGroup>
+      <Reference Remove="Microsoft.Web.WebView2.Wpf" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RemoveWebView2WpfFromOutput" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <ReferencePath Remove="@(ReferencePath)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <Content Include="Resources\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="BuildWebAssets" BeforeTargets="Build" Condition="Exists('$(WebProjectDir)package.json')">
+    <Exec Command="npm run build" WorkingDirectory="$(WebProjectDir)" />
+  </Target>
+
+  <Target Name="CopyWebDist" AfterTargets="Build">
+    <ItemGroup>
+      <WebDistFiles Include="$(WebDistDir)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(WebDistFiles)"
+      DestinationFiles="@(WebDistFiles->'$(OutputPath)webdist\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true"
+      Condition="'@(WebDistFiles)' != ''" />
+  </Target>
+
+  <Target Name="CopyWebDistToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <WebDistFiles Include="$(WebDistDir)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(WebDistFiles)"
+      DestinationFiles="@(WebDistFiles->'$(PublishDir)webdist\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true"
+      Condition="'@(WebDistFiles)' != ''" />
+  </Target>
+
+</Project>

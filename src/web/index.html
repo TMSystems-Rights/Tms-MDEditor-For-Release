@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<script>
+			if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+				document.documentElement.dataset.osTheme = 'dark';
+			}
+		</script>
+		<title>TMS-MDEditor</title>
+		<link rel="stylesheet" href="/src/styles/base.css" />
+		<link rel="stylesheet" href="/src/styles/theme.css" />
+		<link rel="stylesheet" href="/src/styles/shell.css" />
+		<link rel="stylesheet" href="/src/styles/settings.css" />
+		<link rel="stylesheet" href="/src/styles/livePreview.css" />
+		<link rel="stylesheet" href="/src/styles/toast.css" />
+	</head>
+	<body class="tms-mde-body">
+		<div id="tmsMdeAppRoot" class="tms-mde-app-root">
+			<main id="tmsMdeWorkspace" class="tms-mde-workspace">
+				<div id="tmsMdeEditorHost" class="tms-mde-editor-host"></div>
+				<aside id="tmsMdeOutlinePanel" class="tms-mde-outline-panel" aria-label="アウトライン" hidden>
+					<header class="tms-mde-outline-header">
+						<div class="tms-mde-outline-header-title-row">
+							<h2>アウトライン</h2>
+							<button id="tmsMdeOutlineClose" type="button" class="tms-mde-outline-header-close" aria-label="アウトラインを閉じる" title="閉じる">×</button>
+						</div>
+						<div class="tms-mde-outline-header-actions">
+							<button id="tmsMdeOutlineExpandAll" type="button" class="tms-mde-outline-fold-all">すべて展開</button>
+							<button id="tmsMdeOutlineCollapseAll" type="button" class="tms-mde-outline-fold-all">すべて折りたたむ</button>
+						</div>
+					</header>
+					<nav id="tmsMdeOutlineList" class="tms-mde-outline-list" aria-label="見出し一覧"></nav>
+					<p id="tmsMdeOutlineEmpty" class="tms-mde-outline-empty">見出しはありません</p>
+				</aside>
+			</main>
+			<footer class="tms-mde-status-bar">
+				<button id="tmsMdeStatusCursor" type="button" class="tms-mde-status-item tms-mde-status-static">行 1, 列 1</button>
+				<button id="tmsMdeStatusCharCount" type="button" class="tms-mde-status-item tms-mde-status-static">0 文字</button>
+				<button id="tmsMdeStatusEncoding" type="button" class="tms-mde-status-item">UTF-8</button>
+				<button id="tmsMdeStatusEol" type="button" class="tms-mde-status-item">CRLF</button>
+				<button id="tmsMdeStatusViewMode" type="button" class="tms-mde-status-item">ソース</button>
+				<button id="tmsMdeStatusZoom" type="button" class="tms-mde-status-item tms-mde-status-static" aria-label="表示倍率">100%</button>
+				<button id="tmsMdeStatusLargeFile" type="button" class="tms-mde-status-item tms-mde-status-warning" hidden>大ファイル（ソース固定）</button>
+				<span id="tmsMdeStatusVersion" class="tms-mde-status-item tms-mde-status-static tms-mde-status-version">v0.0.0</span>
+			</footer>
+		</div>
+		<script type="module" src="/src/main.ts"></script>
+	</body>
+</html>

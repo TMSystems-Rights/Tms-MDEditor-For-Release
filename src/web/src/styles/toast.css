@@ -1,0 +1,55 @@
+.tms-mde-toast-host {
+	position: fixed;
+	right: 16px;
+	bottom: 48px;
+	z-index: 10000;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	max-width: min(420px, calc(100vw - 32px));
+	pointer-events: none;
+}
+
+.tms-mde-toast {
+	padding: 10px 14px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: var(--tms-mde-radius);
+	background: var(--tms-mde-color-surface);
+	color: var(--tms-mde-color-text);
+	box-shadow: var(--tms-mde-shadow);
+	font-size: 13px;
+	line-height: 1.4;
+	opacity: 1;
+	transform: translateY(0);
+	transition: opacity 0.2s ease, transform 0.2s ease;
+	pointer-events: auto;
+}
+
+.tms-mde-toast-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.tms-mde-toast-action {
+	padding: 3px 8px;
+	border: 1px solid var(--tms-mde-color-border);
+	border-radius: 4px;
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text);
+	font: inherit;
+	cursor: pointer;
+}
+
+.tms-mde-toast-action:hover,
+.tms-mde-toast-action:focus-visible {
+	background: var(--tms-mde-color-hover);
+	outline: 2px solid var(--tms-mde-color-accent);
+	outline-offset: 1px;
+}
+
+.tms-mde-toast.tms-mde-toast-hide {
+	opacity: 0;
+	transform: translateY(6px);
+}

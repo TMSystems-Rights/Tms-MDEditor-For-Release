@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/TmsMdEditor/TmsMdEditor.csproj" />
+  <Project Path="tests/TmsMdEditor.Tests/TmsMdEditor.Tests.csproj" />
+</Solution>
