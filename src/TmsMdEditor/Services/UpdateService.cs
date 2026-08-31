@@ -15,7 +15,7 @@ namespace TmsMdEditor.Services;
 internal sealed class UpdateService : IDisposable
 {
 	private const string RepositoryOwner = "TMSystems-Rights";
-	private const string RepositoryName  = "Electron-Tms-MDEditor-For-Release";
+	private const string RepositoryName  = "Tms-MDEditor-For-Release";
 	private const string GitHubApiBase   = "https://api.github.com";
 	private static readonly Regex Sha256Pattern = new(@"(?im)sha(?:-?256)?\s*[:=]\s*`?([a-f0-9]{64})`?", RegexOptions.Compiled);
 

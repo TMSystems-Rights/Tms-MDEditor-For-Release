@@ -38,7 +38,7 @@ alwaysApply: true
 - `gh release create` / `gh release upload` / `gh release view` の実行時だけ、`GITHUB_RELEASE_TOKEN` をプロセス環境の `GH_TOKEN` へ一時割り当てする。
 - 割り当て前の `GH_TOKEN` を保存し、`finally` で元の値へ復元する。元々未設定だった場合だけ削除する。
 - `GITHUB_RELEASE_TOKEN` が未設定のまま keyring へフォールバックして公開しない。403 の場合も `GH_TOKEN` を単純に削除せず、読み書きトークンの設定と対象リポジトリ権限を確認する。
-- Fine-grained PAT には `TMSystems-Rights/Electron-Tms-MDEditor-For-Release` と `Contents: Read and write` を許可する。
+- Fine-grained PAT には `TMSystems-Rights/Tms-MDEditor-For-Release` と `Contents: Read and write` を許可する。
 - トークン値をコンソール、ログ、ドキュメント、設定、コミット履歴、配布物へ出力・保存しない。
 
 ## 必須成果物
@@ -59,7 +59,7 @@ PowerShell 例:
 $props = [xml](Get-Content Directory.Build.props)
 $version = $props.Project.PropertyGroup.Version
 $tag = "v$version"
-$repo = "TMSystems-Rights/Electron-Tms-MDEditor-For-Release"
+$repo = "TMSystems-Rights/Tms-MDEditor-For-Release"
 $installer = "dist\TMS-MDEditor-$version-setup.exe"
 $portable = "dist\TMS-MDEditor-$version-portable-x64.zip"
 $portableHashFile = "$portable.sha256"

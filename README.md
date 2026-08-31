@@ -2,9 +2,9 @@
 
 Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebView2 + CodeMirror 6 で構築しています。
 
-リポジトリ: [TMSystems-Rights/Electron-Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Electron-Tms-MDEditor-For-Release)
+リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.1.0](https://github.com/TMSystems-Rights/Electron-Tms-MDEditor-For-Release/releases/tag/v1.1.0)
+最新リリース: [v1.1.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.1.0)
 
 ## v1.1.0 の主な変更
 
@@ -151,7 +151,7 @@ AppsLauncher / GREP と同じく、通常の `GH_TOKEN` は読み取り専用、
 $props = [xml](Get-Content Directory.Build.props)
 $version = $props.Project.PropertyGroup.Version
 $tag = "v$version"
-$repo = "TMSystems-Rights/Electron-Tms-MDEditor-For-Release"
+$repo = "TMSystems-Rights/Tms-MDEditor-For-Release"
 $installer = "dist\TMS-MDEditor-$version-setup.exe"
 $portable = "dist\TMS-MDEditor-$version-portable-x64.zip"
 $portableHashFile = "$portable.sha256"
