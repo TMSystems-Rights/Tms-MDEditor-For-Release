@@ -60,6 +60,7 @@ internal sealed class MainForm : Form
 		RefreshSettingsMenuShortcutDisplays();
 
 		ApplyWindowStateFromConfig();
+		ApplyWindowIcon();
 
 		MinimumSize   = new Size(MinFormWidth, MinFormHeight);
 		Point? detachedWindowPoint = StartupArguments.GetDetachedWindowPoint(startupArgs);
@@ -272,6 +273,21 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// exe のアプリアイコンをウィンドウとタスクバーへ設定する
+	/// </summary>
+	private void ApplyWindowIcon()
+	{
+		Icon? windowIcon = WindowIcon.Load();
+		if (windowIcon is null)
+		{
+			return;
+		}
+
+		Icon     = windowIcon;
+		ShowIcon = true;
+	}
+
 	private async void OnFormLoadAsync(object? sender, EventArgs e)
 	{
 		Load -= OnFormLoadAsync;
@@ -339,10 +355,7 @@ internal sealed class MainForm : Form
 
 	private async Task InitializeWebViewAsync()
 	{
-		string userDataFolder = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-			Path.GetFileName(AppPaths.AppDataRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-			"webview2");
+		string userDataFolder = AppPaths.WebView2UserDataDirectory;
 
 		Directory.CreateDirectory(userDataFolder);
 
@@ -632,6 +645,7 @@ internal sealed class MainForm : Form
 			payload = new
 			{
 				version = GetDisplayVersion(),
+				isPortable = AppPaths.IsPortable,
 				args    = _startupArgs,
 				files   = startupFiles,
 				detachedTab,
@@ -642,6 +656,7 @@ internal sealed class MainForm : Form
 				{
 					dataDir             = dataDirInfo.DataDir,
 					defaultDataDir      = dataDirInfo.DefaultDataDir,
+					isPortable          = AppPaths.IsPortable,
 					theme               = _appContext.Config.Settings.Theme,
 					loadMessage         = _appContext.ConfigLoadMessage,
 					settings            = _appContext.Config.Settings,

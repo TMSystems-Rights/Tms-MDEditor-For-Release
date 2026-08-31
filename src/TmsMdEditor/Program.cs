@@ -17,6 +17,9 @@ internal static class Program
 		Application.EnableVisualStyles();
 		Application.SetCompatibleTextRenderingDefault(false);
 
+		PortableRuntime.ApplyIfNeeded();
+		AppUserModelId.Apply();
+
 		using var appContext = new AppContext();
 		appContext.Initialize();
 		RegisterUnhandledExceptionLogging(appContext.Logger);

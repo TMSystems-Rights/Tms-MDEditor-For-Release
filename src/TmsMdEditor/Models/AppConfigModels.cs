@@ -315,6 +315,8 @@ internal sealed class DataDirInfo
 	public string DataDir { get; init; } = string.Empty;
 
 	public string DefaultDataDir { get; init; } = string.Empty;
+
+	public bool IsPortable { get; init; }
 }
 
 /// <summary>
@@ -367,6 +369,8 @@ internal sealed class UpdateCheckResult
 	public UpdateReleaseInfo? Release { get; init; }
 
 	public string? Message { get; init; }
+
+	public string Mode { get; init; } = "installer";
 }
 
 /// <summary>
@@ -425,4 +429,6 @@ internal sealed class ConfigGetResponse
 	public AppConfigDocument Config { get; init; } = new();
 
 	public DataDirInfo DataDirInfo { get; init; } = new();
+
+	public bool IsPortable { get; init; }
 }

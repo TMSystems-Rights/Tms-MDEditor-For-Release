@@ -10,6 +10,8 @@ internal static class AppPaths
 	private const string DataDirName   = "data";
 
 	private static string? _overrideAppDataRoot;
+	private static bool _portableActive;
+	private static string? _portableExeDir;
 
 	/// <summary>
 	/// テスト用に AppData ルートを上書きする
@@ -21,11 +23,54 @@ internal static class AppPaths
 	}
 
 	/// <summary>
-	/// AppData ルート（ブートストラップ設定・ログの固定位置）
+	/// ポータブル実行として保存先を exe 隣の data へ切り替える
 	/// </summary>
-	public static string AppDataRoot =>
-		_overrideAppDataRoot
-		?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), GetAppFolderName());
+	/// <param name="exeDir">exe ディレクトリ</param>
+	public static void EnablePortable(string exeDir)
+	{
+		_portableActive = true;
+		_portableExeDir = Path.GetFullPath(exeDir);
+	}
+
+	/// <summary>
+	/// ポータブル切替を解除する（テスト用）
+	/// </summary>
+	public static void ResetPortable()
+	{
+		_portableActive = false;
+		_portableExeDir = null;
+	}
+
+	/// <summary>
+	/// ポータブル実行中か
+	/// </summary>
+	public static bool IsPortable => _portableActive;
+
+	/// <summary>
+	/// ポータブル exe ディレクトリ
+	/// </summary>
+	public static string? PortableExeDir => _portableExeDir;
+
+	/// <summary>
+	/// AppData ルート（ブートストラップ設定・ログの固定位置。ポータブルでは exe 隣の data）
+	/// </summary>
+	public static string AppDataRoot
+	{
+		get
+		{
+			if (_overrideAppDataRoot is not null)
+			{
+				return _overrideAppDataRoot;
+			}
+
+			if (_portableActive && !string.IsNullOrWhiteSpace(_portableExeDir))
+			{
+				return Path.Combine(_portableExeDir, DataDirName);
+			}
+
+			return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), GetAppFolderName());
+		}
+	}
 
 	/// <summary>
 	/// ブートストラップ設定ファイルのパス
@@ -33,14 +78,52 @@ internal static class AppPaths
 	public static string BootstrapConfigPath => Path.Combine(AppDataRoot, "app-config.json");
 
 	/// <summary>
-	/// 既定 dataDir
+	/// 既定 dataDir。ポータブルでは AppDataRoot と同じ（平坦化）
 	/// </summary>
-	public static string DefaultDataDir => Path.Combine(AppDataRoot, DataDirName);
+	public static string DefaultDataDir => PortableMode.ResolveDefaultDataDir(AppDataRoot, _portableActive);
 
 	/// <summary>
-	/// ログディレクトリ（dataDir 外の固定位置）
+	/// ログディレクトリ
 	/// </summary>
 	public static string LogsDirectory => Path.Combine(AppDataRoot, "logs");
+
+	/// <summary>
+	/// WebView2 のユーザーデータフォルダ
+	/// </summary>
+	public static string WebView2UserDataDirectory =>
+		_portableActive
+			? Path.Combine(AppDataRoot, "webview2")
+			: Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+				GetAppFolderName(),
+				"webview2");
+
+	/// <summary>
+	/// 印刷用 WebView2 のユーザーデータフォルダ
+	/// </summary>
+	public static string WebView2PrintUserDataDirectory =>
+		_portableActive
+			? Path.Combine(AppDataRoot, "webview2-print")
+			: Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+				GetAppFolderName(),
+				"webview2-print");
+
+	/// <summary>
+	/// アプリ一時ファイル用ディレクトリ
+	/// </summary>
+	public static string TempDirectory =>
+		_portableActive
+			? Path.Combine(AppDataRoot, "temp")
+			: Path.GetTempPath();
+
+	/// <summary>
+	/// タブ切り離しの一時ファイルディレクトリ
+	/// </summary>
+	public static string TabTransferDirectory =>
+		_portableActive
+			? Path.Combine(TempDirectory, "tab-transfers")
+			: Path.Combine(TempDirectory, "TmsMdEditor", "tab-transfers");
 
 	/// <summary>
 	/// WebView2 のアプリ資産用仮想ホスト名。

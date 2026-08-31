@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TmsMdEditor.PortableLauncher</RootNamespace>
+    <AssemblyName>TmsMdEditor.Launcher</AssemblyName>
+    <ApplicationIcon>$(MSBuildThisFileDirectory)..\..\build\icon.ico</ApplicationIcon>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Native AOT は Desktop Development for C++（link.exe）が必要。未導入環境では package-portable.ps1 が trimmed 単一ファイルへフォールバックする -->
+  </PropertyGroup>
+
+</Project>

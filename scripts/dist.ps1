@@ -1,5 +1,7 @@
 param(
-	[string]$PublishDir = (Join-Path $PSScriptRoot '..\dist\publish\win-x64')
+	[string]$PublishDir = '',
+	[string]$StageDir = '',
+	[string]$LauncherPublishDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -7,15 +9,38 @@ $repoRoot    = (Resolve-Path "$PSScriptRoot\..").Path
 $projectPath = Join-Path $repoRoot 'src\TmsMdEditor\TmsMdEditor.csproj'
 $setupScript = Join-Path $repoRoot 'installer\setup.iss'
 $propsPath   = Join-Path $repoRoot 'Directory.Build.props'
+
+[xml]$props = Get-Content -LiteralPath $propsPath
+$version = $props.Project.PropertyGroup.Version
+if ([string]::IsNullOrWhiteSpace($version)) { throw 'Directory.Build.props から Version を取得できません。' }
+
+if ([string]::IsNullOrWhiteSpace($PublishDir)) {
+	$PublishDir = Join-Path $repoRoot "dist\publish-$version\win-x64"
+}
+
+if ([string]::IsNullOrWhiteSpace($StageDir)) {
+	$StageDir = Join-Path $repoRoot "dist\zip-stage-$version"
+}
+
+if ([string]::IsNullOrWhiteSpace($LauncherPublishDir)) {
+	$LauncherPublishDir = Join-Path $repoRoot "dist\publish-portable-launcher-$version\win-x64"
+}
+
 $publishPath = [System.IO.Path]::GetFullPath($PublishDir)
 
 if (Test-Path -LiteralPath $publishPath) {
 	throw "発行先が既に存在します: $publishPath`n既存の配布成果物を保護するため、自動削除は行いません。別の -PublishDir を指定してください。"
 }
 
-[xml]$props = Get-Content -LiteralPath $propsPath
-$version = $props.Project.PropertyGroup.Version
-if ([string]::IsNullOrWhiteSpace($version)) { throw 'Directory.Build.props から Version を取得できません。' }
+$stagePath = [System.IO.Path]::GetFullPath($StageDir)
+$launcherPublishPath = [System.IO.Path]::GetFullPath($LauncherPublishDir)
+if (Test-Path -LiteralPath $stagePath) {
+	throw "ステージ先が既に存在します: $stagePath`n既存の配布成果物を保護するため、自動削除は行いません。別の -StageDir を指定してください。"
+}
+
+if (Test-Path -LiteralPath $launcherPublishPath) {
+	throw "起動用発行先が既に存在します: $launcherPublishPath`n既存の配布成果物を保護するため、自動削除は行いません。別の -LauncherPublishDir を指定してください。"
+}
 
 $isccCandidates = @(@(
 	(Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
@@ -37,6 +62,9 @@ try {
 	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 	& $isccCandidates[0] "/DMyAppVersion=$version" "/DMyPublishDir=$publishPath" $setupScript
+	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+	& pwsh (Join-Path $repoRoot 'scripts\package-portable.ps1') -Version $version -PublishDir $publishPath -StageDir $stagePath -LauncherPublishDir $launcherPublishPath -OutputDir (Join-Path $repoRoot 'dist')
 	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {

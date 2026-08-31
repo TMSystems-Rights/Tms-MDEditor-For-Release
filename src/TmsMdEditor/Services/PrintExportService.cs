@@ -129,10 +129,7 @@ internal sealed class PrintExportService : IDisposable
 		};
 		_owner.Controls.Add(_view);
 
-		string userDataFolder = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-			Path.GetFileName(AppPaths.AppDataRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-			"webview2-print");
+		string userDataFolder = AppPaths.WebView2PrintUserDataDirectory;
 		Directory.CreateDirectory(userDataFolder);
 
 		CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder)

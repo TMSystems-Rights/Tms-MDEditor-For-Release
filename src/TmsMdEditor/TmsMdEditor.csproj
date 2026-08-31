@@ -14,6 +14,9 @@
     <OutputWebDistDir>$(OutputPath)webdist\</OutputWebDistDir>
     <!-- WinForms のみ使用。WebView2 NuGet 同梱 WPF 参照との WindowsBase 競合警告は意図的に抑止 -->
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <!-- 日本語 UI 以外の衛星アセンブリ（cs/de/fr 等）を配布しない -->
+    <SatelliteResourceLanguages>ja</SatelliteResourceLanguages>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,6 +45,11 @@
     <Content Include="Resources\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="$(MSBuildThisFileDirectory)..\..\build\icon.ico">
+      <Link>icon.ico</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <Target Name="BuildWebAssets" BeforeTargets="Build" Condition="Exists('$(WebProjectDir)package.json')">
@@ -57,6 +65,13 @@
       DestinationFiles="@(WebDistFiles->'$(OutputPath)webdist\%(RecursiveDir)%(Filename)%(Extension)')"
       SkipUnchangedFiles="true"
       Condition="'@(WebDistFiles)' != ''" />
+  </Target>
+
+  <Target Name="ExcludeUnneededPublishFiles" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'createdump.exe'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.xml'" />
+    </ItemGroup>
   </Target>
 
   <Target Name="CopyWebDistToPublish" AfterTargets="Publish">

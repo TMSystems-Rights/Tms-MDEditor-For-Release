@@ -85,6 +85,7 @@ export type UpdateCheckResponse = {
 	currentVersion: string;
 	release?: UpdateReleaseInfo;
 	message?: string;
+	mode?: 'installer' | 'portable';
 };
 
 export type UpdateDownloadProgress = {
@@ -139,6 +140,7 @@ export type AppSettings = {
 export type DataDirInfo = {
 	dataDir: string;
 	defaultDataDir: string;
+	isPortable?: boolean;
 };
 
 export type ConfigDocument = {
@@ -149,6 +151,7 @@ export type ConfigDocument = {
 export type ConfigGetResponse = {
 	config: ConfigDocument;
 	dataDirInfo: DataDirInfo;
+	isPortable?: boolean;
 };
 
 export type SaveConfigResponse = {
@@ -213,6 +216,7 @@ export type TabModel = {
 
 export type AppReadyPayload = {
 	version?: string;
+	isPortable?: boolean;
 	args?: string[];
 	files?: string[];
 	detachedTab?: DetachedTabPayload | null;
@@ -222,6 +226,7 @@ export type AppReadyPayload = {
 	config?: {
 		dataDir?: string;
 		defaultDataDir?: string;
+		isPortable?: boolean;
 		theme?: string;
 		loadMessage?: string;
 		settings?: AppSettings;

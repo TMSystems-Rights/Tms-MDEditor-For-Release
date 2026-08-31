@@ -4,7 +4,12 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Electron-Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Electron-Tms-MDEditor-For-Release)
 
-最新リリース: [v1.0.0](https://github.com/TMSystems-Rights/Electron-Tms-MDEditor-For-Release/releases/tag/v1.0.0)
+最新リリース: [v1.1.0](https://github.com/TMSystems-Rights/Electron-Tms-MDEditor-For-Release/releases/tag/v1.1.0)
+
+## v1.1.0 の主な変更
+
+- インストール不要のポータブル ZIP 版
+- 開発ポータル URL を環境変数 `TMS_PORTAL_DEVELOPMENT_URL` へ移し、ソースから開発用ホスト名を外す
 
 ## v1.0.0 の主な機能
 
@@ -78,7 +83,7 @@ npm run test
 
 C#（xUnit）と Web 層（Vitest）を実行します。
 
-## 配布パッケージ作成（Windows インストーラ）
+## 配布パッケージ作成（Windows インストーラ / ポータブル ZIP）
 
 ```powershell
 pwsh scripts/dist.ps1
@@ -89,8 +94,16 @@ pwsh scripts/dist.ps1
 出力先:
 
 - インストーラ: `dist/TMS-MDEditor-<version>-setup.exe`
+- ポータブル ZIP: `dist/TMS-MDEditor-<version>-portable-x64.zip`
+- ZIP の SHA-256: `dist/TMS-MDEditor-<version>-portable-x64.zip.sha256`
 
-`scripts/dist.ps1` は Release ビルド、`win-x64` self-contained + ReadyToRun publish、Inno Setup によるインストーラ生成を一括実行します。ポータブル ZIP は v1.1.0 で追加予定です。
+`scripts/dist.ps1` は Release ビルド、`win-x64` self-contained + ReadyToRun publish、Inno Setup によるインストーラ生成、続けて `scripts/package-portable.ps1` によるポータブル ZIP 生成を一括実行します。publish 済みなら ZIP だけ作り直せます。
+
+```powershell
+pwsh scripts/package-portable.ps1
+```
+
+ポータブル ZIP は親フォルダ `TMS-MDEditor/` 直下に起動用 `TmsMdEditor.exe` と `README-PORTABLE.txt` を置き、本体（`app/TmsMdEditor.exe` と `portable-mode.json`）は `app/` に入れます。`app/portable-mode.json` を削除するとインストーラ版として `%APPDATA%` へ書き込みます。
 
 ### リリース手順
 
@@ -107,8 +120,8 @@ AI（Cursor 等）がリリース作業を行う場合は、`.cursor/rules/relea
 5. 変更を **git commit** する（バージョン更新を含むすべての変更）
 6. **git push origin main** する
 7. `git status` が clean で、`HEAD` と `origin/main` が一致していることを確認する
-8. **`pwsh scripts/dist.ps1`** でインストーラを生成する
-9. GitHub Release にインストーラを公開する
+8. **`pwsh scripts/dist.ps1`** でインストーラとポータブル ZIP を生成する
+9. GitHub Release にインストーラとポータブル ZIP（および ZIP の SHA-256）を公開する
 10. `scripts/verify-release-tag.ps1` でタグ一致を確認する
 
 > **重要**: `scripts/dist.ps1` は **commit と push の後**に実行すること。未コミットの作業ツリーからビルドすると、インストーラは新内容でも Git タグが古いコミットを指し、ソースと Release の対応がずれる。
@@ -140,9 +153,12 @@ $version = $props.Project.PropertyGroup.Version
 $tag = "v$version"
 $repo = "TMSystems-Rights/Electron-Tms-MDEditor-For-Release"
 $installer = "dist\TMS-MDEditor-$version-setup.exe"
+$portable = "dist\TMS-MDEditor-$version-portable-x64.zip"
+$portableHashFile = "$portable.sha256"
 $target = git rev-parse HEAD
 $originalGhToken = $env:GH_TOKEN
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+$portableHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $portable).Hash.ToLowerInvariant()
 
 try {
 	if ([string]::IsNullOrWhiteSpace($env:GITHUB_RELEASE_TOKEN)) {
@@ -155,13 +171,13 @@ try {
 
 	gh release view $tag --repo $repo *> $null
 	if ($LASTEXITCODE -eq 0) {
-		gh release upload $tag $installer --repo $repo --clobber
+		gh release upload $tag $installer $portable $portableHashFile --repo $repo --clobber
 	} else {
-		gh release create $tag $installer `
+		gh release create $tag $installer $portable $portableHashFile `
 			--repo $repo `
 			--target $target `
 			--title $tag `
-			--notes "TMS-MDEditor $tag`n`nSHA-256: ``$hash``"
+			--notes "TMS-MDEditor $tag`n`nInstaller SHA-256: ``$hash``nPortable ZIP SHA-256: ``$portableHash``"
 	}
 	if ($LASTEXITCODE -ne 0) { throw "GitHub Release の作成または更新に失敗しました。" }
 
@@ -192,6 +208,8 @@ README 等の変更で、既存ユーザーに新インストーラを配布す�
 
 ダウンロード後、「今すぐ更新」を選ぶとアプリを終了してインストーラを起動します。サイレントインストールは行いません。
 
+ポータブル ZIP 版はインストーラをダウンロードしません。新しい版があれば公式ページへ案内します。更新はアプリを終了し、新しい ZIP を別フォルダへ展開して、旧版の `data` をコピーします。
+
 ### インストーラの仕様
 
 | 項目           | 内容                                                                                         |
@@ -204,11 +222,24 @@ README 等の変更で、既存ユーザーに新インストーラを配布す�
 
 インストール後、データは `%APPDATA%\tms-mdeditor\` に保存されます（開発版の `tms-mdeditor-dev` とは別です）。初回インストールではデータ保存先を指定でき、未指定時の既定値は `%APPDATA%\tms-mdeditor\data` です。
 
+### ポータブル ZIP の仕様
+
+| 項目     | 内容                                                                 |
+| -------- | -------------------------------------------------------------------- |
+| 判定     | `app\TmsMdEditor.exe` と同じフォルダの `portable-mode.json`（削除禁止） |
+| 起動     | 展開フォルダ直下の `TmsMdEditor.exe`（起動用 stub。本体は `app\TmsMdEditor.exe`） |
+| 保存先   | `<exeDir>\data`（通常は `app\data`。`%APPDATA%` へは書かない）        |
+| 更新     | 公式ページへ誘導。自動ダウンロードしない                             |
+| 関連付け | 登録しない                                                           |
+
+`portable-mode.json` を削除するとインストーラ版として `%APPDATA%\tms-mdeditor` へ書きます。
+
 ## プロジェクト構成
 
 ```text
-src/TmsMdEditor/   … C# シェル（WinForms + WebView2）
-src/web/           … Web 層（TypeScript + Vite）
+src/TmsMdEditor/                   … C# シェル（WinForms + WebView2）
+src/TmsMdEditor.PortableLauncher/  … ポータブル ZIP 直下の起動用 stub
+src/web/                           … Web 層（TypeScript + Vite）
 tests/             … xUnit
 scripts/           … ビルド・検証スクリプト
 installer/         … Inno Setup スクリプト
@@ -222,7 +253,7 @@ installer/         … Inno Setup スクリプト
 | 実データ             | `<dataDir>\config.json` など                 |
 | ログ                 | `%APPDATA%\tms-mdeditor\logs\`               |
 
-開発時は `%APPDATA%\tms-mdeditor-dev\` を使用します。既定の `dataDir` は `userData\data` です。
+開発時は `%APPDATA%\tms-mdeditor-dev\` を使用します。既定の `dataDir` は `userData\data` です。ポータブル版は `<exeDir>\data` に平坦化し、ログと WebView2 もその配下へ置きます。
 
 ## 仕様書
 

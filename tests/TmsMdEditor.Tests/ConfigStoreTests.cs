@@ -12,6 +12,7 @@ public class ConfigStoreTests : IDisposable
 
 	public ConfigStoreTests()
 	{
+		PortableRuntime.ResetForTests();
 		_tempRoot              = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-test-{Guid.NewGuid():N}");
 		_logger                = new Logger();
 		_bootstrapConfigStore  = new BootstrapConfigStore(_logger);
@@ -21,6 +22,7 @@ public class ConfigStoreTests : IDisposable
 
 	public void Dispose()
 	{
+		PortableRuntime.ResetForTests();
 		AppPaths.SetOverrideAppDataRoot(null);
 
 		if (Directory.Exists(_tempRoot))

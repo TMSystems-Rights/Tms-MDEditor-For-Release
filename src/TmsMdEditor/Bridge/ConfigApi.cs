@@ -33,6 +33,7 @@ internal sealed class ConfigApi
 		{
 			Config      = _appContext.Config,
 			DataDirInfo = _appContext.ConfigStore.GetDataDirInfo(),
+			IsPortable  = AppPaths.IsPortable,
 		};
 	}
 
@@ -153,6 +154,15 @@ internal sealed class ConfigApi
 	/// <returns>移行結果</returns>
 	public MigrateDataDirResult ChangeDataDir(JsonElement paramsElement)
 	{
+		if (AppPaths.IsPortable)
+		{
+			return new MigrateDataDirResult
+			{
+				Success = false,
+				Message = "ポータブル版ではデータ保存先を変更できません。",
+			};
+		}
+
 		if (paramsElement.TryGetProperty("dataDir", out JsonElement dataDirElement))
 		{
 			string? dataDir = dataDirElement.GetString();
@@ -188,6 +198,15 @@ internal sealed class ConfigApi
 	/// <returns>移行結果</returns>
 	public MigrateDataDirResult ChangeDataDirWithDialog()
 	{
+		if (AppPaths.IsPortable)
+		{
+			return new MigrateDataDirResult
+			{
+				Success = false,
+				Message = "ポータブル版ではデータ保存先を変更できません。",
+			};
+		}
+
 		using var dialog = new FolderBrowserDialog
 		{
 			Description        = "データ保存先フォルダを選択してください",

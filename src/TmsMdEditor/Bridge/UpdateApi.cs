@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TmsMdEditor.Models;
+using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Bridge;
 
@@ -30,7 +31,8 @@ internal sealed class UpdateApi
 	/// <returns>更新確認結果</returns>
 	public async Task<UpdateCheckResult> CheckAsync()
 	{
-		UpdateCheckResult result = await _appContext.UpdateService.CheckAsync().ConfigureAwait(false);
+		bool tagNameOnly = AppPaths.IsPortable;
+		UpdateCheckResult result = await _appContext.UpdateService.CheckAsync(tagNameOnly: tagNameOnly).ConfigureAwait(false);
 		if (result.Status != "error")
 		{
 			PersistUpdateSettings(lastCheckedAt: DateTimeOffset.Now.ToString("o"));
@@ -51,7 +53,7 @@ internal sealed class UpdateApi
 			UpdateCheckResult result = await CheckAsync().ConfigureAwait(false);
 			if (result.Status == "available" && result.Release is { } release && !string.Equals(_appContext.Config.Settings.Update.SkippedVersion, release.Version, StringComparison.OrdinalIgnoreCase))
 			{
-				_mainForm.PostBridgeEvent("update:available", new { release });
+				_mainForm.PostBridgeEvent("update:available", new { release, mode = result.Mode });
 			}
 		});
 	}
@@ -62,6 +64,11 @@ internal sealed class UpdateApi
 	/// <returns>ダウンロード結果</returns>
 	public async Task<UpdateDownloadResult> DownloadAsync()
 	{
+		if (AppPaths.IsPortable)
+		{
+			return new UpdateDownloadResult { Message = "ポータブル版ではインストーラーをダウンロードしません。公式ページから入手してください。" };
+		}
+
 		if (_availableRelease is null) return new UpdateDownloadResult { Message = "先に更新を確認してください。" };
 
 		var progress = new Progress<UpdateDownloadProgress>(value => _mainForm.PostBridgeEvent("update:downloadProgress", value));
@@ -108,6 +115,11 @@ internal sealed class UpdateApi
 	/// <returns>受付結果</returns>
 	public object ApplyNow()
 	{
+		if (AppPaths.IsPortable)
+		{
+			throw new InvalidOperationException("ポータブル版ではインストーラーを起動しません。");
+		}
+
 		if (string.IsNullOrWhiteSpace(_downloadedInstallerPath) || !File.Exists(_downloadedInstallerPath))
 		{
 			throw new InvalidOperationException("ダウンロード済みのインストーラーが見つかりません。");
@@ -115,6 +127,16 @@ internal sealed class UpdateApi
 
 		_mainForm.QueueInstallerAndClose(_downloadedInstallerPath);
 		return new { ok = true };
+	}
+
+	/// <summary>
+	/// 公式ダウンロードページを開く
+	/// </summary>
+	/// <returns>結果</returns>
+	public object OpenOfficialPage()
+	{
+		string url = PortalUrl.OpenOfficialPortal();
+		return new { ok = true, url };
 	}
 
 	private bool ShouldCheckOnStartup()

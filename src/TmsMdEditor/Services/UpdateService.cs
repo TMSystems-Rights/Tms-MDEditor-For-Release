@@ -46,27 +46,30 @@ internal sealed class UpdateService : IDisposable
 	/// 最新 Release を取得して更新可否を判定する
 	/// </summary>
 	/// <param name="cancellationToken">キャンセル トークン</param>
+	/// <param name="tagNameOnly">true のとき tag_name のみ比較し、インストーラー資産は要求しない</param>
 	/// <returns>更新確認結果</returns>
-	public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default)
+	public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default, bool tagNameOnly = false)
 	{
+		string mode = tagNameOnly ? "portable" : "installer";
 		string? token = _tokenResolver();
 
 		try
 		{
 			using HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/latest", token);
 			using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-			if (!response.IsSuccessStatusCode) return Failure($"更新情報の取得に失敗しました（HTTP {(int)response.StatusCode}）。");
+			if (!response.IsSuccessStatusCode) return Failure($"更新情報の取得に失敗しました（HTTP {(int)response.StatusCode}）。", mode);
 
 			await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 			using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-			UpdateReleaseInfo release = ParseRelease(document.RootElement);
-			if (!TryParseVersion(release.Version, out Version? latestVersion) || !TryParseVersion(_currentVersion, out Version? currentVersion)) return Failure("Release のバージョン形式が不正です。");
+			UpdateReleaseInfo release = tagNameOnly ? ParseReleaseTagOnly(document.RootElement) : ParseRelease(document.RootElement);
+			if (!TryParseVersion(release.Version, out Version? latestVersion) || !TryParseVersion(_currentVersion, out Version? currentVersion)) return Failure("Release のバージョン形式が不正です。", mode);
 
 			return new UpdateCheckResult
 			{
 				Status         = latestVersion > currentVersion ? "available" : "not-available",
 				CurrentVersion = _currentVersion,
 				Release        = release,
+				Mode           = mode,
 			};
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -76,7 +79,7 @@ internal sealed class UpdateService : IDisposable
 		catch (Exception ex)
 		{
 			_logger.Info("update", "更新情報を取得できませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
-			return Failure("更新情報を取得できませんでした。ネットワーク接続を確認してください。");
+			return Failure("更新情報を取得できませんでした。ネットワーク接続を確認してください。", mode);
 		}
 	}
 
@@ -181,7 +184,7 @@ internal sealed class UpdateService : IDisposable
 			?? typeof(UpdateService).Assembly.GetName().Version?.ToString()
 			?? "0.0.0";
 
-	private UpdateCheckResult Failure(string message) => new() { Status = "error", CurrentVersion = _currentVersion, Message = message };
+	private UpdateCheckResult Failure(string message, string mode = "installer") => new() { Status = "error", CurrentVersion = _currentVersion, Message = message, Mode = mode };
 
 	private static HttpRequestMessage CreateApiRequest(HttpMethod method, string relativePath, string? token)
 	{
@@ -218,7 +221,9 @@ internal sealed class UpdateService : IDisposable
 		string tagName    = root.GetProperty("tag_name").GetString() ?? string.Empty;
 		string releaseUrl = root.TryGetProperty("html_url", out JsonElement urlElement) ? urlElement.GetString() ?? string.Empty : string.Empty;
 		string body       = root.TryGetProperty("body", out JsonElement bodyElement) ? bodyElement.GetString() ?? string.Empty : string.Empty;
-		JsonElement asset = root.GetProperty("assets").EnumerateArray().FirstOrDefault(item => item.TryGetProperty("name", out JsonElement nameElement) && (nameElement.GetString() ?? string.Empty).EndsWith("-setup.exe", StringComparison.OrdinalIgnoreCase));
+		JsonElement asset = root.TryGetProperty("assets", out JsonElement assetsElement) && assetsElement.ValueKind == JsonValueKind.Array
+			? assetsElement.EnumerateArray().FirstOrDefault(item => item.TryGetProperty("name", out JsonElement nameElement) && (nameElement.GetString() ?? string.Empty).EndsWith("-setup.exe", StringComparison.OrdinalIgnoreCase))
+			: default;
 		if (asset.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("Release にインストーラー資産がありません。");
 
 		Match hashMatch = Sha256Pattern.Match(body);
@@ -232,6 +237,23 @@ internal sealed class UpdateService : IDisposable
 			InstallerDownloadUrl = asset.TryGetProperty("browser_download_url", out JsonElement downloadUrlElement) ? downloadUrlElement.GetString() ?? string.Empty : string.Empty,
 			InstallerSize        = asset.TryGetProperty("size", out JsonElement sizeElement) ? sizeElement.GetInt64() : 0,
 			Sha256           = hashMatch.Success ? hashMatch.Groups[1].Value : null,
+		};
+	}
+
+	/// <summary>
+	/// tag_name だけを読む。インストーラー資産は要求しない。
+	/// </summary>
+	/// <param name="root">Release JSON</param>
+	/// <returns>更新情報</returns>
+	private static UpdateReleaseInfo ParseReleaseTagOnly(JsonElement root)
+	{
+		string tagName    = root.GetProperty("tag_name").GetString() ?? string.Empty;
+		string releaseUrl = root.TryGetProperty("html_url", out JsonElement urlElement) ? urlElement.GetString() ?? string.Empty : string.Empty;
+		return new UpdateReleaseInfo
+		{
+			Version    = NormalizeVersion(tagName),
+			TagName    = tagName,
+			ReleaseUrl = releaseUrl,
 		};
 	}
 

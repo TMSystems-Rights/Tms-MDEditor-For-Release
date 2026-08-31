@@ -38,7 +38,20 @@ internal sealed class BootstrapConfigStore
 		try
 		{
 			BootstrapConfigDocument parsed = JsonFileHelper.Read<BootstrapConfigDocument>(path);
-			return Normalize(parsed);
+			BootstrapConfigDocument normalized = Normalize(parsed);
+			if (AppPaths.IsPortable
+				&& !string.IsNullOrWhiteSpace(parsed.DataDir)
+				&& !Path.GetFullPath(parsed.DataDir.Trim()).Equals(normalized.DataDir, StringComparison.OrdinalIgnoreCase))
+			{
+				_logger.Warn("bootstrap", "ポータブル版のため dataDir を exe 隣の data に固定しました", new Dictionary<string, object?>
+				{
+					["ignored"] = parsed.DataDir,
+					["dataDir"] = normalized.DataDir,
+				});
+				Save(normalized);
+			}
+
+			return normalized;
 		}
 		catch (Exception ex)
 		{
@@ -85,6 +98,16 @@ internal sealed class BootstrapConfigStore
 	/// <returns>正規化後設定</returns>
 	private static BootstrapConfigDocument Normalize(BootstrapConfigDocument config)
 	{
+		if (AppPaths.IsPortable)
+		{
+			return new BootstrapConfigDocument
+			{
+				SchemaVersion             = CurrentSchemaVersion,
+				DataDir                   = AppPaths.DefaultDataDir,
+				PendingMigrationSourceDir = string.Empty,
+			};
+		}
+
 		string dataDir = string.IsNullOrWhiteSpace(config.DataDir)
 			? AppPaths.DefaultDataDir
 			: Path.GetFullPath(config.DataDir.Trim());

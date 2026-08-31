@@ -204,9 +204,7 @@ internal sealed class SingleInstanceManager : IDisposable
 	private static string GetInstanceScope()
 	{
 		string appDataFolder = Path.GetFileName(AppPaths.AppDataRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-		return string.Equals(appDataFolder, "tms-mdeditor-dev", StringComparison.OrdinalIgnoreCase)
-			? "dev-v1"
-			: "prod-v1";
+		return PortableMode.ResolveInstanceScope(AppPaths.IsPortable, AppPaths.PortableExeDir, appDataFolder);
 	}
 
 	private sealed class ActivationRequest

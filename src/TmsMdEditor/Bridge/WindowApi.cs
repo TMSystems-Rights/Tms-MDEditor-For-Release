@@ -53,7 +53,7 @@ internal sealed class WindowApi
 			throw new InvalidOperationException("切り離すタブ状態が指定されていません。");
 		}
 
-		string transferDirectory = Path.Combine(Path.GetTempPath(), "TmsMdEditor", "tab-transfers");
+		string transferDirectory = AppPaths.TabTransferDirectory;
 		Directory.CreateDirectory(transferDirectory);
 		string transferPath = Path.Combine(transferDirectory, $"{Guid.NewGuid():N}.json");
 		File.WriteAllText(transferPath, tabElement.GetRawText());

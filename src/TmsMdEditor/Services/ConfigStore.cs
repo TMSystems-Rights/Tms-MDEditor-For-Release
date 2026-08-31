@@ -108,7 +108,28 @@ internal sealed class ConfigStore
 		{
 			BootstrapConfigDocument bootstrap = _bootstrapConfigStore.Load();
 			string dataDir                    = bootstrap.DataDir;
-			TryApplyPendingMigration(bootstrap);
+			if (AppPaths.IsPortable)
+			{
+				string portableDataDir = AppPaths.DefaultDataDir;
+				if (!Path.GetFullPath(dataDir).Equals(Path.GetFullPath(portableDataDir), StringComparison.OrdinalIgnoreCase))
+				{
+					_logger.Warn("config", "ポータブル版のため dataDir を exe 隣の data に固定しました", new Dictionary<string, object?>
+					{
+						["ignored"] = dataDir,
+						["dataDir"] = portableDataDir,
+					});
+					dataDir = portableDataDir;
+					_bootstrapConfigStore.Save(new BootstrapConfigDocument
+					{
+						SchemaVersion = BootstrapConfigStore.CurrentSchemaVersion,
+						DataDir       = portableDataDir,
+					});
+				}
+			}
+			else
+			{
+				TryApplyPendingMigration(bootstrap);
+			}
 			if (!Directory.Exists(dataDir) && !IsDefaultDataDir(dataDir))
 			{
 				_cachedDataDir = dataDir;
@@ -355,6 +376,7 @@ internal sealed class ConfigStore
 		{
 			DataDir        = bootstrap.DataDir,
 			DefaultDataDir = BootstrapConfigStore.GetDefaultDataDir(),
+			IsPortable     = AppPaths.IsPortable,
 		};
 	}
 
@@ -365,6 +387,15 @@ internal sealed class ConfigStore
 	/// <returns>移行結果</returns>
 	public MigrateDataDirResult MigrateDataDir(string newDataDir)
 	{
+		if (AppPaths.IsPortable)
+		{
+			return new MigrateDataDirResult
+			{
+				Success = false,
+				Message = "ポータブル版ではデータ保存先を変更できません。",
+			};
+		}
+
 		string normalized = Path.GetFullPath(newDataDir.Trim());
 
 		if (string.IsNullOrWhiteSpace(normalized))

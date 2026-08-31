@@ -110,6 +110,7 @@ internal sealed class BridgeRouter
 				"update:cancelDownload" => _updateApi.CancelDownload(),
 				"update:skipVersion"   => _updateApi.SkipVersion(paramsElement),
 				"update:applyNow"      => _updateApi.ApplyNow(),
+				"update:openOfficialPage" => _updateApi.OpenOfficialPage(),
 				_ => throw new InvalidOperationException($"未対応のメソッドです: {method}"),
 			};
 

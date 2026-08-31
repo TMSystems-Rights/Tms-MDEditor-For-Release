@@ -59,6 +59,27 @@ public sealed class UpdateServiceTests
 	}
 
 	[Fact]
+	public async Task CheckAsync_tag_name_only_succeeds_without_installer_asset()
+	{
+		var handler = new StubHttpMessageHandler(_ => JsonResponse("""
+		{
+		  "tag_name": "v1.2.0",
+		  "html_url": "https://example.test/releases/v1.2.0",
+		  "assets": [{ "id": 9, "name": "TMS-MDEditor-1.2.0-portable-x64.zip", "size": 4 }]
+		}
+		"""));
+		using var client = new HttpClient(handler);
+		using var service = new UpdateService(new Logger(), client, () => null, "1.0.0");
+
+		UpdateCheckResult result = await service.CheckAsync(tagNameOnly: true);
+
+		Assert.Equal("available", result.Status);
+		Assert.Equal("portable", result.Mode);
+		Assert.Equal("1.2.0", result.Release?.Version);
+		Assert.True(string.IsNullOrEmpty(result.Release?.InstallerName));
+	}
+
+	[Fact]
 	public async Task DownloadAsync_verifies_size_and_sha256_before_returning_installer()
 	{
 		byte[] content = Encoding.UTF8.GetBytes("verified installer content");

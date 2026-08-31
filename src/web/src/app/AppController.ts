@@ -142,6 +142,8 @@ export class AppController {
 		defaultDataDir: ''
 	};
 
+	private isPortable = false;
+
 	private cssSnippets: CssSnippetsResponse = {
 		directoryPath: '',
 		snippets: []
@@ -462,8 +464,8 @@ export class AppController {
 		});
 
 		onBridgeEvent('update:available', (payload) => {
-			const release = (payload as { release?: UpdateReleaseInfo }).release;
-			if (release) this.showUpdateAvailableToast(release);
+			const typed = payload as { release?: UpdateReleaseInfo; mode?: 'installer' | 'portable' };
+			if (typed.release) this.showUpdateAvailableToast(typed.release, typed.mode);
 		});
 
 		onBridgeEvent('update:downloadProgress', (payload) => {
@@ -511,7 +513,7 @@ export class AppController {
 		try {
 			const result = await invokeBridge<UpdateCheckResponse>('update:check');
 			if (result.status === 'available' && result.release) {
-				this.showUpdateAvailableToast(result.release);
+				this.showUpdateAvailableToast(result.release, result.mode);
 				return;
 			}
 			showToast(result.status === 'not-available' ? '現在のバージョンは最新です。' : result.message ?? '更新を確認できませんでした。');
@@ -523,9 +525,34 @@ export class AppController {
 	/**
 	 * 更新検出を操作付き Toast で通知する
 	 * @param {UpdateReleaseInfo} release 更新情報
+	 * @param {'installer' | 'portable'} [mode] 配布形態
 	 * @returns {void}
 	 */
-	private showUpdateAvailableToast(release: UpdateReleaseInfo): void {
+	private showUpdateAvailableToast(release: UpdateReleaseInfo, mode?: 'installer' | 'portable'): void {
+		if (mode === 'portable' || this.isPortable) {
+			showActionToast(`新しいバージョン v${release.version} があります。公式ページからポータブル ZIP 版をダウンロードしてください。`, [
+				{
+					label  : '公式ダウンロードページを開く',
+					/**
+					 *
+					 */
+					onClick: () => void invokeBridge('update:openOfficialPage')
+				},
+				{ label: '後で', /**
+				 *
+				 */
+					onClick: () => undefined },
+				{
+					label  : 'このバージョンをスキップ',
+					/**
+					 *
+					 */
+					onClick: () => void invokeBridge('update:skipVersion', { version: release.version })
+				}
+			]);
+			return;
+		}
+
 		showActionToast(`新しいバージョン v${release.version} があります。`, [
 			{ label: 'ダウンロード', /**
 			 *
@@ -574,6 +601,7 @@ export class AppController {
 	private async handleAppReady(payload: AppReadyPayload): Promise<void> {
 		this.statusElements.version.textContent = `v${payload.version ?? 'unknown'}`;
 		this.isSessionOwner                     = payload.isSessionOwner === true;
+		this.isPortable                         = payload.isPortable === true || payload.config?.isPortable === true;
 
 		if (payload.config?.settings) {
 			this.settings = this.mergeSettingsWithDefaults(payload.config.settings);
@@ -686,11 +714,13 @@ export class AppController {
 		try {
 			const config     = await invokeBridge<ConfigGetResponse>('config:get');
 			this.dataDirInfo = config.dataDirInfo;
+			this.isPortable  = config.isPortable === true || config.dataDirInfo.isPortable === true;
 			this.cssSnippets = await invokeBridge<CssSnippetsResponse>('cssSnippets:list');
 			const modal      = new SettingsModal({
 				settings: config.config.settings,
 				customDecorations: config.config.customDecorations,
 				dataDirInfo: config.dataDirInfo,
+				isPortable: this.isPortable,
 				cssSnippets: this.cssSnippets,
 				/**
 				 *

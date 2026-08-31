@@ -35,6 +35,7 @@ type SettingsModalOptions = {
 	settings: AppSettings;
 	customDecorations: CustomDecorationRule[];
 	dataDirInfo: DataDirInfo;
+	isPortable?: boolean;
 	cssSnippets: CssSnippetsResponse;
 	onSettingsApplied: (settings: AppSettings) => void;
 	onCustomDecorationsApplied: (rules: CustomDecorationRule[]) => void;
@@ -91,6 +92,7 @@ export class SettingsModal {
 	private settings: AppSettings;
 	private customDecorations: CustomDecorationRule[];
 	private dataDirInfo: DataDirInfo;
+	private readonly isPortable: boolean;
 	private cssSnippets: CssSnippetsResponse;
 	private readonly options: SettingsModalOptions;
 	private readonly backdrop: HTMLDivElement;
@@ -117,6 +119,7 @@ export class SettingsModal {
 		this.settings          = { ...options.settings, contextMenu: normalizeContextMenuSettings(options.settings.contextMenu) };
 		this.customDecorations = options.customDecorations.map((rule) => ({ ...rule }));
 		this.dataDirInfo       = options.dataDirInfo;
+		this.isPortable        = options.isPortable === true || options.dataDirInfo.isPortable === true;
 		this.cssSnippets       = options.cssSnippets;
 		this.backdrop          = document.createElement('div');
 		this.content           = document.createElement('div');
@@ -750,6 +753,15 @@ export class SettingsModal {
 	}
 
 	private renderDataAndUpdate(section: HTMLElement): void {
+		if (this.isPortable) {
+			const note       = document.createElement('p');
+			note.className   = 'tms-mde-settings-description';
+			note.textContent = 'ポータブル版では、設定・ログは TmsMdEditor.exe と同じ階層の data フォルダへ保存します。保存先は変更できません。';
+			section.appendChild(note);
+			this.addCheckbox(section, 'update.checkOnStartup', '起動時に更新を確認する');
+			return;
+		}
+
 		const dataDirRow            = document.createElement('div');
 		dataDirRow.className        = 'tms-mde-settings-row';
 		const label                 = document.createElement('span');
@@ -1041,6 +1053,10 @@ export class SettingsModal {
 	}
 
 	private async changeDataDir(): Promise<void> {
+		if (this.isPortable) {
+			this.setStatus('ポータブル版ではデータ保存先を変更できません。', true);
+			return;
+		}
 		if (!window.confirm('データ保存先を変更し、config・snippets・backupsを移行します。移行元は削除されません。続行しますか？')) {
 			return;
 		}
@@ -1062,6 +1078,10 @@ export class SettingsModal {
 	}
 
 	private async resetDataDir(): Promise<void> {
+		if (this.isPortable) {
+			this.setStatus('ポータブル版ではデータ保存先を変更できません。', true);
+			return;
+		}
 		if (!window.confirm('dataDirを既定の保存先へ戻し、データを移行します。移行元は削除されません。続行しますか？')) {
 			return;
 		}
