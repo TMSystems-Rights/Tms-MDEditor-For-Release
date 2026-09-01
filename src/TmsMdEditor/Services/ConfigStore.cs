@@ -21,6 +21,7 @@ internal sealed class ConfigStore
 	[
 		"theme",
 		"editorFontFamily",
+		"codeFontFamily",
 		"editorFontSize",
 		"showLineNumbers",
 		"showEolMarkers",
@@ -824,6 +825,7 @@ internal sealed class ConfigStore
 		{
 			Theme                 = theme,
 			EditorFontFamily      = string.IsNullOrWhiteSpace(settings.EditorFontFamily) ? defaults.EditorFontFamily : settings.EditorFontFamily,
+			CodeFontFamily        = string.IsNullOrWhiteSpace(settings.CodeFontFamily) ? defaults.CodeFontFamily : settings.CodeFontFamily.Trim(),
 			EditorFontSize        = Clamp(settings.EditorFontSize, 8, 72, defaults.EditorFontSize),
 			ShowLineNumbers       = settings.ShowLineNumbers,
 			ShowEolMarkers        = settings.ShowEolMarkers ?? true,

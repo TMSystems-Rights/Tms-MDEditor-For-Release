@@ -250,6 +250,7 @@ export class SettingsModal {
 			['light', 'ライト'],
 		]);
 		this.addText(section, 'editorFontFamily', 'エディタフォント');
+		this.addText(section, 'codeFontFamily', 'コードブロックフォント');
 		this.addNumber(section, 'editorFontSize', 'フォントサイズ', 8, 72);
 		this.addCheckbox(section, 'showLineNumbers', '行番号を表示する');
 		this.addCheckbox(section, 'showEolMarkers', '改行記号を表示する');

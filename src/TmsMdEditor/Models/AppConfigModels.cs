@@ -51,6 +51,11 @@ internal sealed class AppSettings
 
 	public string EditorFontFamily { get; set; } = "\"Consolas\", \"BIZ UDゴシック\", monospace";
 
+	/// <summary>
+	/// ライブプレビューのコードブロック・インラインコード用フォント
+	/// </summary>
+	public string CodeFontFamily { get; set; } = "Consolas, \"Cascadia Mono\", \"Meiryo UI\", monospace";
+
 	public int EditorFontSize { get; set; } = 15;
 
 	public bool ShowLineNumbers { get; set; } = true;

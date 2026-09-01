@@ -318,6 +318,18 @@ describe('buildExportCss', () => {
 		expect(css).toContain('content: "▼"');
 		expect(css).toContain('content: "▶"');
 	});
+
+	it('コードブロックフォントをテーマ変数へ反映し、スニペットより前へ置く', () => {
+		const css          = buildExportCss({
+			theme          : 'light',
+			codeFontFamily : '"HackGen Console NF", monospace',
+			snippetsCss    : [':root { --tms-mde-font-mono: snippet-mono; }'],
+		});
+		const fontIndex    = css.indexOf('.tms-mde-export-root { --tms-mde-font-mono: "HackGen Console NF", monospace; }');
+		const snippetIndex = css.indexOf('snippet-mono');
+		expect(fontIndex).toBeGreaterThan(-1);
+		expect(snippetIndex).toBeGreaterThan(fontIndex);
+	});
 });
 
 describe('decorateText', () => {

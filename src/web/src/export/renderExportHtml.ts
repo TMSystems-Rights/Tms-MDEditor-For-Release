@@ -15,6 +15,7 @@ import {
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { buildOutlineTree, collectOutlineItems, type OutlineItem, type OutlineTreeNode } from '../outline/outline';
 import type { CustomDecorationRule, ExportOutlineSettings } from '../types/app';
+import { buildCodeFontCss } from '../app/codeFont';
 import { extractImageAltAndUrl, extractWikiEmbedPath } from '../livePreview/blockWidgets';
 import {
 	collectCustomDecorationRangesFromDoc,
@@ -71,6 +72,7 @@ export type RenderExportHtmlOptions = {
 	title?: string;
 	filePath?: string | null;
 	theme: 'light' | 'dark';
+	codeFontFamily?: string;
 	snippetsCss?: string[];
 	customDecorations?: CustomDecorationRule[];
 	loadRemoteImages?: boolean;
@@ -201,12 +203,13 @@ ${main}
  * @param {RenderExportHtmlOptions} options オプション
  * @returns {string}
  */
-export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss'>): string {
+export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss' | 'codeFontFamily'>): string {
 	const snippets = (options.snippetsCss ?? []).filter((item) => item.trim().length > 0);
 	return [
 		EXPORT_THEME_LIGHT_CSS,
 		options.theme === 'dark' ? EXPORT_THEME_DARK_CSS : '',
 		EXPORT_PREVIEW_CSS,
+		buildCodeFontCss(options.codeFontFamily, '.tms-mde-export-root'),
 		...snippets,
 		EXPORT_OUTLINE_CSS,
 		EXPORT_PRINT_CSS,

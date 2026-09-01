@@ -113,6 +113,7 @@ export type ContextMenuSettings = {
 export type AppSettings = {
 	theme: 'system' | 'dark' | 'light';
 	editorFontFamily: string;
+	codeFontFamily: string;
 	editorFontSize: number;
 	showLineNumbers: boolean;
 	showEolMarkers: boolean;

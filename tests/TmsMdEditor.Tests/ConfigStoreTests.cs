@@ -184,6 +184,34 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("Ctrl+Shift+H", result.Config.Settings.Keybindings.ExportHtml);
 		Assert.Equal("Ctrl+Shift+P", result.Config.Settings.Keybindings.ExportPdf);
 		Assert.Equal("Ctrl+P", result.Config.Settings.Keybindings.Print);
+		Assert.Equal("Consolas, \"Cascadia Mono\", \"Meiryo UI\", monospace", result.Config.Settings.CodeFontFamily);
+	}
+
+	[Fact]
+	public void UpdateSettings_persists_code_font_family()
+	{
+		_configStore.Load();
+
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse(
+				"""{"codeFontFamily":"\"HackGen Console NF\", monospace"}"""
+			).RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal("\"HackGen Console NF\", monospace", update.Config?.Settings.CodeFontFamily);
+		Assert.Equal("\"HackGen Console NF\", monospace", _configStore.Load().Config.Settings.CodeFontFamily);
+	}
+
+	[Fact]
+	public void UpdateSettings_blank_code_font_family_falls_back_to_default()
+	{
+		_configStore.Load();
+
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse("""{"codeFontFamily":"   "}""").RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal("Consolas, \"Cascadia Mono\", \"Meiryo UI\", monospace", update.Config?.Settings.CodeFontFamily);
 	}
 
 	[Fact]

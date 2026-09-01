@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.1.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.1.0)
+最新リリース: [v1.2.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.2.0)
+
+## v1.2.0 の主な変更
+
+- 設定 > 外観にコードブロックフォントを追加（フェンス付きコードブロック・インラインコード、HTML / PDF エクスポート）
 
 ## v1.1.0 の主な変更
 

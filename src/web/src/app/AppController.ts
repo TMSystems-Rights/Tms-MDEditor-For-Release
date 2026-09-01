@@ -10,6 +10,7 @@ import { findMarkdownLinkUrlFromMouseEvent, isSupportedExternalLinkUrl, setDocum
 import { showActionToast, showToast, type ToastHandle } from './toast';
 import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
 import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
+import { applyCodeFontFamily, DEFAULT_CODE_FONT_FAMILY } from './codeFont';
 import { applyTheme } from './theme';
 import { bindUiZoom, computeZoomedFontSize, formatUiZoomPercent, getUiZoom, handleUiZoomKeydown, resetUiZoom } from './uiZoom';
 import { buildTabTitle, buildWindowTitle, formatEncodingLabel, formatEolLabel, isLargeFile, normalizeEol } from '../utils/format';
@@ -61,6 +62,7 @@ type SaveFileResult = {
 const DEFAULT_SETTINGS: AppSettings = {
 	theme: 'system',
 	editorFontFamily: '"Consolas", "BIZ UDゴシック", monospace',
+	codeFontFamily: DEFAULT_CODE_FONT_FAMILY,
 	editorFontSize: 15,
 	showLineNumbers: true,
 	showEolMarkers: true,
@@ -623,6 +625,7 @@ export class AppController {
 		}
 
 		applyTheme(payload.config?.theme ?? this.settings.theme);
+		applyCodeFontFamily(this.settings.codeFontFamily);
 		await this.refreshCssSnippets(false);
 
 		if (payload.config?.loadMessage) {
@@ -762,6 +765,7 @@ export class AppController {
 
 		this.settings = this.mergeSettingsWithDefaults(settings);
 		applyTheme(this.settings.theme);
+		applyCodeFontFamily(this.settings.codeFontFamily);
 
 		this.tabs.forEach((tab) => {
 			tab.editorState = this.reconfigurePaneEditorState(tab, tab.editorState, tab.viewMode);
@@ -864,6 +868,7 @@ export class AppController {
 			...DEFAULT_SETTINGS,
 			...settings,
 			showEolMarkers: settings.showEolMarkers ?? true,
+			codeFontFamily: settings.codeFontFamily?.trim() || DEFAULT_CODE_FONT_FAMILY,
 			update: {
 				...DEFAULT_SETTINGS.update,
 				...settings.update
@@ -1324,6 +1329,7 @@ export class AppController {
 			title            : tab.title || '無題',
 			filePath         : tab.filePath,
 			theme            : resolveExportTheme(this.settings.theme),
+			codeFontFamily   : this.settings.codeFontFamily,
 			snippetsCss      : snippets,
 			customDecorations: this.rawCustomDecorations,
 			loadRemoteImages : this.settings.loadRemoteImages,

@@ -1,6 +1,7 @@
 import type { CssSnippetsResponse } from '../types/app';
 
-const STYLE_ATTRIBUTE = 'data-tms-mde-css-snippet';
+/** CSSスニペットを注入した style 要素を識別する属性 */
+export const CSS_SNIPPET_STYLE_ATTRIBUTE = 'data-tms-mde-css-snippet';
 
 export type CssSnippetsReloadStatus = {
 	message: string;
@@ -40,7 +41,7 @@ export function getCssSnippetsReloadStatus(response: CssSnippetsResponse): CssSn
  * @returns {void}
  */
 export function applyCssSnippets(response: CssSnippetsResponse): void {
-	document.head.querySelectorAll(`style[${STYLE_ATTRIBUTE}]`).forEach((style) => style.remove());
+	document.head.querySelectorAll(`style[${CSS_SNIPPET_STYLE_ATTRIBUTE}]`).forEach((style) => style.remove());
 
 	response.snippets
 		.filter((snippet) => snippet.enabled && !snippet.error)
@@ -48,7 +49,7 @@ export function applyCssSnippets(response: CssSnippetsResponse): void {
 			const style        = document.createElement('style');
 			style.dataset.name = snippet.name;
 			style.textContent  = snippet.cssText;
-			style.setAttribute(STYLE_ATTRIBUTE, '');
+			style.setAttribute(CSS_SNIPPET_STYLE_ATTRIBUTE, '');
 			document.head.appendChild(style);
 		});
 }
