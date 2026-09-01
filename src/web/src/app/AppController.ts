@@ -21,6 +21,7 @@ import { closeOpenSearchPanel, moveToSearchMatch, openFindPanel, openReplacePane
 import { calculateSplitRatio, createSynchronizedTransaction, type SplitDirection } from '../split/splitView';
 import { createPaneLayout, findAdjacentPaneId, listPaneIds, removePane, splitPane, updateSplitRatio, type PaneId, type PaneLayoutNode, type PaneSplit } from '../split/paneLayout';
 import { applyTabBarWheelScroll, revealElementInHorizontalScroller } from '../split/tabBarScroll';
+import { isPointInHorizontalScrollbar, shouldOpenUntitledTabOnTabBarDoubleClick } from '../split/tabBarEmptyClick';
 import { calculatePaneDropPlacement, type PaneDropPlacement } from '../split/tabDrop';
 import { SettingsModal } from '../settings/SettingsModal';
 import { applyCssSnippets, getCssSnippetsReloadStatus } from '../settings/cssSnippets';
@@ -2084,6 +2085,38 @@ export class AppController {
 	}
 
 	/**
+	 * タブバー空白のダブルクリックで無題タブを開く
+	 * @param {MouseEvent} event ダブルクリック
+	 * @param {PaneId} paneId 対象ペイン
+	 * @param {HTMLElement} tabBar タブバー
+	 * @returns {void}
+	 */
+	private handleTabBarEmptyDoubleClick(event: MouseEvent, paneId: PaneId, tabBar: HTMLElement): void {
+		const target                = event.target;
+		const onTab                 = target instanceof Element && Boolean(target.closest('.tms-mde-tab'));
+		const onNewTabButton        = target instanceof Element && Boolean(target.closest('.tms-mde-new-tab-button'));
+		const tabBarBox             = tabBar.getBoundingClientRect();
+		const inHorizontalScrollbar = isPointInHorizontalScrollbar(
+			{
+				left        : tabBarBox.left,
+				right       : tabBarBox.right,
+				top         : tabBarBox.top,
+				bottom      : tabBarBox.bottom,
+				clientHeight: tabBar.clientHeight
+			},
+			event.clientX,
+			event.clientY
+		);
+		if (!shouldOpenUntitledTabOnTabBarDoubleClick({ onTab, onNewTabButton, inHorizontalScrollbar })) {
+			return;
+		}
+
+		event.preventDefault();
+		this.activePaneId = paneId;
+		void this.createNewTab();
+	}
+
+	/**
 	 * Web / シェルのメニューを閉じる
 	 * @returns {void}
 	 */
@@ -2513,6 +2546,9 @@ export class AppController {
 			event.preventDefault();
 			this.clearTabDropIndicators();
 			if (this.tabDragSourceId && this.tabDragSourcePaneId) this.moveOrReorderTab(this.tabDragSourceId, this.tabDragSourcePaneId, paneId);
+		});
+		tabWrap.addEventListener('dblclick', (event) => {
+			this.handleTabBarEmptyDoubleClick(event, paneId, tabBar);
 		});
 		const addButton       = document.createElement('button');
 		addButton.type        = 'button';

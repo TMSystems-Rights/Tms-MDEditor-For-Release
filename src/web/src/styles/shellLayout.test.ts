@@ -36,4 +36,8 @@ describe('ペインエディタのスクロールレイアウト', () => {
 		expect(shellCss).toMatch(/\.tms-mde-pane-tab-bar\s*\{[^}]*min-width:\s*0;[^}]*overflow-x:\s*auto;/s);
 		expect(shellCss).toMatch(/\.tms-mde-tab\s*\{[^}]*flex:\s*0 0 auto;/s);
 	});
+
+	it('タブバー空白のダブルクリック用にテキスト選択を無効化する', () => {
+		expect(shellCss).toMatch(/\.tms-mde-pane-tab-bar-wrap\s*\{[^}]*user-select:\s*none;/s);
+	});
 });

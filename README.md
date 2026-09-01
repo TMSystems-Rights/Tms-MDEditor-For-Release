@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.2.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.2.0)
+最新リリース: [v1.3.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.3.0)
+
+## v1.3.0 の主な変更
+
+- タブバーの空白をダブルクリックすると無題の新規タブを開く（サクラエディタ準拠）
 
 ## v1.2.0 の主な変更
 
