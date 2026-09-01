@@ -7,7 +7,6 @@ src/web/dist/
 src/web/node_modules/
 src/TmsMdEditor/webdist/
 tmp/
-css_snipets_test/
 *.user
 *.suo
 .vs/

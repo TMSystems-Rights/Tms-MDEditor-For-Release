@@ -247,7 +247,12 @@ src/web/                           … Web 層（TypeScript + Vite）
 tests/             … xUnit
 scripts/           … ビルド・検証スクリプト
 installer/         … Inno Setup スクリプト
+css_snipets_sample/                … CSSスニペットの参考例（アプリ本体には同梱しません）
 ```
+
+CSSスニペットの書き方の例は `css_snipets_sample/sample.css` を参照してください。`dataDir` の `snippets` フォルダへコピーし、設定画面で有効にして再読み込みします。公式ポータルのアプリ説明ページにもサンプルを置いています。
+
+公式ページ: https://tm-systems.jp/#apps
 
 ## データ保存先
 

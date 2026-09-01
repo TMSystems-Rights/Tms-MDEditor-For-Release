@@ -1,0 +1,479 @@
+/*
+ * TMS-MDEditor カスタムCSSスニペット サンプル
+ *
+ * このように定義することで、エディタの見た目をカスタマイズすることが出来ます、というサンプルです。
+ * そのまま使っても良いですし、色だけ差し替えて使っても構いません。
+ * 勿論、好きにカスタマイズしても構いません。
+ *
+ * 【使い方】
+ * 1. このファイルを dataDir 配下の snippets フォルダへコピーする
+ *    （設定画面の「CSSスニペット」からフォルダを開けます）
+ * 2. 設定 > CSSスニペット でこのファイルを有効にする
+ * 3. 「再読み込み」を実行する
+ *
+ * 【参考】
+ * 公式ポータルの TMS-MDEditor アプリ説明ページにもサンプルを置いています。
+ * あわせて参照してください。
+ * https://tm-systems.jp/#apps
+ *
+ * 【セレクタの書き方】
+ * - エディタ向けの指定は .tms-mde-editor-host の内側に限定すると、
+ *   設定画面など他のUIへ漏れにくいです
+ * - ライブプレビュー専用は .cm-editor.tms-mde-cm-live-preview を付けます
+ * - アプリ既定スタイルより優先したい場合は !important が必要になることがあります
+ * - 有効なスニペットは HTML / PDF エクスポート・印刷にも埋め込まれます
+ *
+ * 【テーマについて】
+ * - body.tms-mde-body はライト／ダーク共通の土台です
+ * - body.tms-mde-theme-dark はテーマを「ダーク」にしたとき
+ * - html[data-os-theme='dark'] ...:not(.tms-mde-theme-light) は
+ *   テーマが「システム」で、OS がダークのときです
+ */
+
+/*
+ * ==============================
+ * 全体定義（CSS変数）
+ * ============================== */
+
+/*
+ * ---------------------------------------------------
+ * ライトテーマ向けのスニペット専用変数
+ * ---------------------------------------------------
+ * --mde-snippet-* はこのファイル内だけで使う色・余白です。
+ * アプリ標準の --tms-mde-* とは別なので、スニペットを外しても
+ * アプリ本体のテーマは元に戻ります。 */
+
+body.tms-mde-body {
+	/* 本文左右の余白 */
+	--mde-snippet-content-padding: 8px;
+	/* テーブルの最大高さ（超えるとスクロール） */
+	--mde-snippet-table-max-height: min(70vh, 720px);
+
+	/* フェンス付きコードブロックの背景 */
+	--mde-snippet-code-block-bg: #f6f8fa;
+	/* インラインコードの半透明背景（必要なら .cm-md-code へ割り当て可） */
+	--mde-snippet-inline-code-bg: rgba(175, 184, 193, 0.35);
+	/* インラインコードの不透明背景（本ファイルではこちらを使用） */
+	--mde-snippet-inline-code-bg-solid: #dce0e3;
+	/* インラインコードの文字色 */
+	--mde-snippet-inline-code-fg: var(--tms-mde-color-text);
+
+	/* テーブル見出し行の背景・罫線 */
+	--mde-snippet-table-header-bg: #eef3f7;
+	--mde-snippet-table-border: var(--tms-mde-color-border);
+
+	/* 見出しの帯背景（H1 / H2 / H3以下）と区切り線 */
+	--mde-snippet-heading-h1-bg: rgba(37, 99, 235, 0.1);
+	--mde-snippet-heading-h2-bg: rgba(71, 85, 105, 0.08);
+	--mde-snippet-heading-sub-bg: rgba(71, 85, 105, 0.06);
+	--mde-snippet-heading-rule: rgba(71, 85, 105, 0.35);
+	/* 見出しの文字色（H1〜H6） */
+	--mde-snippet-heading-h1-fg: #256f68;
+	--mde-snippet-heading-h2-fg: #2c6478;
+	--mde-snippet-heading-h3-fg: #9b5a16;
+	--mde-snippet-heading-h4-fg: #786e12;
+	--mde-snippet-heading-h5-fg: #526e2d;
+	--mde-snippet-heading-h6-fg: #526478;
+
+	/* 斜体・引用の文字色 */
+	--mde-snippet-em-fg: #db711a;
+	/* 取り消し線の文字色／線色 */
+	--mde-snippet-strike-fg: #505458;
+	/* 太字の文字色 */
+	--mde-snippet-strong-fg: #d05a5a;
+
+	/* 完了タスク（- [x]）の文字色と打ち消し線色 */
+	--mde-snippet-task-done-fg: #6f7f6f;
+	--mde-snippet-task-done-decoration: #9caf9c;
+
+	/* テーブル行ハイライト（成功／注意／エラー／情報） */
+	--mde-snippet-row-success-bg: rgba(22, 101, 52, 0.13);
+	--mde-snippet-row-success-accent: #2f9e63;
+	--mde-snippet-row-warn-bg: rgba(161, 98, 7, 0.14);
+	--mde-snippet-row-warn-accent: #c58a24;
+	--mde-snippet-row-error-bg: rgba(185, 28, 28, 0.13);
+	--mde-snippet-row-error-accent: #dc4c4c;
+	--mde-snippet-row-info-bg: rgba(14, 116, 144, 0.13);
+	--mde-snippet-row-info-accent: #3192c2;
+}
+
+/*
+ * ---------------------------------------------------
+ * ダークテーマ向けの上書き
+ * ---------------------------------------------------
+ * --tms-* / --tms-mde-* はアプリ全体のテーマ変数です。
+ * ここで変えると、エディタ以外（枠線・本文色など）にも効きます。 */
+
+body.tms-mde-theme-dark,
+html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
+	/* アプリ全体の背景・文字・アクセント */
+	--tms-bg: #101010;
+	--tms-fg: #f0f0f0;
+	--tms-accent: #3b82f6;
+	--tms-mde-color-bg: var(--tms-bg);
+
+	/* 選択範囲の色（テーブル以外）。透過度は 0〜1 */
+	--tms-mde-color-selection: #a90;
+	--tms-mde-selection-opacity: 0.2;
+	--tms-mde-selection-opacity-focused: 0.32;
+
+	/* 面・枠線・本文・補助文字 */
+	--tms-mde-color-surface: #191919;
+	--tms-mde-color-border: #5b6570;
+	--tms-mde-color-text: var(--tms-fg);
+	--tms-mde-color-text-muted: #b8bec6;
+	/* アプリ標準のコード背景（スニペット未指定箇所のフォールバック） */
+	--tms-mde-color-code-bg: #233f5a;
+	/* アプリ標準の見出し色（本ファイルの見出し指定が当たらない場合） */
+	--tms-mde-color-heading: #e7f7ff;
+
+	/* 以下はライト側と同名のスニペット変数を、ダーク向けに差し替え */
+	--mde-snippet-code-block-bg: #233f5a;
+	/* コードブロック内のアクティブ行（カーソルがある行） */
+	--mde-snippet-code-block-bg-active: #233f5a90;
+	--mde-snippet-inline-code-bg: rgba(82, 156, 183, 0.35);
+	--mde-snippet-inline-code-bg-solid: #29474f;
+	--mde-snippet-inline-code-fg: var(--tms-mde-color-text);
+	--mde-snippet-table-header-bg: #27436a;
+	--mde-snippet-table-border: rgba(230, 237, 243, 0.38);
+	--mde-snippet-heading-h1-bg: rgba(26, 116, 117, 0.44);
+	--mde-snippet-heading-h2-bg: rgba(106, 139, 238, 0.22);
+	--mde-snippet-heading-sub-bg: rgba(48, 48, 48, 0.32);
+	--mde-snippet-heading-rule: rgba(255, 255, 255, 0.36);
+	--mde-snippet-heading-h1-fg: #9edccd;
+	--mde-snippet-heading-h2-fg: #a8c7ef;
+	--mde-snippet-heading-h3-fg: #d09a62;
+	--mde-snippet-heading-h4-fg: #c5bd58;
+	--mde-snippet-heading-h5-fg: #9ab46b;
+	--mde-snippet-heading-h6-fg: #8fa4b8;
+	--mde-snippet-em-fg: #db711a;
+	--mde-snippet-strike-fg: #7f858b;
+	--mde-snippet-strong-fg: #d1ac61;
+	--mde-snippet-task-done-fg: rgba(116, 158, 116, 0.82);
+	--mde-snippet-task-done-decoration: rgba(138, 162, 138, 0.82);
+	--mde-snippet-row-success-bg: rgba(13, 43, 31, 0.56);
+	--mde-snippet-row-success-accent: #4cc38a;
+	--mde-snippet-row-warn-bg: rgba(47, 37, 8, 0.56);
+	--mde-snippet-row-warn-accent: #f0b84a;
+	--mde-snippet-row-error-bg: rgba(39, 8, 8, 0.56);
+	--mde-snippet-row-error-accent: #fd5c5c;
+	--mde-snippet-row-info-bg: rgba(11, 34, 51, 0.56);
+	--mde-snippet-row-info-accent: #5aa7e8;
+}
+
+/*
+ * ==============================
+ * エディタ編集領域
+ * ============================== */
+
+/* 本文の左右余白（行番号ガターとの間隔） */
+.tms-mde-editor-host .cm-content {
+	padding-right: var(--mde-snippet-content-padding);
+	padding-left: var(--mde-snippet-content-padding);
+}
+
+/*
+ * ==============================
+ * インライン Markdown 装飾
+ * ==============================
+ * 対象クラスはアプリがライブプレビュー時に付与します。
+ * 子孫の * まで色を指定しているのは、内側の別装飾に上書きされないためです。 */
+
+/*
+ * ---------------------------------------------------
+ * 斜体（*text* / _text_）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-md-em,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-md-em * {
+	color: var(--mde-snippet-em-fg) !important;
+	font-style: oblique 12deg !important;
+}
+
+/*
+ * ---------------------------------------------------
+ * 太字（**text** / __text__）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-md-strong {
+	color: var(--mde-snippet-strong-fg);
+	font-weight: 700;
+}
+
+/*
+ * ---------------------------------------------------
+ * 取り消し線（~~text~~）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-md-strike {
+	color: var(--mde-snippet-strike-fg);
+	text-decoration-color: var(--mde-snippet-strike-fg);
+}
+
+/*
+ * ---------------------------------------------------
+ * インラインコード（`code`）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-md-code {
+	padding: 0 0.25em;
+	border-radius: 3px;
+	background: var(--mde-snippet-inline-code-bg-solid);
+	color: var(--mde-snippet-inline-code-fg);
+	font-size: inherit;
+}
+
+/*
+ * ---------------------------------------------------
+ * ハイライト（==text== および HTML の <mark>）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-md-highlight,
+.tms-mde-editor-host .cm-md-html-mark {
+	color: #fff27e;
+	background: #7b0a0a;
+	font-weight: 700;
+}
+
+/*
+ * ---------------------------------------------------
+ * 完了したタスクリスト（- [x]）
+ * ---------------------------------------------------
+ * 行全体を薄い打ち消し線にし、チェックボックス自体には線を掛けません。 */
+
+.tms-mde-editor-host .cm-line:has(.cm-md-checkbox:checked) {
+	color: var(--mde-snippet-task-done-fg);
+	text-decoration: line-through;
+	text-decoration-color: var(--mde-snippet-task-done-decoration);
+}
+
+.tms-mde-editor-host .cm-line:has(.cm-md-checkbox:checked) .cm-md-checkbox {
+	text-decoration: none;
+}
+
+/*
+ * ---------------------------------------------------
+ * 引用（> で始まる行）
+ * ---------------------------------------------------
+ * 斜体と同じ色味に揃え、引用内のインラインコードだけは通常体に戻します。 */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-blockquote,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-blockquote * {
+	color: var(--mde-snippet-em-fg) !important;
+	font-style: oblique 12deg !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-blockquote .cm-md-code {
+	background: var(--mde-snippet-inline-code-bg-solid) !important;
+	color: var(--mde-snippet-inline-code-fg) !important;
+	font-style: normal !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-blockquote .cm-md-code * {
+	color: var(--mde-snippet-inline-code-fg) !important;
+	font-style: normal !important;
+}
+
+/*
+ * ==============================
+ * 見出し（# 〜 ######）
+ * ==============================
+ * ライブプレビュー時のみ、行全体を帯＋左アクセントで強調します。
+ * 左側の h1〜h6 ラベルはアプリが ::before で出すため、位置だけ調整しています。 */
+
+/*
+ * ---------------------------------------------------
+ * 見出し行の共通レイアウト
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h1,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h2,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h3,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h4,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h5,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h6 {
+	box-sizing: border-box;
+	position: relative;
+	margin: 0.25em 0 0.15em;
+	background-clip: padding-box;
+}
+
+/* ガター側に出る「h1」〜「h6」ラベルの位置と色 */
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h1::before,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h2::before,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h3::before,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h4::before,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h5::before,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h6::before {
+	position: absolute;
+	left: calc(-2.1em - 2px);
+	width: 1.6em;
+	margin-left: 0 !important;
+	color: var(--tms-mde-color-text-muted) !important;
+	text-align: right;
+}
+
+/*
+ * ---------------------------------------------------
+ * H1（# 見出し）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h1 {
+	padding: 0.12em 0.45em 0.18em 0.65em;
+	border-left: 4px solid var(--tms-mde-color-primary);
+	color: var(--mde-snippet-heading-h1-fg) !important;
+	background: var(--mde-snippet-heading-h1-bg) !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h1 * {
+	color: var(--mde-snippet-heading-h1-fg) !important;
+}
+
+/*
+ * ---------------------------------------------------
+ * H2（## 見出し）
+ * --------------------------------------------------- */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h2 {
+	padding: 0.1em 0.45em 0.16em 0.65em;
+	border-left: 4px solid color-mix(in srgb, var(--tms-mde-color-primary) 70%, var(--tms-mde-color-text));
+	color: var(--mde-snippet-heading-h2-fg) !important;
+	background: var(--mde-snippet-heading-h2-bg) !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h2 * {
+	color: var(--mde-snippet-heading-h2-fg) !important;
+}
+
+/*
+ * ---------------------------------------------------
+ * H3〜H6（### 〜 ######）
+ * ---------------------------------------------------
+ * 帯は共通、文字色だけレベルごとに変えます。 */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h3,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h4,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h5,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h6 {
+	padding: 0.05em 0.35em 0.05em 0.6em;
+	border-bottom: 1px dashed var(--mde-snippet-heading-rule);
+	border-left: 3px solid var(--mde-snippet-heading-rule);
+	background: var(--mde-snippet-heading-sub-bg) !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h3,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h3 * {
+	color: var(--mde-snippet-heading-h3-fg) !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h4,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h4 * {
+	color: var(--mde-snippet-heading-h4-fg) !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h5,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h5 * {
+	color: var(--mde-snippet-heading-h5-fg) !important;
+}
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h6,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-h6 * {
+	color: var(--mde-snippet-heading-h6-fg) !important;
+}
+
+/*
+ * ==============================
+ * コードブロック（``` フェンス）
+ * ============================== */
+
+/* フェンス内の各行の背景 */
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-fenced-code {
+	background: var(--mde-snippet-code-block-bg);
+}
+
+/* カーソルがある行だけ、少し透過した背景に差し替え（ダーク変数を使用） */
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-fenced-code.cm-activeLine {
+	background: var(--mde-snippet-code-block-bg-active) !important;
+}
+
+/* フェンス内のトークンにインラインコード背景が乗らないようにする */
+.tms-mde-editor-host .cm-line.cm-md-fenced-code .cm-md-code {
+	background: transparent;
+}
+
+/*
+ * ==============================
+ * テーブル
+ * ============================== */
+
+/*
+ * ---------------------------------------------------
+ * 基本スタイル
+ * --------------------------------------------------- */
+
+/* 大きい表は高さ制限して縦横スクロール */
+.tms-mde-editor-host .cm-md-table-wrap {
+	max-height: var(--mde-snippet-table-max-height);
+	margin: 0.55em 0;
+	overflow: auto;
+}
+
+.tms-mde-editor-host .cm-md-table {
+	border-collapse: collapse;
+	font-size: inherit;
+	line-height: 1.45;
+}
+
+.tms-mde-editor-host .cm-md-table th,
+.tms-mde-editor-host .cm-md-table td {
+	padding: 0.38em 0.72em;
+	border: 1px solid var(--mde-snippet-table-border);
+	vertical-align: top;
+}
+
+/* 見出しセル */
+.tms-mde-editor-host .cm-md-table th {
+	background: var(--mde-snippet-table-header-bg);
+	color: #a3c8c9;
+	font-weight: 700;
+}
+
+/* セル内インラインコードの文字色 */
+.tms-mde-editor-host .cm-md-table td .cm-md-code {
+	color: var(--mde-snippet-inline-code-fg);
+}
+
+/*
+ * ==============================
+ * Mermaid 図
+ * ==============================
+ * アプリ既定の見た目をほぼ使い、高さ制限とフォントだけ上書きしています。 */
+
+.tms-mde-editor-host .cm-md-mermaid-wrap {
+	max-height: min(70vh, 720px);
+	font-family: 'trebuchet ms', Verdana, Arial, 'Segoe UI', Meiryo, sans-serif;
+}
+
+/*
+ * ==============================
+ * カスタム装飾ルール用クラスのサンプル
+ * ==============================
+ * 設定 > カスタム装飾 で「正規表現 → CSSクラス」を定義すると、
+ * 一致した文字列へここで定義したクラスが付きます。
+ *
+ * 例:
+ *   パターン     _v(.+?)_v
+ *   CSSクラス    tms-custom-1-underline-nomal
+ *   区切りを隠す  オン
+ *
+ * クラス名は設定側と完全一致させてください（ファイルを置いただけでは効きません）。 */
+
+/* 通常の下線 */
+.tms-custom-1-underline-nomal {
+	text-decoration: underline;
+}
+
+/* 赤い波線の下線 */
+.tms-custom-2-underline-wave-red {
+	text-decoration: underline 2px wavy red;
+}
