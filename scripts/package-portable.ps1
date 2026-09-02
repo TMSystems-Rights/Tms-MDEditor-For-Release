@@ -278,9 +278,18 @@ if (-not (Test-Path -LiteralPath $outputFull)) {
 
 try {
 	Publish-PortableLauncher -Root $ProjectRoot -OutputDir $launcherPublishFull
-	$launcherExe = Join-Path $launcherPublishFull 'TmsMdEditor.Launcher.exe'
+	$launcherExe = Join-Path $launcherPublishFull 'TmsMdEditor.Portable.exe'
 	if (-not (Test-Path -LiteralPath $launcherExe)) {
 		throw "起動用 exe が見つかりません: $launcherExe"
+	}
+
+	$launcherInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($launcherExe)
+	$expectedDisplayName = 'TMS-MDEditor.portable'
+	if ($launcherInfo.FileDescription -ne $expectedDisplayName) {
+		throw "起動用 exe の FileDescription が $expectedDisplayName ではありません: $($launcherInfo.FileDescription)"
+	}
+	if ($launcherInfo.ProductName -ne $expectedDisplayName) {
+		throw "起動用 exe の ProductName が $expectedDisplayName ではありません: $($launcherInfo.ProductName)"
 	}
 
 	New-Item -ItemType Directory -Path $appDir | Out-Null

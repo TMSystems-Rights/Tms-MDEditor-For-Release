@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -6,12 +6,19 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>TmsMdEditor.PortableLauncher</RootNamespace>
-    <AssemblyName>TmsMdEditor.Launcher</AssemblyName>
+    <!-- ビルド成果物名。ZIP 直下へ TmsMdEditor.exe としてコピーする。Windows の既定アプリ表示は AssemblyTitle -->
+    <AssemblyName>TmsMdEditor.Portable</AssemblyName>
+    <AssemblyTitle>TMS-MDEditor.portable</AssemblyTitle>
+    <Product>TMS-MDEditor.portable</Product>
     <ApplicationIcon>$(MSBuildThisFileDirectory)..\..\build\icon.ico</ApplicationIcon>
     <InvariantGlobalization>true</InvariantGlobalization>
     <DebugType>none</DebugType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Native AOT は Desktop Development for C++（link.exe）が必要。未導入環境では package-portable.ps1 が trimmed 単一ファイルへフォールバックする -->
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TmsMdEditor.Tests" />
+  </ItemGroup>
 
 </Project>

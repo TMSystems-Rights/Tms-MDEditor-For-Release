@@ -17,8 +17,9 @@ internal static partial class Program
 	/// <summary>
 	/// 本体 exe を起動する
 	/// </summary>
+	/// <param name="args">エクスプローラやコマンドラインから渡された引数</param>
 	/// <returns>成功なら 0</returns>
-	private static int Main()
+	private static int Main(string[] args)
 	{
 		string baseDirectory = AppContext.BaseDirectory;
 		string appDirectory = Path.Combine(baseDirectory, AppFolderName);
@@ -36,6 +37,11 @@ internal static partial class Program
 			WorkingDirectory = appDirectory,
 			UseShellExecute = false,
 		};
+
+		foreach (string argument in LaunchArguments.Normalize(args))
+		{
+			startInfo.ArgumentList.Add(argument);
+		}
 
 		try
 		{

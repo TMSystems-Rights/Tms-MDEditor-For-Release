@@ -1,7 +1,7 @@
 #define MyAppName "TMS-MDEditor"
 #define MyAppExeName "TmsMdEditor.exe"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.3.0"
+  #define MyAppVersion "1.3.1"
 #endif
 #ifndef MyPublishDir
   #define MyPublishDir "..\\dist\\publish\\win-x64"

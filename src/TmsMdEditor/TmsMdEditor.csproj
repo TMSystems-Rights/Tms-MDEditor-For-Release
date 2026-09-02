@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>TmsMdEditor</RootNamespace>
     <AssemblyName>TmsMdEditor</AssemblyName>
+    <AssemblyTitle>TMS-MDEditor</AssemblyTitle>
     <ApplicationIcon>$(MSBuildThisFileDirectory)..\..\build\icon.ico</ApplicationIcon>
     <WebProjectDir>$(MSBuildThisFileDirectory)..\web\</WebProjectDir>
     <WebDistDir>$(WebProjectDir)dist\</WebDistDir>

@@ -4,7 +4,12 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.3.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.3.0)
+最新リリース: [v1.3.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.3.1)
+
+## v1.3.1 の主な変更
+
+- ポータブル ZIP の既定アプリ表示名を `TMS-MDEditor.portable` にする（インストーラ版は `TMS-MDEditor`）
+- ポータブル ZIP でファイルをダブルクリックしたときに、そのファイルを開く
 
 ## v1.3.0 の主な変更
 
@@ -235,10 +240,11 @@ README 等の変更で、既存ユーザーに新インストーラを配布す�
 | 項目     | 内容                                                                 |
 | -------- | -------------------------------------------------------------------- |
 | 判定     | `app\TmsMdEditor.exe` と同じフォルダの `portable-mode.json`（削除禁止） |
-| 起動     | 展開フォルダ直下の `TmsMdEditor.exe`（起動用 stub。本体は `app\TmsMdEditor.exe`） |
+| 起動     | 展開フォルダ直下の `TmsMdEditor.exe`（起動用 stub。本体は `app\TmsMdEditor.exe`。起動引数は本体へ転送する） |
+| 表示名   | Windows の既定アプリ表示は `TMS-MDEditor.portable`（インストーラ版は `TMS-MDEditor`） |
 | 保存先   | `<exeDir>\data`（通常は `app\data`。`%APPDATA%` へは書かない）        |
 | 更新     | 公式ページへ誘導。自動ダウンロードしない                             |
-| 関連付け | 登録しない                                                           |
+| 関連付け | 登録しない。手動で既定アプリにする場合は直下の `TmsMdEditor.exe` を選ぶ |
 
 `portable-mode.json` を削除するとインストーラ版として `%APPDATA%\tms-mdeditor` へ書きます。
 

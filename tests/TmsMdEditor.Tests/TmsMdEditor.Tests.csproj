@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TmsMdEditor\TmsMdEditor.csproj" />
+    <ProjectReference Include="..\..\src\TmsMdEditor.PortableLauncher\TmsMdEditor.PortableLauncher.csproj" />
   </ItemGroup>
 
   <ItemGroup>

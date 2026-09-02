@@ -1,7 +1,10 @@
 TMS-MDEditor ポータブル ZIP 版
 
 このフォルダを任意の場所へ展開し、直下の TmsMdEditor.exe から起動してください。
-本体は app\TmsMdEditor.exe です。直下の exe は起動用です。インストール、UAC 昇格、スタートメニュー登録、ファイル関連付けは行いません。
+本体は app\TmsMdEditor.exe です。直下の exe は起動用です。インストール、UAC 昇格、スタートメニュー登録、ファイル関連付けの自動登録は行いません。
+
+Windows の「プログラムから開く」で直下の TmsMdEditor.exe を選んだ場合、表示名は TMS-MDEditor.portable です（インストーラ版の TMS-MDEditor と区別します）。
+.markdown / .md / .txt などを手動で既定アプリにした場合、ダブルクリックしたファイルは直下の exe から本体へ渡されます。
 
 ■ 注意（必ずお読みください）
 
