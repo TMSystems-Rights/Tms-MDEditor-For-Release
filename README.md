@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.3.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.3.1)
+最新リリース: [v1.3.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.3.2)
+
+## v1.3.2 の主な変更
+
+- すでに開いているタブでも、最近使ったファイル・タブ切替・`Ctrl+Tab` で表示したファイルを MRU の先頭へ移す
 
 ## v1.3.1 の主な変更
 

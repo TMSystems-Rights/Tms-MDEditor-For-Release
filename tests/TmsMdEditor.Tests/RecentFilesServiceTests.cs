@@ -50,6 +50,27 @@ public class RecentFilesServiceTests : IDisposable
 	}
 
 	[Fact]
+	public void Add_moves_existing_path_to_front()
+	{
+		AppConfigDocument config = _configStore.Load().Config;
+
+		SaveConfigResult addOlder = _recentFilesService.Add(_configStore, config, "C:\\files\\older.md");
+		Assert.True(addOlder.Success, addOlder.Message);
+		config = addOlder.Config ?? config;
+
+		SaveConfigResult addNewer = _recentFilesService.Add(_configStore, config, "C:\\files\\newer.md");
+		Assert.True(addNewer.Success, addNewer.Message);
+		config = addNewer.Config ?? config;
+
+		SaveConfigResult reopenOlder = _recentFilesService.Add(_configStore, config, "C:\\files\\older.md");
+		Assert.True(reopenOlder.Success, reopenOlder.Message);
+
+		Assert.Equal(2, reopenOlder.Config?.RecentFiles.Count);
+		Assert.Equal("C:\\files\\older.md", reopenOlder.Config?.RecentFiles[0]);
+		Assert.Equal("C:\\files\\newer.md", reopenOlder.Config?.RecentFiles[1]);
+	}
+
+	[Fact]
 	public void Remove_deletes_path_from_recent_files()
 	{
 		AppConfigDocument config = _configStore.Load().Config;

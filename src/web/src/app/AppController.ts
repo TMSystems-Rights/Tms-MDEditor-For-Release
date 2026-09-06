@@ -966,6 +966,7 @@ export class AppController {
 
 	/**
 	 * 読み込み済みファイル情報からタブを開く
+	 * 既に開いているタブでも、開く操作なら recentFiles の先頭へ書き出す
 	 * @param {TextFileInfo} file ファイル情報
 	 * @returns {Promise<void>}
 	 */
@@ -975,14 +976,14 @@ export class AppController {
 		if (existing) {
 			const paneId = this.findPaneContainingTab(existing.tabId) ?? this.activePaneId;
 			this.activateTab(existing.tabId, paneId);
-			return;
+		} else {
+			const tab = this.createTabRuntimeFromTextFile(file);
+
+			this.tabs.push(tab);
+			this.addTabToPane(tab, this.activePaneId);
+			this.activateTab(tab.tabId, this.activePaneId);
 		}
 
-		const tab = this.createTabRuntimeFromTextFile(file);
-
-		this.tabs.push(tab);
-		this.addTabToPane(tab, this.activePaneId);
-		this.activateTab(tab.tabId, this.activePaneId);
 		await invokeBridge('recent:add', { filePath: file.filePath });
 	}
 
@@ -1091,14 +1092,21 @@ export class AppController {
 	 * タブをアクティブ化する
 	 * @param {string} tabId タブ ID
 	 * @param {PaneId} [paneId] ペイン ID
+	 * @param {{ recordRecent?: boolean }} [options] ユーザ操作なら recentFiles を更新する
 	 * @returns {void}
 	 */
-	public activateTab(tabId: string, paneId: PaneId = this.activePaneId): void {
+	public activateTab(
+		tabId: string,
+		paneId: PaneId = this.activePaneId,
+		options: { recordRecent?: boolean } = {},
+	): void {
 		const nextTab = this.tabs.find((tab) => tab.tabId === tabId);
 		const pane    = this.panes.get(paneId);
 		if (!nextTab || !pane) {
 			return;
 		}
+
+		const alreadyActive = pane.activeTabId === tabId && this.activePaneId === paneId;
 
 		this.persistActiveEditorState();
 		if (!pane.tabIds.includes(tabId)) this.addTabToPane(nextTab, paneId);
@@ -1109,6 +1117,10 @@ export class AppController {
 		this.mountActiveEditor();
 		this.refreshStatusBar();
 		void this.updateWindowTitle();
+
+		if (options.recordRecent && nextTab.filePath && !alreadyActive) {
+			void invokeBridge('recent:add', { filePath: nextTab.filePath });
+		}
 	}
 
 	/**
@@ -1786,7 +1798,7 @@ export class AppController {
 
 		const currentIndex = pane.tabIds.indexOf(pane.activeTabId);
 		const nextIndex    = (currentIndex + offset + pane.tabIds.length) % pane.tabIds.length;
-		this.activateTab(pane.tabIds[nextIndex], pane.paneId);
+		this.activateTab(pane.tabIds[nextIndex], pane.paneId, { recordRecent: true });
 	}
 
 	/**
@@ -2034,7 +2046,7 @@ export class AppController {
 				return;
 			}
 
-			this.activateTab(tab.tabId, pane.paneId);
+			this.activateTab(tab.tabId, pane.paneId, { recordRecent: true });
 		});
 
 		button.addEventListener('auxclick', (event) => {
@@ -2319,7 +2331,7 @@ export class AppController {
 		}
 
 		if (action === 'toggleViewMode') {
-			this.activateTab(tabId);
+			this.activateTab(tabId, this.activePaneId, { recordRecent: true });
 			this.toggleActiveTabViewMode();
 			return;
 		}
@@ -2330,13 +2342,13 @@ export class AppController {
 		}
 
 		if (action === 'splitHorizontal' || action === 'splitVertical') {
-			this.activateTab(tabId);
+			this.activateTab(tabId, this.activePaneId, { recordRecent: true });
 			this.splitActiveView(action === 'splitHorizontal' ? 'horizontal' : 'vertical');
 			return;
 		}
 
 		if (action === 'unsplit') {
-			this.activateTab(tabId);
+			this.activateTab(tabId, this.activePaneId, { recordRecent: true });
 			this.unsplitActiveView();
 			return;
 		}
