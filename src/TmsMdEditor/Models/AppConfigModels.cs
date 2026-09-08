@@ -75,6 +75,16 @@ internal sealed class AppSettings
 
 	public bool LoadRemoteImages { get; set; } = true;
 
+	/// <summary>
+	/// クリップボード画像の保存先。空ならピクチャ配下の既定フォルダを使う
+	/// </summary>
+	public string AttachmentFolder { get; set; } = string.Empty;
+
+	/// <summary>
+	/// ライブプレビュー画像の枠線
+	/// </summary>
+	public ImageBorderSettings ImageBorder { get; set; } = new();
+
 	public string NewFileEncoding { get; set; } = "utf8";
 
 	public string NewFileEol { get; set; } = "crlf";
@@ -102,6 +112,23 @@ internal sealed class AppSettings
 	public SearchSettings Search { get; set; } = new();
 
 	public ContextMenuSettings ContextMenu { get; set; } = new();
+}
+
+/// <summary>
+/// ライブプレビュー画像の枠線設定
+/// </summary>
+internal sealed class ImageBorderSettings
+{
+	public int Width { get; set; } = 1;
+
+	public string Color { get; set; } = "#888888";
+
+	public int HoverWidth { get; set; } = 3;
+
+	/// <summary>
+	/// ホバー時の枠線色。空ならテーマのアクセント色を使う
+	/// </summary>
+	public string HoverColor { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -436,4 +463,6 @@ internal sealed class ConfigGetResponse
 	public DataDirInfo DataDirInfo { get; init; } = new();
 
 	public bool IsPortable { get; init; }
+
+	public string DefaultAttachmentFolder { get; init; } = string.Empty;
 }

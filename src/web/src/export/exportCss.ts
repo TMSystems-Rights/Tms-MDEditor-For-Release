@@ -149,7 +149,8 @@ export const EXPORT_PREVIEW_CSS = `
 	vertical-align: top;
 }
 .tms-mde-export .cm-md-table th { font-weight: 600; background: color-mix(in srgb, var(--tms-mde-color-primary) 16%, var(--tms-mde-color-surface)); }
-.tms-mde-export .cm-md-image { max-width: min(100%, 720px); height: auto; }
+.tms-mde-export .cm-md-image { max-width: min(100%, 720px); height: auto; box-sizing: border-box; border: var(--tms-mde-image-border-width, 1px) solid var(--tms-mde-image-border-color, #888888); }
+.tms-mde-export .cm-md-image.is-sized { max-width: 100%; max-height: none; height: auto; }
 .tms-mde-export .cm-md-image-fallback {
 	display: inline-block;
 	padding: 0.25em 0.5em;

@@ -31,9 +31,10 @@ internal sealed class ConfigApi
 	{
 		return new ConfigGetResponse
 		{
-			Config      = _appContext.Config,
-			DataDirInfo = _appContext.ConfigStore.GetDataDirInfo(),
-			IsPortable  = AppPaths.IsPortable,
+			Config                   = _appContext.Config,
+			DataDirInfo              = _appContext.ConfigStore.GetDataDirInfo(),
+			IsPortable               = AppPaths.IsPortable,
+			DefaultAttachmentFolder  = AttachmentFolder.GetDefaultFolder(),
 		};
 	}
 

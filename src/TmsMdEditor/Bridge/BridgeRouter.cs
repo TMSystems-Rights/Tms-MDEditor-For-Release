@@ -39,7 +39,7 @@ internal sealed class BridgeRouter
 		_windowApi  = new WindowApi(mainForm);
 		_shellApi   = new ShellApi(appContext);
 		_appApi     = new AppApi(mainForm);
-		_clipboardApi = new ClipboardApi();
+		_clipboardApi = new ClipboardApi(appContext);
 		_cssSnippetService = new CssSnippetService(appContext.ConfigStore, appContext.Logger);
 		_updateApi  = new UpdateApi(mainForm, appContext);
 		_sessionApi = new SessionApi(appContext.SessionStore, isSessionOwner);
@@ -105,6 +105,8 @@ internal sealed class BridgeRouter
 				"ui:dismissMenus"      => _appApi.DismissMenus(),
 				"clipboard:readText"   => _clipboardApi.ReadText(),
 				"clipboard:writeText"  => _clipboardApi.WriteText(paramsElement),
+				"clipboard:pasteForEditor" => _clipboardApi.PasteForEditor(),
+				"shell:pickFolder"     => _shellApi.PickFolder(),
 				"update:check"         => await _updateApi.CheckAsync().ConfigureAwait(false),
 				"update:download"      => await _updateApi.DownloadAsync().ConfigureAwait(false),
 				"update:cancelDownload" => _updateApi.CancelDownload(),

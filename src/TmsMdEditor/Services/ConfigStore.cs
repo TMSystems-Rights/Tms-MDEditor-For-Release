@@ -9,7 +9,7 @@ namespace TmsMdEditor.Services;
 /// </summary>
 internal sealed class ConfigStore
 {
-	public const int CurrentSchemaVersion = 7;
+	public const int CurrentSchemaVersion = 8;
 
 	private const string ConfigBackupPrefix = "config";
 	private const string LegacyDefaultReplaceShortcut = "Ctrl+H";
@@ -30,6 +30,11 @@ internal sealed class ConfigStore
 		"tabSize",
 		"largeFileThresholdMb",
 		"loadRemoteImages",
+		"attachmentFolder",
+		"imageBorder.width",
+		"imageBorder.color",
+		"imageBorder.hoverWidth",
+		"imageBorder.hoverColor",
 		"newFileEncoding",
 		"newFileEol",
 		"externalChangeBehavior",
@@ -834,6 +839,8 @@ internal sealed class ConfigStore
 			TabSize               = Clamp(settings.TabSize, 1, 8, defaults.TabSize),
 			LargeFileThresholdMb  = Clamp(settings.LargeFileThresholdMb, 1, 100, defaults.LargeFileThresholdMb),
 			LoadRemoteImages      = settings.LoadRemoteImages,
+			AttachmentFolder      = settings.AttachmentFolder?.Trim() ?? string.Empty,
+			ImageBorder           = NormalizeImageBorder(settings.ImageBorder, defaults.ImageBorder),
 			NewFileEncoding       = string.IsNullOrWhiteSpace(settings.NewFileEncoding) ? defaults.NewFileEncoding : settings.NewFileEncoding,
 			NewFileEol            = newFileEol,
 			ExternalChangeBehavior = externalChangeBehavior,
@@ -881,6 +888,67 @@ internal sealed class ConfigStore
 			Keybindings = NormalizeKeybindings(settings.Keybindings, defaults.Keybindings),
 			ContextMenu = NormalizeContextMenu(settings.ContextMenu, defaults.ContextMenu),
 		};
+	}
+
+	/// <summary>
+	/// 画像枠線設定を正規化する
+	/// </summary>
+	/// <param name="source">元設定</param>
+	/// <param name="defaults">既定値</param>
+	/// <returns>正規化後</returns>
+	private static ImageBorderSettings NormalizeImageBorder(ImageBorderSettings? source, ImageBorderSettings defaults)
+	{
+		source ??= defaults;
+
+		return new ImageBorderSettings
+		{
+			Width      = Clamp(source.Width, 0, 8, defaults.Width),
+			Color      = NormalizeCssHexColor(source.Color, defaults.Color, allowEmpty: false),
+			HoverWidth = Clamp(source.HoverWidth, 0, 16, defaults.HoverWidth),
+			HoverColor = NormalizeCssHexColor(source.HoverColor, string.Empty, allowEmpty: true),
+		};
+	}
+
+	/// <summary>
+	/// CSS の 16進カラーを正規化する
+	/// </summary>
+	/// <param name="value">入力</param>
+	/// <param name="fallback">不正時の代替</param>
+	/// <param name="allowEmpty">空を許可するか</param>
+	/// <returns>正規化後</returns>
+	private static string NormalizeCssHexColor(string? value, string fallback, bool allowEmpty)
+	{
+		string trimmed = value?.Trim() ?? string.Empty;
+		if (trimmed.Length == 0)
+		{
+			return allowEmpty ? string.Empty : fallback;
+		}
+
+		return IsCssHexColor(trimmed) ? trimmed : fallback;
+	}
+
+	/// <summary>
+	/// `#RGB` / `#RRGGBB` / `#RRGGBBAA` か判定する
+	/// </summary>
+	/// <param name="value">値</param>
+	/// <returns>該当すれば true</returns>
+	private static bool IsCssHexColor(string value)
+	{
+		if (value.Length is not (4 or 7 or 9) || value[0] != '#')
+		{
+			return false;
+		}
+
+		for (int index = 1; index < value.Length; index++)
+		{
+			char character = value[index];
+			if (character is not (>= '0' and <= '9' or >= 'A' and <= 'F' or >= 'a' and <= 'f'))
+			{
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/// <summary>

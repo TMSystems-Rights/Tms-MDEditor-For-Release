@@ -64,6 +64,13 @@ export type SearchSettings = {
 	restoreCalloutFoldStateOnMove: boolean;
 };
 
+export type ImageBorderSettings = {
+	width: number;
+	color: string;
+	hoverWidth: number;
+	hoverColor: string;
+};
+
 export type UpdateSettings = {
 	checkOnStartup: boolean;
 	skippedVersion: string;
@@ -122,6 +129,8 @@ export type AppSettings = {
 	tabSize: number;
 	largeFileThresholdMb: number;
 	loadRemoteImages: boolean;
+	attachmentFolder: string;
+	imageBorder: ImageBorderSettings;
 	newFileEncoding: string;
 	newFileEol: string;
 	externalChangeBehavior: 'auto-reload' | 'confirm';
@@ -153,6 +162,19 @@ export type ConfigGetResponse = {
 	config: ConfigDocument;
 	dataDirInfo: DataDirInfo;
 	isPortable?: boolean;
+	defaultAttachmentFolder?: string;
+};
+
+export type PasteForEditorResult = {
+	ok: boolean;
+	kind?: 'image' | 'text' | 'empty';
+	text?: string;
+	error?: string;
+};
+
+export type PickFolderResult = {
+	canceled: boolean;
+	path?: string;
 };
 
 export type SaveConfigResponse = {

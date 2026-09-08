@@ -7,7 +7,7 @@ namespace TmsMdEditor.Services;
 /// </summary>
 internal sealed class FileService
 {
-	private const long MaxImageBytes = 8L * 1024L * 1024L;
+	internal const long MaxImageBytes = 8L * 1024L * 1024L;
 
 	private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
 	{
@@ -190,10 +190,77 @@ internal sealed class FileService
 		}
 	}
 
+	/// <summary>
+	/// 対応する画像拡張子か判定する
+	/// </summary>
+	/// <param name="filePath">ファイルパス</param>
+	/// <returns>対応していれば true</returns>
+	internal static bool IsSupportedImagePath(string filePath)
+	{
+		return ImageExtensions.Contains(Path.GetExtension(filePath));
+	}
+
+	/// <summary>
+	/// 画像バイトを保存し、一意なファイルパスを返す
+	/// </summary>
+	/// <param name="directory">保存先フォルダ</param>
+	/// <param name="bytes">画像バイト</param>
+	/// <param name="preferredFileName">希望ファイル名</param>
+	/// <returns>保存した絶対パス</returns>
+	public string SaveImageCopy(string directory, byte[] bytes, string preferredFileName)
+	{
+		if (bytes.LongLength > MaxImageBytes)
+		{
+			throw new InvalidOperationException($"画像サイズが上限（{MaxImageBytes / (1024 * 1024)}MB）を超えています。");
+		}
+
+		string extension = Path.GetExtension(preferredFileName);
+		if (!ImageExtensions.Contains(extension))
+		{
+			throw new InvalidOperationException("未対応の画像形式です。");
+		}
+
+		string stem = Path.GetFileNameWithoutExtension(preferredFileName);
+		if (string.IsNullOrWhiteSpace(stem))
+		{
+			stem = $"Pasted image {DateTime.Now:yyyyMMddHHmmss}";
+		}
+
+		Directory.CreateDirectory(directory);
+
+		string dest = Path.Combine(directory, stem + extension);
+		int suffix  = 1;
+		while (File.Exists(dest))
+		{
+			dest = Path.Combine(directory, $"{stem}-{suffix}{extension}");
+			suffix++;
+		}
+
+		WriteBytesAtomic(dest, bytes);
+		_logger.Info("file", "貼り付け画像を保存しました", new Dictionary<string, object?>
+		{
+			["filePath"] = dest,
+			["bytes"]    = bytes.Length,
+		});
+		return dest;
+	}
+
+	internal static string StripImageSizeSuffix(string value)
+	{
+		int pipe = value.IndexOf('|');
+		return pipe < 0 ? value.Trim() : value[..pipe].Trim();
+	}
+
 	private static string? ResolveImagePath(string? path, string? documentPath, string? embed)
 	{
 		if (!string.IsNullOrWhiteSpace(embed))
 		{
+			string embedPath = StripImageSizeSuffix(embed);
+			if (TryResolveAbsoluteImagePath(embedPath, out string? absoluteEmbed))
+			{
+				return absoluteEmbed;
+			}
+
 			if (string.IsNullOrWhiteSpace(documentPath))
 			{
 				return null;
@@ -205,7 +272,7 @@ internal sealed class FileService
 				return null;
 			}
 
-			return FindEmbedImage(documentDirectory, embed.Trim());
+			return FindEmbedImage(documentDirectory, embedPath);
 		}
 
 		if (string.IsNullOrWhiteSpace(path))
@@ -213,11 +280,11 @@ internal sealed class FileService
 			return null;
 		}
 
-		string trimmed = path.Trim().Replace('/', Path.DirectorySeparatorChar);
+		string trimmed = StripImageSizeSuffix(path).Replace('/', Path.DirectorySeparatorChar);
 
-		if (Path.IsPathRooted(trimmed))
+		if (TryResolveAbsoluteImagePath(trimmed, out string? absolutePath))
 		{
-			return Path.GetFullPath(trimmed);
+			return absolutePath;
 		}
 
 		if (string.IsNullOrWhiteSpace(documentPath))
@@ -232,6 +299,31 @@ internal sealed class FileService
 		}
 
 		return Path.GetFullPath(Path.Combine(baseDirectory, trimmed));
+	}
+
+	private static bool TryResolveAbsoluteImagePath(string path, out string? resolved)
+	{
+		resolved = null;
+		if (string.IsNullOrWhiteSpace(path))
+		{
+			return false;
+		}
+
+		string normalized = path.Trim().Replace('/', Path.DirectorySeparatorChar);
+		if (!Path.IsPathFullyQualified(normalized))
+		{
+			return false;
+		}
+
+		try
+		{
+			resolved = Path.GetFullPath(normalized);
+			return true;
+		}
+		catch (Exception)
+		{
+			return false;
+		}
 	}
 
 	private static string? FindEmbedImage(string documentDirectory, string embedName)

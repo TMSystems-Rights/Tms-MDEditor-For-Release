@@ -119,6 +119,30 @@ internal sealed class ReadImageResult
 }
 
 /// <summary>
+/// エディタ向けクリップボード貼り付け結果
+/// </summary>
+internal sealed class PasteForEditorResult
+{
+	public bool Ok { get; init; }
+
+	public string Kind { get; init; } = "empty";
+
+	public string Text { get; init; } = string.Empty;
+
+	public string? Error { get; init; }
+}
+
+/// <summary>
+/// フォルダ選択ダイアログ結果
+/// </summary>
+internal sealed class PickFolderResult
+{
+	public bool Canceled { get; init; }
+
+	public string Path { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// 最近使ったファイル一覧応答
 /// </summary>
 internal sealed class RecentFilesResponse

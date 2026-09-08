@@ -4,6 +4,7 @@ import type { SyntaxNode } from '@lezer/common';
 import { collectSourceLineNumbers, isPreviewLineNumber } from './cursorLine';
 import { documentContextFacet } from './documentContext';
 import { classifyImageSource, pushImageReplace, type ImageSpec } from './imageWidget';
+import { splitImageAlt, splitWikiEmbedTarget } from './imageSize';
 import type { DecorationEntry } from './inlineDecorations';
 import {
 	extractFencedCodeText,
@@ -151,13 +152,16 @@ export function collectBlockDecorationEntries(
 					return false;
 				}
 
-				const kind            = classifyImageSource(url);
-				const spec: ImageSpec = {
-					alt,
+				const { alt: altText, size } = splitImageAlt(alt);
+				const kind                   = classifyImageSource(url);
+				const spec: ImageSpec        = {
+					alt              : altText,
 					raw              : url,
 					kind,
 					documentPath     : context.filePath,
 					loadRemoteImages : context.loadRemoteImages,
+					width            : size.width,
+					height           : size.height,
 				};
 				pushImageReplace(entries, ref.from, ref.to, spec);
 				return false;
@@ -169,17 +173,20 @@ export function collectBlockDecorationEntries(
 					return false;
 				}
 
-				const path = extractWikiEmbedPath(state, ref.node);
-				if (!path) {
+				const rawPath = extractWikiEmbedPath(state, ref.node);
+				if (!rawPath) {
 					return false;
 				}
 
+				const { path, size }  = splitWikiEmbedTarget(rawPath);
 				const spec: ImageSpec = {
 					alt              : path,
 					raw              : path,
 					kind             : 'embed',
 					documentPath     : context.filePath,
 					loadRemoteImages : context.loadRemoteImages,
+					width            : size.width,
+					height           : size.height,
 				};
 				pushImageReplace(entries, ref.from, ref.to, spec);
 				return false;

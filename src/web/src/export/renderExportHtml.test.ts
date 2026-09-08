@@ -167,6 +167,16 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('alt="図"');
 	});
 
+	it('幅付き埋め込み画像に width を付ける', async () => {
+		const html = await render('![[C:\\\\docs\\\\a.png|240]]\n', {
+			filePath    : 'C:\\docs\\note.md',
+			resolveImage: resolvedPng,
+		});
+		expect(html).toContain('width: 240px');
+		expect(html).toContain('is-sized');
+		expect(html).toContain('src="data:image/png;base64,abc"');
+	});
+
 	it('段落内のソース改行を br にする', async () => {
 		const html = await render('太字：**太字**\n斜体：*斜体*\n打ち消し：~~打消し~~\n');
 		expect(html).toContain('<br>');
@@ -329,6 +339,21 @@ describe('buildExportCss', () => {
 		const snippetIndex = css.indexOf('snippet-mono');
 		expect(fontIndex).toBeGreaterThan(-1);
 		expect(snippetIndex).toBeGreaterThan(fontIndex);
+	});
+
+	it('画像枠線の CSS 変数を書き出す', () => {
+		const css = buildExportCss({
+			theme      : 'light',
+			imageBorder: {
+				width     : 2,
+				color     : '#444444',
+				hoverWidth: 5,
+				hoverColor: '#2563eb',
+			},
+		});
+		expect(css).toContain('--tms-mde-image-border-width: 2px;');
+		expect(css).toContain('--tms-mde-image-border-color: #444444;');
+		expect(css).toContain('border: var(--tms-mde-image-border-width, 1px) solid var(--tms-mde-image-border-color, #888888)');
 	});
 });
 

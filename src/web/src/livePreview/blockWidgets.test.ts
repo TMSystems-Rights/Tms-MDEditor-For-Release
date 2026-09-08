@@ -458,6 +458,14 @@ describe('blockWidgets', () => {
 		expect(extractWikiEmbedPath(state, embed!)).toBe('embed.png');
 	});
 
+	it('幅付き WikiEmbed のパスからサイズを除いて widget を作る', () => {
+		const doc     = '先頭\n![[_添付ファイル/a.png|478]]';
+		const state   = createState(doc, 0);
+		const entries = collectBlockDecorationEntries(state);
+		expect(entries).toHaveLength(1);
+		expect(state.doc.sliceString(entries[0]!.from, entries[0]!.to)).toBe('![[_添付ファイル/a.png|478]]');
+	});
+
 	it('プレビュー時に画像 replace を生成する', () => {
 		const doc     = 'before\n![a](https://example.com/x.png)\nafter';
 		const state   = createState(doc, 0);

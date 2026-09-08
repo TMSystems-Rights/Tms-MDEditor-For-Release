@@ -185,6 +185,11 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("Ctrl+Shift+P", result.Config.Settings.Keybindings.ExportPdf);
 		Assert.Equal("Ctrl+P", result.Config.Settings.Keybindings.Print);
 		Assert.Equal("Consolas, \"Cascadia Mono\", \"Meiryo UI\", monospace", result.Config.Settings.CodeFontFamily);
+		Assert.Equal(string.Empty, result.Config.Settings.AttachmentFolder);
+		Assert.Equal(1, result.Config.Settings.ImageBorder.Width);
+		Assert.Equal("#888888", result.Config.Settings.ImageBorder.Color);
+		Assert.Equal(3, result.Config.Settings.ImageBorder.HoverWidth);
+		Assert.Equal(string.Empty, result.Config.Settings.ImageBorder.HoverColor);
 	}
 
 	[Fact]
@@ -200,6 +205,39 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(update.Success, update.Message);
 		Assert.Equal("\"HackGen Console NF\", monospace", update.Config?.Settings.CodeFontFamily);
 		Assert.Equal("\"HackGen Console NF\", monospace", _configStore.Load().Config.Settings.CodeFontFamily);
+	}
+
+	[Fact]
+	public void UpdateSettings_persists_image_border()
+	{
+		_configStore.Load();
+
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse(
+				"""{"imageBorder":{"width":2,"color":"#444444","hoverWidth":5,"hoverColor":"#2563eb"}}"""
+			).RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal(2, update.Config?.Settings.ImageBorder.Width);
+		Assert.Equal("#444444", update.Config?.Settings.ImageBorder.Color);
+		Assert.Equal(5, update.Config?.Settings.ImageBorder.HoverWidth);
+		Assert.Equal("#2563eb", update.Config?.Settings.ImageBorder.HoverColor);
+	}
+
+	[Fact]
+	public void UpdateSettings_rejects_invalid_image_border_color()
+	{
+		_configStore.Load();
+
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse(
+				"""{"imageBorder":{"color":"red","hoverColor":"url(x)","width":99}}"""
+			).RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal(1, update.Config?.Settings.ImageBorder.Width);
+		Assert.Equal("#888888", update.Config?.Settings.ImageBorder.Color);
+		Assert.Equal(string.Empty, update.Config?.Settings.ImageBorder.HoverColor);
 	}
 
 	[Fact]

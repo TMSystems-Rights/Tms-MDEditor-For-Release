@@ -73,6 +73,34 @@ internal sealed class ShellApi
 	}
 
 	/// <summary>
+	/// フォルダ選択ダイアログを表示する
+	/// </summary>
+	/// <returns>選択結果</returns>
+	public PickFolderResult PickFolder()
+	{
+		using var dialog = new FolderBrowserDialog
+		{
+			Description            = "貼り付け画像の保存先フォルダを選択してください",
+			UseDescriptionForTitle = true,
+			ShowNewFolderButton    = true,
+		};
+
+		if (dialog.ShowDialog() != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.SelectedPath))
+		{
+			return new PickFolderResult
+			{
+				Canceled = true,
+			};
+		}
+
+		return new PickFolderResult
+		{
+			Canceled = false,
+			Path     = dialog.SelectedPath,
+		};
+	}
+
+	/// <summary>
 	/// 外部ブラウザで URL を開く
 	/// </summary>
 	/// <param name="paramsElement">params</param>

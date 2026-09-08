@@ -125,6 +125,55 @@ public class FileServiceTests : IDisposable
 	}
 
 	[Fact]
+	public void ReadImageAsDataUrl_strips_size_suffix_from_embed()
+	{
+		string notePath = Path.Combine(_tempRoot, "note.md");
+		string nestedDir = Path.Combine(_tempRoot, "_添付ファイル");
+		Directory.CreateDirectory(nestedDir);
+		string imagePath = Path.Combine(nestedDir, "Pasted image 20260908104606.png");
+		File.WriteAllText(notePath, "# note");
+		File.WriteAllBytes(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+		ReadImageResult result = _fileService.ReadImageAsDataUrl(
+			path: null,
+			notePath,
+			embed: "_添付ファイル/Pasted image 20260908104606.png|478");
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
+	}
+
+	[Fact]
+	public void ReadImageAsDataUrl_resolves_absolute_embed_without_document()
+	{
+		string imagePath = Path.Combine(_tempRoot, "absolute.png");
+		File.WriteAllBytes(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+		ReadImageResult result = _fileService.ReadImageAsDataUrl(
+			path: null,
+			documentPath: null,
+			embed: imagePath + "|300");
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
+	}
+
+	[Fact]
+	public void SaveImageCopy_writes_unique_filename()
+	{
+		string directory = Path.Combine(_tempRoot, "shots");
+		byte[] bytes     = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+		string first  = _fileService.SaveImageCopy(directory, bytes, "Pasted image 20260908120000.png");
+		string second = _fileService.SaveImageCopy(directory, bytes, "Pasted image 20260908120000.png");
+
+		Assert.True(File.Exists(first));
+		Assert.True(File.Exists(second));
+		Assert.NotEqual(first, second);
+		Assert.Equal(bytes, File.ReadAllBytes(first));
+	}
+
+	[Fact]
 	public void WriteUtf8_writes_without_bom()
 	{
 		string filePath = Path.Combine(_tempRoot, "export.html");

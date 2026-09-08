@@ -14,8 +14,9 @@ import {
 } from '../editor/codeLanguage';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { buildOutlineTree, collectOutlineItems, type OutlineItem, type OutlineTreeNode } from '../outline/outline';
-import type { CustomDecorationRule, ExportOutlineSettings } from '../types/app';
+import type { CustomDecorationRule, ExportOutlineSettings, ImageBorderSettings } from '../types/app';
 import { buildCodeFontCss } from '../app/codeFont';
+import { buildImageBorderCss } from '../app/imageBorder';
 import { extractImageAltAndUrl, extractWikiEmbedPath } from '../livePreview/blockWidgets';
 import {
 	collectCustomDecorationRangesFromDoc,
@@ -31,6 +32,7 @@ import {
 	VOID_HTML_TAGS,
 } from '../livePreview/htmlSanitizer';
 import { classifyImageSource, type ImageSourceKind } from '../livePreview/imageWidget';
+import { splitImageAlt, splitWikiEmbedTarget } from '../livePreview/imageSize';
 import { findCalloutInfo } from '../livePreview/lineDecorations';
 import {
 	extractFencedCodeInfo,
@@ -73,6 +75,7 @@ export type RenderExportHtmlOptions = {
 	filePath?: string | null;
 	theme: 'light' | 'dark';
 	codeFontFamily?: string;
+	imageBorder?: Partial<ImageBorderSettings>;
 	snippetsCss?: string[];
 	customDecorations?: CustomDecorationRule[];
 	loadRemoteImages?: boolean;
@@ -203,13 +206,14 @@ ${main}
  * @param {RenderExportHtmlOptions} options オプション
  * @returns {string}
  */
-export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss' | 'codeFontFamily'>): string {
+export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss' | 'codeFontFamily' | 'imageBorder'>): string {
 	const snippets = (options.snippetsCss ?? []).filter((item) => item.trim().length > 0);
 	return [
 		EXPORT_THEME_LIGHT_CSS,
 		options.theme === 'dark' ? EXPORT_THEME_DARK_CSS : '',
 		EXPORT_PREVIEW_CSS,
 		buildCodeFontCss(options.codeFontFamily, '.tms-mde-export-root'),
+		buildImageBorderCss(options.imageBorder, '.tms-mde-export-root'),
 		...snippets,
 		EXPORT_OUTLINE_CSS,
 		EXPORT_PRINT_CSS,
@@ -719,19 +723,28 @@ function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): string
  * @returns {Promise<string>}
  */
 async function renderImage(context: ExportContext, node: SyntaxNode): Promise<string> {
-	const embed = node.name === 'WikiEmbed';
-	const alt   = embed ? '' : extractImageAltAndUrl(context.state, node).alt;
-	const raw   = embed
+	const embed                       = node.name === 'WikiEmbed';
+	const extracted                   = embed
+		? null
+		: extractImageAltAndUrl(context.state, node);
+	const altWithSize                 = extracted?.alt ?? '';
+	const { alt, size: markdownSize } = splitImageAlt(altWithSize);
+	const rawWithSize                 = embed
 		? extractWikiEmbedPath(context.state, node)
-		: extractImageAltAndUrl(context.state, node).url;
-	const kind  = embed ? 'embed' : classifyImageSource(raw);
+		: extracted?.url ?? '';
+	const parsedEmbed                 = embed ? splitWikiEmbedTarget(rawWithSize) : null;
+	const raw                         = parsedEmbed?.path ?? rawWithSize;
+	const size                        = parsedEmbed?.size ?? markdownSize;
+	const kind                        = embed ? 'embed' : classifyImageSource(raw);
+	const sizedClass                  = size.width ? ' cm-md-image is-sized' : ' cm-md-image';
+	const sizedStyle                  = imageWidthStyle(size.width, size.height);
 
 	if (kind === 'url' && !raw.startsWith('data:') && !context.loadRemoteImages) {
 		return imageFallback(raw || 'リモート画像');
 	}
 
 	if (kind === 'url') {
-		return `<img class="cm-md-image" src="${escapeAttribute(raw)}" alt="${escapeAttribute(alt)}">`;
+		return `<img class="${sizedClass.trim()}" src="${escapeAttribute(raw)}" alt="${escapeAttribute(alt)}"${sizedStyle}>`;
 	}
 
 	const dataUrl = await context.resolveImage({
@@ -745,7 +758,22 @@ async function renderImage(context: ExportContext, node: SyntaxNode): Promise<st
 		return imageFallback(raw);
 	}
 
-	return `<img class="cm-md-image" src="${escapeAttribute(dataUrl)}" alt="${escapeAttribute(alt)}">`;
+	return `<img class="${sizedClass.trim()}" src="${escapeAttribute(dataUrl)}" alt="${escapeAttribute(alt)}"${sizedStyle}>`;
+}
+
+/**
+ * 指定幅があるとき img の style を返す
+ * @param {number | null} width 幅
+ * @param {number | null} height 高さ
+ * @returns {string}
+ */
+function imageWidthStyle(width: number | null, height: number | null): string {
+	if (!width || width <= 0) {
+		return '';
+	}
+
+	const heightCss = height && height > 0 ? ` height: ${height}px;` : ' height: auto;';
+	return ` style="width: ${width}px; max-width: 100%;${heightCss}"`;
 }
 
 /**

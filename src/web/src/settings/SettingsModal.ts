@@ -1,5 +1,9 @@
 /* eslint-disable jsdoc/require-jsdoc */
 import { invokeBridge } from '../bridge';
+import {
+	isCssHexColor,
+	toColorInputValue,
+} from '../app/imageBorder';
 import type {
 	AppSettings,
 	ConfigGetResponse,
@@ -9,6 +13,7 @@ import type {
 	DataDirInfo,
 	KeybindingsSettings,
 	MigrateDataDirResponse,
+	PickFolderResult,
 	SaveConfigResponse,
 } from '../types/app';
 import {
@@ -37,6 +42,7 @@ type SettingsModalOptions = {
 	dataDirInfo: DataDirInfo;
 	isPortable?: boolean;
 	cssSnippets: CssSnippetsResponse;
+	defaultAttachmentFolder?: string;
 	onSettingsApplied: (settings: AppSettings) => void;
 	onCustomDecorationsApplied: (rules: CustomDecorationRule[]) => void;
 	onCssSnippetsApplied: (response: CssSnippetsResponse) => void;
@@ -94,6 +100,7 @@ export class SettingsModal {
 	private dataDirInfo: DataDirInfo;
 	private readonly isPortable: boolean;
 	private cssSnippets: CssSnippetsResponse;
+	private readonly defaultAttachmentFolder: string;
 	private readonly options: SettingsModalOptions;
 	private readonly backdrop: HTMLDivElement;
 	private readonly content: HTMLDivElement;
@@ -115,15 +122,16 @@ export class SettingsModal {
 	 * @param {SettingsModalOptions} options 設定と反映コールバック
 	 */
 	public constructor(options: SettingsModalOptions) {
-		this.options           = options;
-		this.settings          = { ...options.settings, contextMenu: normalizeContextMenuSettings(options.settings.contextMenu) };
-		this.customDecorations = options.customDecorations.map((rule) => ({ ...rule }));
-		this.dataDirInfo       = options.dataDirInfo;
-		this.isPortable        = options.isPortable === true || options.dataDirInfo.isPortable === true;
-		this.cssSnippets       = options.cssSnippets;
-		this.backdrop          = document.createElement('div');
-		this.content           = document.createElement('div');
-		this.status            = document.createElement('p');
+		this.options                 = options;
+		this.settings                = { ...options.settings, contextMenu: normalizeContextMenuSettings(options.settings.contextMenu) };
+		this.customDecorations       = options.customDecorations.map((rule) => ({ ...rule }));
+		this.dataDirInfo             = options.dataDirInfo;
+		this.isPortable              = options.isPortable === true || options.dataDirInfo.isPortable === true;
+		this.cssSnippets             = options.cssSnippets;
+		this.defaultAttachmentFolder = options.defaultAttachmentFolder ?? '';
+		this.backdrop                = document.createElement('div');
+		this.content                 = document.createElement('div');
+		this.status                  = document.createElement('p');
 
 		this.backdrop.className = 'tms-mde-dialog-backdrop tms-mde-settings-backdrop';
 		this.backdrop.addEventListener('keydown', (event) => {
@@ -277,7 +285,75 @@ export class SettingsModal {
 		this.addNumber(section, 'tabSize', 'タブ幅', 1, 8);
 		this.addNumber(section, 'largeFileThresholdMb', 'ライブプレビュー無効化サイズ (MB)', 1, 100);
 		this.addCheckbox(section, 'loadRemoteImages', 'リモート画像を読み込む');
+		this.renderAttachmentFolder(section);
+		this.renderImageBorder(section);
 		this.addCheckbox(section, 'search.restoreCalloutFoldStateOnMove', '検索移動後にコールアウトの折りたたみを戻す');
+	}
+
+	private renderAttachmentFolder(section: HTMLElement): void {
+		const description       = document.createElement('p');
+		description.className   = 'tms-mde-settings-description';
+		description.textContent = 'クリップボードから貼り付けた画像の保存先です。空欄のときはピクチャフォルダ配下の既定パスを使います。OneDrive 配下や UNC パスも指定できます。';
+		section.appendChild(description);
+
+		const row         = document.createElement('div');
+		row.className     = 'tms-mde-settings-row';
+		const label       = document.createElement('span');
+		label.className   = 'tms-mde-settings-label';
+		label.textContent = '貼り付け画像の保存先';
+		const input       = document.createElement('input');
+		input.type        = 'text';
+		input.value       = String(this.getValue('attachmentFolder') ?? '');
+		input.placeholder = this.defaultAttachmentFolder;
+		input.setAttribute('aria-label', '貼り付け画像の保存先');
+		input.addEventListener('change', () => void this.saveValue('attachmentFolder', input.value, input));
+		const actions      = document.createElement('div');
+		actions.className  = 'tms-mde-settings-row-actions';
+		const browse       = document.createElement('button');
+		browse.type        = 'button';
+		browse.textContent = '参照';
+		browse.addEventListener('click', () => void this.pickAttachmentFolder(input));
+		const reset       = document.createElement('button');
+		reset.type        = 'button';
+		reset.className   = 'tms-mde-settings-reset';
+		reset.textContent = 'リセット';
+		reset.setAttribute('aria-label', '貼り付け画像の保存先をリセット');
+		reset.addEventListener('click', (event) => {
+			event.preventDefault();
+			void this.resetItem('attachmentFolder');
+		});
+		actions.append(browse, reset);
+		row.append(label, input, actions);
+		section.appendChild(row);
+		this.bindings.push({ key: 'attachmentFolder', control: input });
+	}
+
+	private renderImageBorder(section: HTMLElement): void {
+		const description       = document.createElement('p');
+		description.className   = 'tms-mde-settings-description';
+		description.textContent = 'ライブプレビューの画像に付ける枠線です。ホバー時の色を空欄にすると、テーマのアクセント色を使います。太さ 0 で枠線を非表示にできます。';
+		section.appendChild(description);
+		this.addNumber(section, 'imageBorder.width', '画像の枠線の太さ (px)', 0, 8);
+		this.addColor(section, 'imageBorder.color', '画像の枠線の色');
+		this.addNumber(section, 'imageBorder.hoverWidth', 'ホバー時の枠線の太さ (px)', 0, 16);
+		this.addColor(section, 'imageBorder.hoverColor', 'ホバー時の枠線の色', {
+			allowEmpty       : true,
+			emptyPlaceholder : 'テーマのアクセント',
+			pickerFallback   : '#2563eb',
+		});
+	}
+
+	private async pickAttachmentFolder(input: HTMLInputElement): Promise<void> {
+		try {
+			const result = await invokeBridge<PickFolderResult>('shell:pickFolder');
+			if (result.canceled || !result.path) {
+				return;
+			}
+
+			await this.saveValue('attachmentFolder', result.path, input);
+		} catch (error) {
+			this.setStatus(this.formatError(error), true);
+		}
 	}
 
 	private renderSave(section: HTMLElement): void {
@@ -815,6 +891,50 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, input);
 	}
 
+	private addColor(
+		section: HTMLElement,
+		key: string,
+		label: string,
+		options?: { allowEmpty?: boolean; emptyPlaceholder?: string; pickerFallback?: string },
+	): HTMLDivElement {
+		const allowEmpty     = options?.allowEmpty === true;
+		const pickerFallback = options?.pickerFallback ?? '#888888';
+		const current        = String(this.getValue(key) ?? '');
+		const wrap           = document.createElement('div');
+		wrap.className       = 'tms-mde-settings-color';
+		const picker         = document.createElement('input');
+		picker.type          = 'color';
+		picker.value         = toColorInputValue(current, pickerFallback);
+		picker.setAttribute('aria-label', `${label}の色見本`);
+		const input       = document.createElement('input');
+		input.type        = 'text';
+		input.value       = current;
+		input.spellcheck  = false;
+		input.placeholder = options?.emptyPlaceholder ?? '';
+		input.setAttribute('aria-label', label);
+		picker.addEventListener('input', () => {
+			input.value = picker.value;
+		});
+		picker.addEventListener('change', () => void this.saveValue(key, picker.value, input));
+		input.addEventListener('change', () => {
+			const trimmed = input.value.trim();
+			if (allowEmpty && trimmed.length === 0) {
+				void this.saveValue(key, '', input);
+				return;
+			}
+
+			if (!isCssHexColor(trimmed)) {
+				this.setStatus('色は #RGB / #RRGGBB / #RRGGBBAA で指定してください。', true);
+				this.syncControls();
+				return;
+			}
+
+			void this.saveValue(key, trimmed, input);
+		});
+		wrap.append(picker, input);
+		return this.addControlRow(section, key, label, input, wrap);
+	}
+
 	private addCheckbox(section: HTMLElement, key: string, label: string): HTMLDivElement {
 		const input   = document.createElement('input');
 		input.type    = 'checkbox';
@@ -836,7 +956,7 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, select);
 	}
 
-	private addControlRow(section: HTMLElement, key: string, labelText: string, control: SettingControl): HTMLDivElement {
+	private addControlRow(section: HTMLElement, key: string, labelText: string, control: SettingControl, wrapper?: HTMLElement): HTMLDivElement {
 		const row         = document.createElement('div');
 		row.className     = 'tms-mde-settings-row';
 		const label       = document.createElement('span');
@@ -853,7 +973,7 @@ export class SettingsModal {
 		});
 		control.setAttribute('aria-label', labelText);
 
-		row.append(label, control, reset);
+		row.append(label, wrapper ?? control, reset);
 		section.appendChild(row);
 		this.bindings.push({ key, control });
 		return row;
@@ -1130,6 +1250,12 @@ export class SettingsModal {
 				control.checked = Boolean(value);
 			} else {
 				control.value = String(value ?? '');
+			}
+
+			const picker = control.parentElement?.querySelector<HTMLInputElement>('input[type="color"]');
+			if (picker) {
+				const fallback = key === 'imageBorder.hoverColor' ? '#2563eb' : '#888888';
+				picker.value   = toColorInputValue(String(value ?? ''), fallback);
 			}
 		});
 	}

@@ -4,7 +4,13 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.3.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.3.2)
+最新リリース: [v1.4.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.4.0)
+
+## v1.4.0 の主な変更
+
+- クリップボードの画像をファイル保存し、絶対パスの `![[ ]]` として貼り付ける
+- ライブプレビューの画像をドラッグでリサイズする（Obsidian 互換の `|幅`）
+- 画像の枠線とホバー強調を設定できる
 
 ## v1.3.2 の主な変更
 

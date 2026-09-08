@@ -20,6 +20,7 @@ import { continueListMarkup } from './listContinuation';
 import { dedentListItem, indentListItem } from './listIndent';
 import { createInlineCodeHighlightExtensions } from './inlineCodeHighlight';
 import { createMarkdownSyntaxHighlighting } from './markdownHighlightStyle';
+import { shouldSkipEditorPasteCapture } from './pasteCapture';
 import {
 	cursorStableLineDown,
 	cursorStableLineUp,
@@ -42,6 +43,7 @@ type CreateEditorOptions = {
 	readOnly?: boolean;
 	onDocChange: (view: EditorView) => void;
 	onSelectionChange: (view: EditorView) => void;
+	onPaste?: (event: ClipboardEvent, view: EditorView) => boolean;
 };
 
 /**
@@ -199,6 +201,25 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 				update.view.requestMeasure();
 			}
 		}),
+		Prec.high(EditorView.domEventHandlers({
+			/**
+			 * クリップボード画像貼り付けを C# 側へ委譲する
+			 * @param {ClipboardEvent} event 貼り付け
+			 * @param {EditorView} view ビュー
+			 * @returns {boolean}
+			 */
+			paste(event, view) {
+				if (!options.onPaste) {
+					return false;
+				}
+
+				if (shouldSkipEditorPasteCapture(event) || view.state.readOnly) {
+					return false;
+				}
+
+				return options.onPaste(event, view);
+			},
+		})),
 		keymap.of([
 			{ key: 'Tab', run: indentListItem, shift: dedentListItem },
 			{ key: 'Enter', run: continueListMarkup },

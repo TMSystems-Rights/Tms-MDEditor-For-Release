@@ -380,6 +380,7 @@
 
 .tms-mde-editor-host .cm-md-image-wrap {
 	display: inline-block;
+	position: relative;
 	max-width: 100%;
 	margin: 0.25em 0;
 	vertical-align: middle;
@@ -387,10 +388,41 @@
 
 .tms-mde-editor-host .cm-md-image {
 	display: block;
+	box-sizing: border-box;
 	max-width: min(100%, 720px);
 	max-height: 480px;
 	height: auto;
+	border: var(--tms-mde-image-border-width, 1px) solid var(--tms-mde-image-border-color, #888888);
 	border-radius: 2px;
+}
+
+.tms-mde-editor-host .cm-md-image-wrap:hover .cm-md-image,
+.tms-mde-editor-host .cm-md-image-wrap:focus-within .cm-md-image {
+	border-width: var(--tms-mde-image-border-hover-width, 3px);
+	border-color: var(--tms-mde-image-border-hover-color, var(--tms-mde-color-primary));
+}
+
+.tms-mde-editor-host .cm-md-image.is-sized {
+	max-width: 100%;
+	max-height: none;
+}
+
+.tms-mde-editor-host .cm-md-image-resize {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 12px;
+	height: 12px;
+	box-sizing: border-box;
+	border: 2px solid var(--tms-mde-color-primary, #4ea0a4);
+	background: color-mix(in srgb, var(--tms-mde-color-surface) 70%, transparent);
+	cursor: nwse-resize;
+	opacity: 0;
+}
+
+.tms-mde-editor-host .cm-md-image-wrap:hover .cm-md-image-resize,
+.tms-mde-editor-host .cm-md-image-wrap:focus-within .cm-md-image-resize {
+	opacity: 1;
 }
 
 .tms-mde-editor-host .cm-md-image-fallback {

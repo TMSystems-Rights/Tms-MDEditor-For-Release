@@ -122,7 +122,7 @@
 	font-weight: 500;
 }
 
-.tms-mde-settings-row input:not([type="checkbox"]),
+.tms-mde-settings-row input:not([type="checkbox"]):not([type="color"]),
 .tms-mde-settings-row select {
 	width: 100%;
 	min-width: 0;
@@ -164,6 +164,21 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+}
+
+.tms-mde-settings-color {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.tms-mde-settings-row input[type="color"] {
+	flex: 0 0 auto;
+	width: 40px;
+	height: 32px;
+	padding: 2px;
+	cursor: pointer;
 }
 
 .tms-mde-settings-toolbar {
@@ -385,7 +400,8 @@
 
 	.tms-mde-settings-row>input:not([type="checkbox"]),
 	.tms-mde-settings-row>select,
-	.tms-mde-settings-row>.tms-mde-settings-row-actions {
+	.tms-mde-settings-row>.tms-mde-settings-row-actions,
+	.tms-mde-settings-row>.tms-mde-settings-color {
 		grid-column: 1 / -1;
 	}
 

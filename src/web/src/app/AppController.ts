@@ -8,15 +8,17 @@ import { setLineEolsEffect } from '../editor/eolMarkers';
 import { compileCustomDecorationRules, type CompiledCustomDecorationRule } from '../livePreview/customDecorations';
 import { findMarkdownLinkUrlFromMouseEvent, isSupportedExternalLinkUrl, setDocumentContextEffect, setViewModeEffect } from '../livePreview/livePreviewPlugin';
 import { showActionToast, showToast, type ToastHandle } from './toast';
-import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
+import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, PasteForEditorResult, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
 import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
 import { applyCodeFontFamily, DEFAULT_CODE_FONT_FAMILY } from './codeFont';
+import { applyImageBorder, DEFAULT_IMAGE_BORDER } from './imageBorder';
 import { applyTheme } from './theme';
 import { bindUiZoom, computeZoomedFontSize, formatUiZoomPercent, getUiZoom, handleUiZoomKeydown, resetUiZoom } from './uiZoom';
 import { buildTabTitle, buildWindowTitle, formatEncodingLabel, formatEolLabel, isLargeFile, normalizeEol } from '../utils/format';
 import { createUniformLineEols, reconstructWithLineEols, splitPreservingEol, syncLineEols, toCm6Text } from '../utils/lineEol';
 import { isFileDrag } from '../utils/dragDrop';
 import { matchesShortcut } from '../utils/keybindings';
+import { shouldSkipEditorPasteCapture } from '../editor/pasteCapture';
 import { closeOpenSearchPanel, moveToSearchMatch, openFindPanel, openReplacePanel } from '../search/searchPanel';
 import { calculateSplitRatio, createSynchronizedTransaction, type SplitDirection } from '../split/splitView';
 import { createPaneLayout, findAdjacentPaneId, listPaneIds, removePane, splitPane, updateSplitRatio, type PaneId, type PaneLayoutNode, type PaneSplit } from '../split/paneLayout';
@@ -72,6 +74,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 	tabSize: 4,
 	largeFileThresholdMb: 2,
 	loadRemoteImages: true,
+	attachmentFolder: '',
+	imageBorder: { ...DEFAULT_IMAGE_BORDER },
 	newFileEncoding: 'utf8',
 	newFileEol: 'crlf',
 	restoreSessionOnStartup: false,
@@ -627,6 +631,7 @@ export class AppController {
 
 		applyTheme(payload.config?.theme ?? this.settings.theme);
 		applyCodeFontFamily(this.settings.codeFontFamily);
+		applyImageBorder(this.settings.imageBorder);
 		await this.refreshCssSnippets(false);
 
 		if (payload.config?.loadMessage) {
@@ -726,6 +731,7 @@ export class AppController {
 				dataDirInfo: config.dataDirInfo,
 				isPortable: this.isPortable,
 				cssSnippets: this.cssSnippets,
+				defaultAttachmentFolder: config.defaultAttachmentFolder ?? '',
 				/**
 				 *
 				 */
@@ -767,6 +773,7 @@ export class AppController {
 		this.settings = this.mergeSettingsWithDefaults(settings);
 		applyTheme(this.settings.theme);
 		applyCodeFontFamily(this.settings.codeFontFamily);
+		applyImageBorder(this.settings.imageBorder);
 
 		this.tabs.forEach((tab) => {
 			tab.editorState = this.reconfigurePaneEditorState(tab, tab.editorState, tab.viewMode);
@@ -901,6 +908,10 @@ export class AppController {
 			search: {
 				...DEFAULT_SETTINGS.search,
 				...settings.search
+			},
+			imageBorder: {
+				...DEFAULT_SETTINGS.imageBorder,
+				...settings.imageBorder
 			},
 			contextMenu: normalizeContextMenuSettings(settings.contextMenu)
 		};
@@ -1343,6 +1354,7 @@ export class AppController {
 			filePath         : tab.filePath,
 			theme            : resolveExportTheme(this.settings.theme),
 			codeFontFamily   : this.settings.codeFontFamily,
+			imageBorder      : this.settings.imageBorder,
 			snippetsCss      : snippets,
 			customDecorations: this.rawCustomDecorations,
 			loadRemoteImages : this.settings.loadRemoteImages,
@@ -2216,6 +2228,49 @@ export class AppController {
 	}
 
 	/**
+	 * エディタ本文への貼り付けを処理する
+	 * @param {ClipboardEvent} event 貼り付けイベント
+	 * @param {EditorView} view エディタ
+	 * @returns {boolean} 処理したか
+	 */
+	private handleEditorPaste(event: ClipboardEvent, view: EditorView): boolean {
+		if (view.state.readOnly || shouldSkipEditorPasteCapture(event)) {
+			return false;
+		}
+
+		event.preventDefault();
+		void this.pasteIntoEditor(view);
+		return true;
+	}
+
+	/**
+	 * クリップボード内容を本文へ挿入する
+	 * @param {EditorView} view エディタ
+	 * @returns {Promise<void>}
+	 */
+	private async pasteIntoEditor(view: EditorView): Promise<void> {
+		if (view.state.readOnly) {
+			return;
+		}
+
+		try {
+			const result = await invokeBridge<PasteForEditorResult>('clipboard:pasteForEditor');
+			if (!result.ok) {
+				showToast(result.error ?? '貼り付けに失敗しました。');
+				return;
+			}
+
+			if (!result.text) {
+				return;
+			}
+
+			view.dispatch({ ...view.state.replaceSelection(result.text), userEvent: 'input.paste' });
+		} catch (error) {
+			showToast(`貼り付けに失敗しました: ${this.formatError(error)}`);
+		}
+	}
+
+	/**
 	 * 保存設定の順序・表示状態へ実行時状態を重ね、描画項目を生成する。
 	 * @param {string[]} order 項目順
 	 * @param {string[]} hiddenItems 非表示項目ID
@@ -2270,10 +2325,7 @@ export class AppController {
 			}
 
 			if (action === 'paste') {
-				const text = await invokeBridge<string>('clipboard:readText');
-				if (text.length > 0) {
-					view.dispatch({ ...view.state.replaceSelection(text), userEvent: 'input.paste' });
-				}
+				await this.pasteIntoEditor(view);
 				view.focus();
 				return;
 			}
@@ -3115,7 +3167,9 @@ export class AppController {
 			/** 本文変更を処理する */
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
-			onSelectionChange: (view) => this.handleSelectionChange(view)
+			onSelectionChange: (view) => this.handleSelectionChange(view),
+			/** 貼り付けを処理する */
+			onPaste: (event, view) => this.handleEditorPaste(event, view),
 		});
 	}
 
@@ -3137,7 +3191,9 @@ export class AppController {
 			/** 本文変更を処理する */
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
-			onSelectionChange: (view) => this.handleSelectionChange(view)
+			onSelectionChange: (view) => this.handleSelectionChange(view),
+			/** 貼り付けを処理する */
+			onPaste: (event, view) => this.handleEditorPaste(event, view),
 		});
 	}
 
@@ -3168,7 +3224,12 @@ export class AppController {
 			 */
 			onSelectionChange: (view) => {
 				this.handleSelectionChange(view);
-			}
+			},
+			/**
+			 * 貼り付け時
+			 * @returns {void}
+			 */
+			onPaste: (event, view) => this.handleEditorPaste(event, view),
 		});
 
 		return {
