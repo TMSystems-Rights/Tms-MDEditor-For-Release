@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.4.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.4.0)
+最新リリース: [v1.4.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.4.1)
+
+## v1.4.1 の主な変更
+
+- 上書き保存を外部削除と誤検知しないようにする
 
 ## v1.4.0 の主な変更
 

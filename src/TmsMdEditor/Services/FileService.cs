@@ -440,11 +440,34 @@ internal sealed class FileService
 		string tempPath = Path.Combine(directory, $".{Path.GetFileName(filePath)}.{Environment.ProcessId}.tmp");
 		File.WriteAllBytes(tempPath, bytes);
 
-		if (File.Exists(filePath))
+		try
 		{
-			File.Delete(filePath);
+			if (File.Exists(filePath))
+			{
+				// 削除してから Move すると FileSystemWatcher が Deleted を上げる。
+				// 既存ファイルは Replace で中身だけ差し替え、新規は Move する。
+				File.Replace(tempPath, filePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+			}
+			else
+			{
+				File.Move(tempPath, filePath);
+			}
 		}
-
-		File.Move(tempPath, filePath);
+		finally
+		{
+			if (File.Exists(tempPath))
+			{
+				try
+				{
+					File.Delete(tempPath);
+				}
+				catch (IOException)
+				{
+				}
+				catch (UnauthorizedAccessException)
+				{
+				}
+			}
+		}
 	}
 }

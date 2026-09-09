@@ -197,4 +197,18 @@ public class FileServiceTests : IDisposable
 		Assert.True(saved.Success);
 		Assert.Equal("new-content", File.ReadAllText(filePath));
 	}
+
+	[Fact]
+	public void Save_overwrite_does_not_leave_temp_file()
+	{
+		string filePath = Path.Combine(_tempRoot, "note.md");
+		File.WriteAllText(filePath, "old");
+
+		SaveFileResult saved = _fileService.Save(filePath, "new", TextEncodingKind.Utf8, unifyEol: null);
+
+		Assert.True(saved.Success);
+		Assert.Equal("new", File.ReadAllText(filePath));
+		string[] leftovers = Directory.GetFiles(_tempRoot, ".note.md.*.tmp");
+		Assert.Empty(leftovers);
+	}
 }

@@ -44,7 +44,12 @@ internal sealed class FileWatcherService : IDisposable
 
 	public void SuppressNextChange(string filePath)
 	{
-		lock (_syncRoot) _suppressedUntil[Path.GetFullPath(filePath)] = DateTimeOffset.UtcNow.AddSeconds(2);
+		string fullPath = Path.GetFullPath(filePath);
+		lock (_syncRoot)
+		{
+			_suppressedUntil[fullPath] = DateTimeOffset.UtcNow.AddSeconds(2);
+			if (_debounceTimers.Remove(fullPath, out System.Threading.Timer? timer)) timer.Dispose();
+		}
 	}
 
 	public void Dispose()
@@ -64,9 +69,10 @@ internal sealed class FileWatcherService : IDisposable
 		lock (_syncRoot)
 		{
 			if (!_trackedFiles.Contains(fullPath)) return;
-			if (_suppressedUntil.Remove(fullPath, out DateTimeOffset until) && until > DateTimeOffset.UtcNow) return;
+			if (IsSuppressedUnlocked(fullPath)) return;
 			if (_debounceTimers.Remove(fullPath, out System.Threading.Timer? previous)) previous.Dispose();
-			_debounceTimers[fullPath] = new System.Threading.Timer(_ => Publish(fullPath, kind), null, 250, Timeout.Infinite);
+			int delayMs = kind == ExternalFileChangeKind.Deleted ? 400 : 250;
+			_debounceTimers[fullPath] = new System.Threading.Timer(_ => Publish(fullPath, kind), null, delayMs, Timeout.Infinite);
 		}
 	}
 
@@ -75,8 +81,25 @@ internal sealed class FileWatcherService : IDisposable
 		lock (_syncRoot)
 		{
 			if (_debounceTimers.Remove(filePath, out System.Threading.Timer? timer)) timer.Dispose();
+			if (IsSuppressedUnlocked(filePath)) return;
 		}
-		FileChanged?.Invoke(new ExternalFileChange(filePath, kind));
+
+		ExternalFileChangeKind publishKind = kind;
+		if ((kind is ExternalFileChangeKind.Deleted or ExternalFileChangeKind.Renamed)
+			&& File.Exists(filePath))
+		{
+			publishKind = ExternalFileChangeKind.Changed;
+		}
+
+		FileChanged?.Invoke(new ExternalFileChange(filePath, publishKind));
+	}
+
+	private bool IsSuppressedUnlocked(string fullPath)
+	{
+		if (!_suppressedUntil.TryGetValue(fullPath, out DateTimeOffset until)) return false;
+		if (until > DateTimeOffset.UtcNow) return true;
+		_suppressedUntil.Remove(fullPath);
+		return false;
 	}
 }
 
