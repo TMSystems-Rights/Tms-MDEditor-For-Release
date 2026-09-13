@@ -4,7 +4,13 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.6.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.6.0)
+最新リリース: [v1.7.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.0)
+
+## v1.7.0 の主な変更
+
+- GFM 表でセルごとに横位置・縦位置を変えられる（`{align}` / `{valign}`。右クリックと Excel / Web 貼り付け）
+- HTML / PDF 出力で、ソースの空行を行数どおり残す
+- HTML 出力のアウトラインを、左右どちらの配置でも端へ隠せる
 
 ## v1.6.0 の主な変更
 

@@ -70,6 +70,12 @@ describe('contextMenuSettings', () => {
 		expect(defaults.editorOrder.indexOf('unmergeTableCells')).toBe(
 			defaults.editorOrder.indexOf('mergeTableCells') + 1,
 		);
+		expect(defaults.editorOrder.indexOf('alignTableCellLeft')).toBe(
+			defaults.editorOrder.indexOf('unmergeTableCells') + 1,
+		);
+		expect(defaults.editorOrder.indexOf('valignTableCellBottom')).toBe(
+			defaults.editorOrder.indexOf('valignTableCellMiddle') + 1,
+		);
 	});
 
 	it('欠落した表セル結合をチェックボックスの次へ補完する', () => {
@@ -89,6 +95,33 @@ describe('contextMenuSettings', () => {
 		expect(result.editorOrder.indexOf('unmergeTableCells')).toBe(
 			result.editorOrder.indexOf('mergeTableCells') + 1,
 		);
+	});
+
+	it('欠落した表セル配置を結合解除の次へ補完する', () => {
+		const defaults = createDefaultContextMenuSettings();
+		const result   = normalizeContextMenuSettings({
+			editorOrder : defaults.editorOrder.filter(
+				(itemId) => !itemId.startsWith('alignTableCell') && !itemId.startsWith('valignTableCell'),
+			),
+			editorHidden: [],
+			tabOrder    : [],
+			tabHidden   : [],
+		});
+
+		expect(result.editorOrder.indexOf('alignTableCellLeft')).toBe(
+			result.editorOrder.indexOf('unmergeTableCells') + 1,
+		);
+		expect(result.editorOrder.slice(
+			result.editorOrder.indexOf('alignTableCellLeft'),
+			result.editorOrder.indexOf('valignTableCellBottom') + 1,
+		)).toEqual([
+			'alignTableCellLeft',
+			'alignTableCellCenter',
+			'alignTableCellRight',
+			'valignTableCellTop',
+			'valignTableCellMiddle',
+			'valignTableCellBottom',
+		]);
 	});
 
 	it('既定の表示メニューにアウトライン切替を含める', () => {

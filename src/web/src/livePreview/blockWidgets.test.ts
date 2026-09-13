@@ -103,6 +103,15 @@ describe('blockWidgets', () => {
 		expect(data.rowSources[0]![0]!.editableText).toBe('新キャラ');
 	});
 
+	it('セル末尾の align / valign は表示 AST から除きソースには残す', () => {
+		const state = createState('|   |\n| --- |\n| 100{align=right valign=middle} |\n', 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		expect(tableCellNodesToPlainText(data.rows[0]![0]!)).toBe('100');
+		expect(data.rowSources[0]![0]!.text).toContain('{align=right valign=middle}');
+		expect(data.rowSources[0]![0]!.editableText).toBe('100');
+	});
+
 	it('フェンス無し HTML 表をブロック widget にする', () => {
 		const doc     = '<table>\n<tr><th>見出し１</th><th>見出し２</th></tr>\n<tr><td>データ１－１</td><td>データ１－２</td></tr>\n</table>\n';
 		const state   = createState(doc, doc.length);
@@ -434,6 +443,16 @@ describe('blockWidgets', () => {
 		const entries    = collectBlockDecorationEntries(state);
 		const tableEntry = entries.find((entry) => entry.decoration.spec.widget instanceof TableWidget);
 		expect(tableEntry).toBeDefined();
+	});
+
+	it('セル編集確定時は align / valign を付け直す', () => {
+		const doc    = '|   |\n| --- |\n| 100{align=right valign=middle} |';
+		const state  = createState(doc, 0);
+		const table  = findNode(state, 'Table');
+		const data   = extractTableData(state, table!);
+		const change = buildTableCellChange(data, { row: 1, column: 0 }, '200');
+
+		expect(change?.insert).toBe('200{align=right valign=middle}');
 	});
 
 	it('セル編集変更は対象セルだけを置換し、Undo可能な単一変更になる', () => {

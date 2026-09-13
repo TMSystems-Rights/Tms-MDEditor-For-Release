@@ -18,6 +18,12 @@ export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'toggleCheckbox',
 	'mergeTableCells',
 	'unmergeTableCells',
+	'alignTableCellLeft',
+	'alignTableCellCenter',
+	'alignTableCellRight',
+	'valignTableCellTop',
+	'valignTableCellMiddle',
+	'valignTableCellBottom',
 	'openLink',
 	'editorSeparatorView',
 	'toggleViewMode',
@@ -57,6 +63,12 @@ export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 	toggleCheckbox          : 'チェックボックス切替',
 	mergeTableCells         : 'セルを結合',
 	unmergeTableCells       : '結合を解除',
+	alignTableCellLeft      : '左詰め',
+	alignTableCellCenter    : '中央揃え',
+	alignTableCellRight     : '右詰め',
+	valignTableCellTop      : '上詰め',
+	valignTableCellMiddle   : '上下中央',
+	valignTableCellBottom   : '下詰め',
 	openLink                : 'リンクを開く',
 	toggleViewMode          : 'ソース / ライブプレビュー切替',
 	toggleOutline           : 'アウトラインを表示 / 非表示',
@@ -158,13 +170,43 @@ function normalizeOrder(source: string[] | undefined, defaults: string[]): strin
 
 	return placeContextMenuItemAfter(
 		placeContextMenuItemAfter(
-			placeContextMenuItemAfter(result, 'pastePlain', 'paste', defaults),
-			'mergeTableCells',
-			'toggleCheckbox',
+			placeContextMenuItemAfter(
+				placeContextMenuItemAfter(
+					placeContextMenuItemAfter(
+						placeContextMenuItemAfter(
+							placeContextMenuItemAfter(
+								placeContextMenuItemAfter(
+									placeContextMenuItemAfter(result, 'pastePlain', 'paste', defaults),
+									'mergeTableCells',
+									'toggleCheckbox',
+									defaults,
+								),
+								'unmergeTableCells',
+								'mergeTableCells',
+								defaults,
+							),
+							'alignTableCellLeft',
+							'unmergeTableCells',
+							defaults,
+						),
+						'alignTableCellCenter',
+						'alignTableCellLeft',
+						defaults,
+					),
+					'alignTableCellRight',
+					'alignTableCellCenter',
+					defaults,
+				),
+				'valignTableCellTop',
+				'alignTableCellRight',
+				defaults,
+			),
+			'valignTableCellMiddle',
+			'valignTableCellTop',
 			defaults,
 		),
-		'unmergeTableCells',
-		'mergeTableCells',
+		'valignTableCellBottom',
+		'valignTableCellMiddle',
 		defaults,
 	);
 }
@@ -196,6 +238,24 @@ function insertMissingContextMenuItem(result: string[], itemId: string): void {
 		const mergeIndex = result.indexOf('mergeTableCells');
 		if (mergeIndex >= 0) {
 			result.splice(mergeIndex + 1, 0, itemId);
+			return;
+		}
+	}
+
+	const alignAfter: Record<string, string> = {
+		alignTableCellLeft   : 'unmergeTableCells',
+		alignTableCellCenter : 'alignTableCellLeft',
+		alignTableCellRight  : 'alignTableCellCenter',
+		valignTableCellTop   : 'alignTableCellRight',
+		valignTableCellMiddle: 'valignTableCellTop',
+		valignTableCellBottom: 'valignTableCellMiddle',
+	};
+
+	const afterId = alignAfter[itemId];
+	if (afterId) {
+		const afterIndex = result.indexOf(afterId);
+		if (afterIndex >= 0) {
+			result.splice(afterIndex + 1, 0, itemId);
 			return;
 		}
 	}

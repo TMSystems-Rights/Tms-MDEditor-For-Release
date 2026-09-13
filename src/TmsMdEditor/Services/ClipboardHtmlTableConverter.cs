@@ -14,6 +14,18 @@ internal static class ClipboardHtmlTableConverter
 		@"^(StartHTML|EndHTML|StartFragment|EndFragment):(\d+)\s*$",
 		RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant);
 
+	private static readonly Regex StyleBlockPattern = new(
+		@"<style\b[^>]*>(.*?)</style>",
+		RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant);
+
+	private static readonly Regex CssRulePattern = new(
+		@"(?<selectors>[^{}]+)\{(?<body>[^{}]*)\}",
+		RegexOptions.CultureInvariant);
+
+	private static readonly Regex CssClassSelectorPattern = new(
+		@"\.([A-Za-z_][\w\-]*)",
+		RegexOptions.CultureInvariant);
+
 	/// <summary>
 	/// CF_HTML ヘッダを除いた HTML 断片を返す
 	/// </summary>
@@ -195,7 +207,7 @@ internal static class ClipboardHtmlTableConverter
 				break;
 			}
 
-			string markdown = ConvertTable(tableHtml, resolveImageMarkup);
+			string markdown = ConvertTable(tableHtml, resolveImageMarkup, ParseCssClassAlignments(source));
 			if (markdown.Length > 0)
 			{
 				parts.Add(markdown);
@@ -216,7 +228,10 @@ internal static class ClipboardHtmlTableConverter
 		}
 	}
 
-	private static string ConvertTable(string tableHtml, Func<string, string?> resolveImageMarkup)
+	private static string ConvertTable(
+		string tableHtml,
+		Func<string, string?> resolveImageMarkup,
+		IReadOnlyDictionary<string, CellAlignment> classAlignments)
 	{
 		if (!TryReadInner(tableHtml, "table", out string inner))
 		{
@@ -244,7 +259,14 @@ internal static class ClipboardHtmlTableConverter
 				int colspan = Math.Max(1, ReadPositiveAttribute(cellHtml, "colspan"));
 				int rowspan = Math.Max(1, ReadPositiveAttribute(cellHtml, "rowspan"));
 				string cell = ConvertCell(cellHtml, resolveImageMarkup);
-				PlaceSpannedCell(grid, rowIndex, column, FormatCellSpan(cell, colspan, rowspan), colspan, rowspan);
+				CellAlignment alignment = ReadCellAlignment(cellHtml, classAlignments);
+				PlaceSpannedCell(
+					grid,
+					rowIndex,
+					column,
+					FormatCellSpan(cell, colspan, rowspan, alignment.Align, alignment.Valign),
+					colspan,
+					rowspan);
 				column += colspan;
 			}
 
@@ -321,13 +343,15 @@ internal static class ClipboardHtmlTableConverter
 		}
 	}
 
-	private static string FormatCellSpan(string cell, int colspan, int rowspan)
-	{
-		if (colspan <= 1 && rowspan <= 1)
-		{
-			return cell;
-		}
+	private readonly record struct CellAlignment(string? Align, string? Valign);
 
+	private static string FormatCellSpan(
+		string cell,
+		int colspan,
+		int rowspan,
+		string? align = null,
+		string? valign = null)
+	{
 		List<string> parts = [];
 		if (colspan > 1)
 		{
@@ -339,7 +363,160 @@ internal static class ClipboardHtmlTableConverter
 			parts.Add("rowspan=" + rowspan.ToString(CultureInfo.InvariantCulture));
 		}
 
-		return cell + "{" + string.Join(" ", parts) + "}";
+		if (align is "center" or "right")
+		{
+			parts.Add("align=" + align);
+		}
+
+		if (valign is "middle" or "bottom")
+		{
+			parts.Add("valign=" + valign);
+		}
+
+		return parts.Count == 0 ? cell : cell + "{" + string.Join(" ", parts) + "}";
+	}
+
+	private static CellAlignment ReadCellAlignment(
+		string cellHtml,
+		IReadOnlyDictionary<string, CellAlignment> classAlignments)
+	{
+		string? align = NormalizeAlign(ReadAttribute(cellHtml, "align"));
+		string? valign = NormalizeValign(ReadAttribute(cellHtml, "valign"));
+		string? style = ReadAttribute(cellHtml, "style");
+		if (align is null)
+		{
+			align = NormalizeAlign(ReadCssDeclaration(style, "text-align"));
+		}
+
+		if (valign is null)
+		{
+			valign = NormalizeValign(ReadCssDeclaration(style, "vertical-align"));
+		}
+
+		if ((align is null || valign is null) && classAlignments.Count > 0)
+		{
+			foreach (string className in ReadClassNames(cellHtml))
+			{
+				if (!classAlignments.TryGetValue(className, out CellAlignment mapped))
+				{
+					continue;
+				}
+
+				align ??= mapped.Align;
+				valign ??= mapped.Valign;
+			}
+		}
+
+		return new CellAlignment(align, valign);
+	}
+
+	private static Dictionary<string, CellAlignment> ParseCssClassAlignments(string html)
+	{
+		Dictionary<string, CellAlignment> result = new(StringComparer.OrdinalIgnoreCase);
+		foreach (Match block in StyleBlockPattern.Matches(html))
+		{
+			string css = block.Groups[1].Value
+				.Replace("<!--", string.Empty, StringComparison.Ordinal)
+				.Replace("-->", string.Empty, StringComparison.Ordinal);
+			foreach (Match rule in CssRulePattern.Matches(css))
+			{
+				string selectors = rule.Groups["selectors"].Value;
+				if (selectors.Contains('@', StringComparison.Ordinal))
+				{
+					continue;
+				}
+
+				string? align = NormalizeAlign(ReadCssDeclaration(rule.Groups["body"].Value, "text-align"));
+				string? valign = NormalizeValign(ReadCssDeclaration(rule.Groups["body"].Value, "vertical-align"));
+				if (align is null && valign is null)
+				{
+					continue;
+				}
+
+				foreach (Match classMatch in CssClassSelectorPattern.Matches(selectors))
+				{
+					string name = classMatch.Groups[1].Value;
+					if (!result.TryGetValue(name, out CellAlignment existing))
+					{
+						result[name] = new CellAlignment(align, valign);
+						continue;
+					}
+
+					result[name] = new CellAlignment(align ?? existing.Align, valign ?? existing.Valign);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private static IEnumerable<string> ReadClassNames(string cellHtml)
+	{
+		string? raw = ReadAttribute(cellHtml, "class");
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			yield break;
+		}
+
+		foreach (string token in raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+		{
+			yield return token;
+		}
+	}
+
+	private static string? ReadCssDeclaration(string? css, string name)
+	{
+		if (string.IsNullOrWhiteSpace(css))
+		{
+			return null;
+		}
+
+		Match match = Regex.Match(
+			css,
+			$@"(?:^|;)\s*{Regex.Escape(name)}\s*:\s*([^;]+)",
+			RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+		if (!match.Success)
+		{
+			return null;
+		}
+
+		string raw = match.Groups[1].Value.Trim();
+		int important = raw.IndexOf("!important", StringComparison.OrdinalIgnoreCase);
+		return important >= 0 ? raw[..important].Trim() : raw;
+	}
+
+	private static string? NormalizeAlign(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return null;
+		}
+
+		string lower = value.Trim().ToLowerInvariant();
+		return lower switch
+		{
+			"center" => "center",
+			"right" or "end" => "right",
+			"left" or "justify" or "start" => "left",
+			_ => null,
+		};
+	}
+
+	private static string? NormalizeValign(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return null;
+		}
+
+		string lower = value.Trim().ToLowerInvariant();
+		return lower switch
+		{
+			"middle" or "center" => "middle",
+			"bottom" => "bottom",
+			"top" or "baseline" => "top",
+			_ => null,
+		};
 	}
 
 	private static void EnsureGridRow(List<List<string?>> grid, int row)
@@ -781,6 +958,20 @@ internal static class ClipboardHtmlTableConverter
 
 			if (html[cursor] == '<')
 			{
+				if (IsOpenTagAt(html, cursor, "style")
+					&& TryReadElement(html, cursor, "style", out _, out int styleEnd))
+				{
+					cursor = styleEnd;
+					continue;
+				}
+
+				if (IsOpenTagAt(html, cursor, "script")
+					&& TryReadElement(html, cursor, "script", out _, out int scriptEnd))
+				{
+					cursor = scriptEnd;
+					continue;
+				}
+
 				int tagEnd = html.IndexOf('>', cursor);
 				if (tagEnd < 0)
 				{

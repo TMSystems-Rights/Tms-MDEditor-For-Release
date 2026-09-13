@@ -94,6 +94,13 @@ describe('renderExportHtml', () => {
 		expect(html).not.toContain('{colspan=3}');
 	});
 
+	it('GFM 表の align / valign を class にする', async () => {
+		const html = await render('|   |   |\n| --- | --- |\n| 100{align=right valign=middle} | 左 |\n');
+		expect(html).toContain('class="cm-md-table-align-right cm-md-table-valign-middle"');
+		expect(html).toContain('100');
+		expect(html).not.toContain('{align=right');
+	});
+
 	it('フェンス無し HTML 表を出す', async () => {
 		const html = await render('<table>\n<tr><th colspan="2">見出し</th></tr>\n<tr><td>A</td><td>B</td></tr>\n</table>\n');
 		expect(html).toContain('<table');
@@ -198,6 +205,20 @@ describe('renderExportHtml', () => {
 		expect(html).toMatch(/太字<\/strong><br>/);
 		expect(html).toMatch(/斜体<\/em><br>/);
 		expect(html).toContain('打消し');
+		expect(html).not.toMatch(/<div class="cm-editor[\s\S]*cm-md-blank/);
+	});
+
+	it('ソースの空行を HTML / PDF 用プレースホルダとして残す', async () => {
+		const one   = await render('一段落\n\n二段落\n');
+		const three = await render('一段落\n\n\n\n二段落\n');
+		const heads = await render('# 見出しA\n\n# 見出しB\n', { outline: { enabled: false } });
+		expect(one).toContain('<p>一段落</p>');
+		expect(one).toContain('<p>二段落</p>');
+		expect(one.match(/class="cm-line cm-md-blank"/g)).toHaveLength(1);
+		expect(three.match(/class="cm-line cm-md-blank"/g)).toHaveLength(3);
+		expect(heads.match(/class="cm-line cm-md-blank"/g)).toHaveLength(1);
+		expect(heads).toContain('<h1 class="cm-line cm-md-h1">見出しA</h1>');
+		expect(heads).toContain('<h1 class="cm-line cm-md-h1">見出しB</h1>');
 	});
 
 	it('長い文書の末尾まで出力する', async () => {
@@ -270,6 +291,12 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('tms-mde-export-outline-guide');
 		expect(html).toContain('content: "▼"');
 		expect(html).toContain('content: "▶"');
+		expect(html).toMatch(/id="tms-mde-export-outline-dock"[^>]*checked/);
+		expect(html).toContain('tms-mde-export-outline-toggle');
+		expect(html).toContain('tms-mde-export-outline-panel');
+		expect(html).toContain('#tms-mde-export-outline-dock:not(:checked)');
+		expect(html).toContain('grid-template-columns: minmax(0, 1fr) 22px');
+		expect(html).toContain('grid-template-columns: 22px minmax(0, 1fr)');
 		expect(html).not.toContain('<ol class="tms-mde-export-outline-list"');
 		expect(html).toMatch(/<script>[\s\S]*data-outline-expand/);
 		expect(html).not.toContain('alert(1)');
@@ -284,6 +311,7 @@ describe('renderExportHtml', () => {
 		expect(html).not.toContain('class="tms-mde-export-shell');
 		expect(html).not.toContain('id="tms-mde-h-0"');
 		expect(html).not.toContain('data-outline-expand');
+		expect(html).not.toContain('id="tms-mde-export-outline-dock"');
 		expect(html).not.toContain('<script>');
 	});
 
@@ -342,6 +370,10 @@ describe('buildExportCss', () => {
 		expect(css).not.toContain('.tms-mde-export-outline-row::before');
 		expect(css).toContain('content: "▼"');
 		expect(css).toContain('content: "▶"');
+		expect(css).toContain('.cm-md-blank');
+		expect(css).toContain('#tms-mde-export-outline-dock:not(:checked)');
+		expect(css).toContain('.tms-mde-export-outline-toggle');
+		expect(css).toContain('.tms-mde-export-outline-panel');
 	});
 
 	it('コードブロックフォントをテーマ変数へ反映し、スニペットより前へ置く', () => {

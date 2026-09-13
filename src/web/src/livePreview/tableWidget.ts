@@ -42,9 +42,11 @@ import {
 } from './imageResize';
 import { attachTableResize, getTableLayoutKey } from './tableResize';
 import {
+	buildAlignTableCellsChanges,
 	buildMergeTableCellsChanges,
 	buildTableOccupancy,
 	buildUnmergeTableCellsChanges,
+	cellAlignmentClassNames,
 	describeTableCellSelection,
 	formatCellSpan,
 	getTableMergeActionState,
@@ -53,6 +55,7 @@ import {
 	normalizeTableSelectionRect,
 	parseCellSpan,
 	stripCellSpanFromNodes,
+	type TableAlignPatch,
 	type TableMergeActionState,
 	type TableSelectionRect,
 } from './tableMerge';
@@ -1732,7 +1735,7 @@ export function buildTableCellChange(
 	return {
 		from  : source.from,
 		to    : source.to,
-		insert: formatCellSpan(typed.text, span.colspan, span.rowspan),
+		insert: formatCellSpan(typed.text, span.colspan, span.rowspan, span.align, span.valign),
 	};
 }
 
@@ -2330,6 +2333,7 @@ function applyCellSpan(
 	cell: HTMLTableCellElement,
 	occupancy: ReturnType<typeof buildTableOccupancy>,
 	position: TableCellPosition,
+	sourceText = '',
 ): void {
 	const item = occupancy.cells[position.row]?.[position.column];
 	if (!item || item.covered) {
@@ -2342,6 +2346,11 @@ function applyCellSpan(
 
 	if (item.rowspan > 1) {
 		cell.rowSpan = item.rowspan;
+	}
+
+	const className = cellAlignmentClassNames(parseCellSpan(sourceText));
+	if (className.length > 0) {
+		cell.classList.add(...className.split(/\s+/));
 	}
 }
 
@@ -2535,6 +2544,39 @@ export function applyTableMergeAction(
 	view.dispatch({
 		changes  : changes.map((change) => ({ from: change.from, to: change.to, insert: change.insert })),
 		userEvent: action === 'merge' ? 'input.table.merge' : 'input.table.unmerge',
+	});
+	return true;
+}
+
+/**
+ * セル配置を文書へ書く。
+ * @param {EditorView} view エディタ
+ * @param {MouseEvent} event マウス
+ * @param {TableAlignPatch} patch 配置
+ * @returns {boolean}
+ */
+export function applyTableAlignAction(
+	view: EditorView,
+	event: MouseEvent,
+	patch: TableAlignPatch,
+): boolean {
+	if (view.state.readOnly) {
+		return false;
+	}
+
+	const resolved = resolveTableMergeTarget(view, event);
+	if (!resolved) {
+		return false;
+	}
+
+	const changes = buildAlignTableCellsChanges(resolved.data, resolved.state.rect, patch);
+	if (!changes || changes.length === 0) {
+		return false;
+	}
+
+	view.dispatch({
+		changes  : changes.map((change) => ({ from: change.from, to: change.to, insert: change.insert })),
+		userEvent: 'input.table.align',
 	});
 	return true;
 }
@@ -2990,7 +3032,7 @@ export class TableWidget extends WidgetType {
 					this.data.headerSources[index],
 					{ row: 0, column: index },
 				);
-				applyCellSpan(cell, occupancy, { row: 0, column: index });
+				applyCellSpan(cell, occupancy, { row: 0, column: index }, this.data.headerSources[index]?.text ?? '');
 				tr.appendChild(cell);
 			}
 
@@ -3015,7 +3057,12 @@ export class TableWidget extends WidgetType {
 						this.data.rowSources[rowIndex]?.[index],
 						position,
 					);
-					applyCellSpan(cell, occupancy, position);
+					applyCellSpan(
+						cell,
+						occupancy,
+						position,
+						this.data.rowSources[rowIndex]?.[index]?.text ?? '',
+					);
 					tr.appendChild(cell);
 				}
 

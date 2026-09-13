@@ -55,6 +55,57 @@ public class ClipboardHtmlTableConverterTests
 	}
 
 	[Fact]
+	public void ToMarkdown_emits_align_and_valign_attributes()
+	{
+		const string html = "<table><tr><td align=\"right\" valign=\"middle\">100</td><td>左</td></tr></table>";
+
+		string markdown = ClipboardHtmlTableConverter.ToMarkdown(html, static _ => null);
+
+		Assert.Equal(
+			"|   |   |\n|---|---|\n|100{align=right valign=middle}|左|",
+			markdown);
+	}
+
+	[Fact]
+	public void ToMarkdown_reads_inline_style_alignment()
+	{
+		const string html = "<table><tr><td style=\"text-align:center; vertical-align:bottom\">A</td></tr></table>";
+
+		string markdown = ClipboardHtmlTableConverter.ToMarkdown(html, static _ => null);
+
+		Assert.Equal("|   |\n|---|\n|A{align=center valign=bottom}|", markdown);
+	}
+
+	[Fact]
+	public void ToMarkdown_reads_excel_class_alignment()
+	{
+		const string html = """
+			<html><head><style>
+			.xl65 { text-align:center; vertical-align:middle; }
+			.xl66 { text-align:right; }
+			</style></head><body>
+			<table><tr><td class="xl65">A</td><td class=xl66>B</td></tr></table>
+			</body></html>
+			""";
+
+		string markdown = ClipboardHtmlTableConverter.ToMarkdown(html, static _ => null);
+
+		Assert.Equal(
+			"|   |   |\n|---|---|\n|A{align=center valign=middle}|B{align=right}|",
+			markdown);
+	}
+
+	[Fact]
+	public void ToMarkdown_omits_default_left_top_alignment()
+	{
+		const string html = "<table><tr><td align=\"left\" valign=\"top\" style=\"text-align:justify\">A</td></tr></table>";
+
+		string markdown = ClipboardHtmlTableConverter.ToMarkdown(html, static _ => null);
+
+		Assert.Equal("|   |\n|---|\n|A|", markdown);
+	}
+
+	[Fact]
 	public void ToMarkdown_emits_rowspan_and_fills_occupied_cells()
 	{
 		const string html = "<table><tr><td rowspan=\"2\">A</td><td>B</td></tr><tr><td>C</td></tr></table>";

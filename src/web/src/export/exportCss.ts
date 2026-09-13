@@ -73,6 +73,13 @@ export const EXPORT_PREVIEW_CSS = `
 	padding: 2rem 1.5rem 3rem;
 	line-height: 1.65;
 }
+.tms-mde-export p {
+	margin: 0;
+}
+.tms-mde-export .cm-md-blank {
+	margin: 0;
+	min-height: 1.65em;
+}
 .tms-mde-export h1, .tms-mde-export h2, .tms-mde-export h3,
 .tms-mde-export h4, .tms-mde-export h5, .tms-mde-export h6 {
 	margin: 0;
@@ -146,8 +153,13 @@ export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export .cm-md-table th, .tms-mde-export .cm-md-table td {
 	padding: 0.35em 0.7em;
 	border: 1px solid var(--tms-mde-color-border);
+	text-align: left;
 	vertical-align: top;
 }
+.tms-mde-export .cm-md-table th.cm-md-table-align-center, .tms-mde-export .cm-md-table td.cm-md-table-align-center { text-align: center; }
+.tms-mde-export .cm-md-table th.cm-md-table-align-right, .tms-mde-export .cm-md-table td.cm-md-table-align-right { text-align: right; }
+.tms-mde-export .cm-md-table th.cm-md-table-valign-middle, .tms-mde-export .cm-md-table td.cm-md-table-valign-middle { vertical-align: middle; }
+.tms-mde-export .cm-md-table th.cm-md-table-valign-bottom, .tms-mde-export .cm-md-table td.cm-md-table-valign-bottom { vertical-align: bottom; }
 .tms-mde-export .cm-md-table th { font-weight: 600; background: color-mix(in srgb, var(--tms-mde-color-primary) 16%, var(--tms-mde-color-surface)); }
 .tms-mde-export .cm-md-html-table-wrap { overflow-x: auto; margin: 0.35em 0; }
 .tms-mde-export .cm-md-image { max-width: min(100%, 720px); height: auto; box-sizing: border-box; border: var(--tms-mde-image-border-width, 1px) solid var(--tms-mde-image-border-color, #888888); }
@@ -184,17 +196,85 @@ export const EXPORT_OUTLINE_CSS = `
 	grid-area: outline;
 	position: sticky;
 	top: 0;
+	display: flex;
+	flex-direction: row;
+	align-items: stretch;
 	box-sizing: border-box;
+	min-height: 100vh;
 	max-height: 100vh;
-	padding: 16px 12px 32px;
-	overflow-y: auto;
+	padding: 0;
+	overflow: hidden;
 	border-left: 1px solid var(--tms-mde-color-border);
 	background: var(--tms-mde-color-surface);
 	color: var(--tms-mde-color-text);
 }
 .tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked) .tms-mde-export-outline {
+	flex-direction: row-reverse;
 	border-left: none;
 	border-right: 1px solid var(--tms-mde-color-border);
+}
+.tms-mde-export-outline-dock {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+}
+.tms-mde-export-outline-toggle {
+	flex: 0 0 22px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	margin: 0;
+	border: 0;
+	border-right: 1px solid var(--tms-mde-color-border);
+	background: var(--tms-mde-color-bg);
+	color: var(--tms-mde-color-text-muted);
+	font-size: 12px;
+	line-height: 1;
+	cursor: pointer;
+	user-select: none;
+}
+.tms-mde-export-outline-toggle:hover {
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 12%, var(--tms-mde-color-bg));
+	color: var(--tms-mde-color-text);
+}
+.tms-mde-export-outline-dock:focus-visible + .tms-mde-export-outline-toggle {
+	outline: 2px solid var(--tms-mde-color-primary);
+	outline-offset: -2px;
+}
+.tms-mde-export-outline-toggle::before {
+	content: "»";
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked) .tms-mde-export-outline-toggle {
+	border-right: none;
+	border-left: 1px solid var(--tms-mde-color-border);
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked) .tms-mde-export-outline-toggle::before {
+	content: "«";
+}
+.tms-mde-export-outline-panel {
+	flex: 1 1 auto;
+	min-width: 0;
+	max-height: 100vh;
+	padding: 16px 12px 32px;
+	overflow-y: auto;
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-dock:not(:checked)) {
+	grid-template-columns: minmax(0, 1fr) 22px;
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked):has(#tms-mde-export-outline-dock:not(:checked)) {
+	grid-template-columns: 22px minmax(0, 1fr);
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-dock:not(:checked)) .tms-mde-export-outline-panel {
+	display: none;
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-dock:not(:checked)) .tms-mde-export-outline-toggle::before {
+	content: "«";
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked):has(#tms-mde-export-outline-dock:not(:checked)) .tms-mde-export-outline-toggle::before {
+	content: "»";
 }
 .tms-mde-export-outline-header {
 	display: flex;

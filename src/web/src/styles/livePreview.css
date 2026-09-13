@@ -406,6 +406,26 @@
 	vertical-align: top;
 }
 
+.tms-mde-editor-host .cm-md-table th.cm-md-table-align-center,
+.tms-mde-editor-host .cm-md-table td.cm-md-table-align-center {
+	text-align: center;
+}
+
+.tms-mde-editor-host .cm-md-table th.cm-md-table-align-right,
+.tms-mde-editor-host .cm-md-table td.cm-md-table-align-right {
+	text-align: right;
+}
+
+.tms-mde-editor-host .cm-md-table th.cm-md-table-valign-middle,
+.tms-mde-editor-host .cm-md-table td.cm-md-table-valign-middle {
+	vertical-align: middle;
+}
+
+.tms-mde-editor-host .cm-md-table th.cm-md-table-valign-bottom,
+.tms-mde-editor-host .cm-md-table td.cm-md-table-valign-bottom {
+	vertical-align: bottom;
+}
+
 .tms-mde-editor-host .cm-md-table th[contenteditable="plaintext-only"],
 .tms-mde-editor-host .cm-md-table td[contenteditable="plaintext-only"] {
 	cursor: text;

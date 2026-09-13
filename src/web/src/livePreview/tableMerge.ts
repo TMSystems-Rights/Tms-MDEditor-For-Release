@@ -1,13 +1,23 @@
 import type { TableCellNode, TableCellPosition, TableData, TableDocumentChange } from './tableWidget';
 
-const SPAN_BLOCK_PATTERN = /^(?:\{(?:\s*(?:colspan|rowspan)\s*=\s*\d+\s*)+\})+$/i;
-const SPAN_ATTR_PATTERN  = /(colspan|rowspan)\s*=\s*(\d+)/gi;
+const CELL_ATTR_BLOCK_PATTERN = /^(?:\{(?:\s*(?:colspan|rowspan)\s*=\s*\d+|\s*align\s*=\s*(?:left|center|right|justify|start)|\s*valign\s*=\s*(?:top|middle|bottom|center|baseline))+\})+$/i;
+const CELL_ATTR_PATTERN       = /(colspan|rowspan|align|valign)\s*=\s*([a-z0-9]+)/gi;
+
+export type CellAlign = 'left' | 'center' | 'right';
+export type CellValign = 'top' | 'middle' | 'bottom';
 
 export type CellSpan = {
 	text: string;
 	colspan: number;
 	rowspan: number;
+	align: CellAlign;
+	valign: CellValign;
 	suffix: string;
+};
+
+export type TableAlignPatch = {
+	align?: CellAlign;
+	valign?: CellValign;
 };
 
 export type TableSelectionRect = {
@@ -38,17 +48,19 @@ export type TableMergeActionState = {
 };
 
 /**
- * セル末尾の結合属性を読む。
+ * セル末尾の結合・配置属性を読む。
  * @param {string} text セルソース
  * @returns {CellSpan}
  */
 export function parseCellSpan(text: string): CellSpan {
-	const trimmedEnd = text.replace(/[ \t]+$/u, '');
-	const trailWs    = text.slice(trimmedEnd.length);
-	let rest         = trimmedEnd;
-	let suffix       = '';
-	let colspan      = 1;
-	let rowspan      = 1;
+	const trimmedEnd       = text.replace(/[ \t]+$/u, '');
+	const trailWs          = text.slice(trimmedEnd.length);
+	let rest               = trimmedEnd;
+	let suffix             = '';
+	let colspan            = 1;
+	let rowspan            = 1;
+	let align: CellAlign   = 'left';
+	let valign: CellValign = 'top';
 
 	while (rest.length > 0) {
 		const close = rest.lastIndexOf('}');
@@ -62,21 +74,26 @@ export function parseCellSpan(text: string): CellSpan {
 		}
 
 		const block = rest.slice(open);
-		if (!SPAN_BLOCK_PATTERN.test(block)) {
+		if (!CELL_ATTR_BLOCK_PATTERN.test(block)) {
 			break;
 		}
 
-		SPAN_ATTR_PATTERN.lastIndex       = 0;
-		let match: RegExpExecArray | null = SPAN_ATTR_PATTERN.exec(block);
+		CELL_ATTR_PATTERN.lastIndex       = 0;
+		let match: RegExpExecArray | null = CELL_ATTR_PATTERN.exec(block);
 		while (match) {
-			const value = Math.max(1, Number(match[2]));
-			if ((match[1] ?? '').toLowerCase() === 'colspan') {
-				colspan = value;
+			const name  = (match[1] ?? '').toLowerCase();
+			const value = match[2] ?? '';
+			if (name === 'colspan') {
+				colspan = Math.max(1, Number(value));
+			} else if (name === 'rowspan') {
+				rowspan = Math.max(1, Number(value));
+			} else if (name === 'align') {
+				align = normalizeCellAlign(value) ?? align;
 			} else {
-				rowspan = value;
+				valign = normalizeCellValign(value) ?? valign;
 			}
 
-			match = SPAN_ATTR_PATTERN.exec(block);
+			match = CELL_ATTR_PATTERN.exec(block);
 		}
 
 		suffix = block + suffix;
@@ -87,24 +104,30 @@ export function parseCellSpan(text: string): CellSpan {
 		text   : rest,
 		colspan,
 		rowspan,
+		align,
+		valign,
 		suffix : suffix + trailWs,
 	};
 }
 
 /**
- * 結合属性をセル末尾へ付ける。
+ * 結合・配置属性をセル末尾へ付ける。既定の左詰め・上詰めは書かない。
  * @param {string} text 本文
  * @param {number} colspan 列結合
  * @param {number} rowspan 行結合
+ * @param {CellAlign} [align] 横位置
+ * @param {CellValign} [valign] 縦位置
  * @returns {string}
  */
-export function formatCellSpan(text: string, colspan: number, rowspan: number): string {
-	const cols = Math.max(1, Math.floor(colspan));
-	const rows = Math.max(1, Math.floor(rowspan));
-	if (cols <= 1 && rows <= 1) {
-		return text;
-	}
-
+export function formatCellSpan(
+	text: string,
+	colspan: number,
+	rowspan: number,
+	align: CellAlign = 'left',
+	valign: CellValign = 'top',
+): string {
+	const cols            = Math.max(1, Math.floor(colspan));
+	const rows            = Math.max(1, Math.floor(rowspan));
 	const parts: string[] = [];
 	if (cols > 1) {
 		parts.push(`colspan=${cols}`);
@@ -114,7 +137,77 @@ export function formatCellSpan(text: string, colspan: number, rowspan: number): 
 		parts.push(`rowspan=${rows}`);
 	}
 
-	return `${text}{${parts.join(' ')}}`;
+	if (align !== 'left') {
+		parts.push(`align=${align}`);
+	}
+
+	if (valign !== 'top') {
+		parts.push(`valign=${valign}`);
+	}
+
+	return parts.length === 0 ? text : `${text}{${parts.join(' ')}}`;
+}
+
+/**
+ * 配置用 CSS クラスを返す。既定は空。
+ * @param {Pick<CellSpan, 'align' | 'valign'>} span 配置
+ * @returns {string}
+ */
+export function cellAlignmentClassNames(span: Pick<CellSpan, 'align' | 'valign'>): string {
+	const parts: string[] = [];
+	if (span.align !== 'left') {
+		parts.push(`cm-md-table-align-${span.align}`);
+	}
+
+	if (span.valign !== 'top') {
+		parts.push(`cm-md-table-valign-${span.valign}`);
+	}
+
+	return parts.join(' ');
+}
+
+/**
+ * 横位置の別名を正規化する。
+ * @param {string} value 生値
+ * @returns {CellAlign | null}
+ */
+export function normalizeCellAlign(value: string): CellAlign | null {
+	const lower = value.trim().toLowerCase();
+	if (lower === 'center') {
+		return 'center';
+	}
+
+	if (lower === 'right' || lower === 'end') {
+		return 'right';
+	}
+
+	if (lower === 'left' || lower === 'justify' || lower === 'start') {
+		return 'left';
+	}
+
+	return null;
+}
+
+/**
+ * 縦位置の別名を正規化する。
+ * @param {string} value 生値
+ * @returns {CellValign | null}
+ */
+export function normalizeCellValign(value: string): CellValign | null {
+	const lower = value.trim().toLowerCase();
+	if (lower === 'middle' || lower === 'center') {
+		return 'middle';
+	}
+
+	if (lower === 'bottom') {
+		return 'bottom';
+	}
+
+	if (lower === 'top' || lower === 'baseline') {
+		return 'top';
+	}
+
+	return null;
 }
 
 /**
@@ -357,12 +450,13 @@ export function buildMergeTableCellsChanges(
 		return null;
 	}
 
+	const parsed                         = parseCellSpan(source.text);
 	const colspan                        = state.rect.endColumn - state.rect.startColumn + 1;
 	const rowspan                        = state.rect.endRow - state.rect.startRow + 1;
 	const changes: TableDocumentChange[] = [{
 		from  : source.from,
 		to    : source.to,
-		insert: formatCellSpan(parseCellSpan(source.text).text, colspan, rowspan),
+		insert: formatCellSpan(parsed.text, colspan, rowspan, parsed.align, parsed.valign),
 	}];
 
 	for (const position of listTableSelectionCells(state.rect)) {
@@ -414,7 +508,8 @@ export function buildUnmergeTableCellsChanges(
 			continue;
 		}
 
-		const next = parseCellSpan(source.text).text;
+		const parsed = parseCellSpan(source.text);
+		const next   = formatCellSpan(parsed.text, 1, 1, parsed.align, parsed.valign);
 		if (next !== source.text) {
 			changes.push({ from: source.from, to: source.to, insert: next });
 		}
@@ -424,7 +519,56 @@ export function buildUnmergeTableCellsChanges(
 }
 
 /**
- * 表示用 AST から末尾の結合属性を除く。
+ * 選択範囲の原点セルへ配置を書く変更を返す。
+ * @param {TableData} data 表
+ * @param {TableSelectionRect} rect 選択
+ * @param {TableAlignPatch} patch 変更する配置
+ * @returns {TableDocumentChange[] | null}
+ */
+export function buildAlignTableCellsChanges(
+	data: TableData,
+	rect: TableSelectionRect,
+	patch: TableAlignPatch,
+): TableDocumentChange[] | null {
+	if (patch.align === undefined && patch.valign === undefined) {
+		return null;
+	}
+
+	const occupancy                      = buildTableOccupancy(data);
+	const clamped                        = clampSelectionRect(rect, occupancy);
+	const seen                           = new Set<string>();
+	const changes: TableDocumentChange[] = [];
+	for (const position of listTableSelectionCells(clamped)) {
+		const origin = getTableCellOrigin(occupancy, position);
+		const key    = `${origin.row}:${origin.column}`;
+		if (seen.has(key)) {
+			continue;
+		}
+
+		seen.add(key);
+		const source = getCellSource(data, origin);
+		if (!source) {
+			continue;
+		}
+
+		const parsed = parseCellSpan(source.text);
+		const insert = formatCellSpan(
+			parsed.text,
+			parsed.colspan,
+			parsed.rowspan,
+			patch.align ?? parsed.align,
+			patch.valign ?? parsed.valign,
+		);
+		if (insert !== source.text) {
+			changes.push({ from: source.from, to: source.to, insert });
+		}
+	}
+
+	return changes.length > 0 ? sortChangesDescending(changes) : null;
+}
+
+/**
+ * 表示用 AST から末尾の結合・配置属性を除く。
  * @param {TableCellNode[]} nodes セル AST
  * @param {string} sourceText セルソース
  * @returns {TableCellNode[]}

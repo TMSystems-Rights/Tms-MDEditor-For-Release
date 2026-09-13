@@ -44,7 +44,12 @@ import {
 	extractTableData,
 	type TableCellNode,
 } from '../livePreview/tableWidget';
-import { buildTableOccupancy, isCoveredTableCell } from '../livePreview/tableMerge';
+import {
+	buildTableOccupancy,
+	cellAlignmentClassNames,
+	isCoveredTableCell,
+	parseCellSpan,
+} from '../livePreview/tableMerge';
 import { isHtmlTableBlock, sanitizeHtmlTable } from '../livePreview/htmlTable';
 import {
 	EXPORT_OUTLINE_CSS,
@@ -315,17 +320,25 @@ function renderExportOutlineHeader(): string {
 function renderExportOutlineNav(items: OutlineItem[]): string {
 	const header = renderExportOutlineHeader();
 	const script = `<script>${EXPORT_OUTLINE_FOLD_SCRIPT}</script>`;
+	const toggle = `<input type="checkbox" id="tms-mde-export-outline-dock" class="tms-mde-export-outline-dock" checked>
+<label for="tms-mde-export-outline-dock" class="tms-mde-export-outline-toggle" title="アウトラインの表示を切り替える" aria-label="アウトラインの表示を切り替える"></label>`;
 	if (items.length === 0) {
 		return `<nav id="tms-mde-export-outline" class="tms-mde-export-outline" aria-label="アウトライン">
+${toggle}
+<div class="tms-mde-export-outline-panel">
 ${header}
 <p class="tms-mde-export-outline-empty">見出しはありません</p>
+</div>
 ${script}
 </nav>`;
 	}
 
 	return `<nav id="tms-mde-export-outline" class="tms-mde-export-outline" aria-label="アウトライン">
+${toggle}
+<div class="tms-mde-export-outline-panel">
 ${header}
 ${renderExportOutlineTree(buildOutlineTree(items), 'tms-mde-export-outline-list')}
+</div>
 ${script}
 </nav>`;
 }
@@ -407,15 +420,83 @@ async function defaultRenderMermaid(
  * @returns {Promise<string>}
  */
 async function renderBlocks(context: ExportContext, parent: SyntaxNode): Promise<string> {
+	return renderChildBlocks(context, parent, () => false);
+}
+
+/**
+ * 子ブロックを描画し、ソース上の空行を残す。
+ * @param {ExportContext} context 文脈
+ * @param {SyntaxNode} parent 親ノード
+ * @param {(node: SyntaxNode) => boolean} shouldSkip 飛ばす子
+ * @returns {Promise<string>}
+ */
+async function renderChildBlocks(
+	context: ExportContext,
+	parent: SyntaxNode,
+	shouldSkip: (node: SyntaxNode) => boolean,
+): Promise<string> {
 	const parts: string[] = [];
+	let cursor            = parent.from;
 	for (let child = parent.firstChild; child; child = child.nextSibling) {
+		parts.push(...repeatExportBlankLines(countBlankLines(context.state, cursor, child.from)));
+		if (shouldSkip(child)) {
+			cursor = child.to;
+			continue;
+		}
+
 		const html = await renderBlock(context, child);
 		if (html) {
 			parts.push(html);
+		} else if (child.name === 'Paragraph') {
+			parts.push(...repeatExportBlankLines(countBlankLines(context.state, child.from, child.to)));
+		}
+
+		cursor = child.to;
+	}
+
+	parts.push(...repeatExportBlankLines(countBlankLines(context.state, cursor, parent.to)));
+	return parts.join('\n');
+}
+
+/**
+ * 範囲内の空行数を返す。直前ブロックの行の残りは数えない。
+ * @param {EditorState} state 文書
+ * @param {number} from 開始
+ * @param {number} to 終了
+ * @returns {number}
+ */
+function countBlankLines(state: EditorState, from: number, to: number): number {
+	if (from >= to) {
+		return 0;
+	}
+
+	let count   = 0;
+	const start = state.doc.lineAt(from);
+	const last  = state.doc.lineAt(Math.max(from, to - 1));
+	for (let number = start.number; number <= last.number; number += 1) {
+		const line = state.doc.line(number);
+		if (line.from < from || line.from >= to) {
+			continue;
+		}
+
+		if (state.doc.sliceString(line.from, line.to).trim().length === 0) {
+			count += 1;
 		}
 	}
 
-	return parts.join('\n');
+	return count;
+}
+
+/**
+ * 空行プレースホルダを繰り返す。
+ * @param {number} count 行数
+ * @returns {string[]}
+ */
+function repeatExportBlankLines(count: number): string[] {
+	return Array.from(
+		{ length: Math.max(0, count) },
+		() => '<div class="cm-line cm-md-blank" aria-hidden="true"><br></div>',
+	);
 }
 
 /**
@@ -494,18 +575,26 @@ async function renderBlock(context: ExportContext, node: SyntaxNode): Promise<st
  * @returns {Promise<string>}
  */
 async function renderListItems(context: ExportContext, listNode: SyntaxNode): Promise<string> {
-	const parts: string[] = [];
+	const items: SyntaxNode[] = [];
 	for (let child = listNode.firstChild; child; child = child.nextSibling) {
-		if (child.name !== 'ListItem') {
-			continue;
+		if (child.name === 'ListItem') {
+			items.push(child);
 		}
+	}
 
+	const parts: string[] = [];
+	for (let index = 0; index < items.length; index += 1) {
+		const child  = items[index];
+		const next   = items[index + 1];
 		const task   = findTaskInItem(context, child);
 		const prefix = task
 			? `<input type="checkbox" class="cm-md-checkbox" disabled${task.checked ? ' checked' : ''}>`
 			: '';
 		const inner  = await renderListItemContent(context, child);
-		parts.push(`<li>${prefix}${inner}</li>`);
+		const extra  = next
+			? repeatExportBlankLines(countBlankLines(context.state, child.to, next.from)).join('')
+			: '';
+		parts.push(`<li>${prefix}${inner}${extra}</li>`);
 	}
 
 	return `${parts.join('\n')}\n`;
@@ -519,19 +608,25 @@ async function renderListItems(context: ExportContext, listNode: SyntaxNode): Pr
  */
 async function renderListItemContent(context: ExportContext, item: SyntaxNode): Promise<string> {
 	const parts: string[] = [];
+	let cursor            = item.from;
 	for (let child = item.firstChild; child; child = child.nextSibling) {
 		if (SKIP_MARKS.has(child.name)) {
+			cursor = child.to;
 			continue;
 		}
 
+		parts.push(...repeatExportBlankLines(countBlankLines(context.state, cursor, child.from)));
 		if (child.name === 'Task' || child.name === 'Paragraph') {
 			parts.push(await renderCovered(context, child));
+			cursor = child.to;
 			continue;
 		}
 
 		parts.push(await renderBlock(context, child));
+		cursor = child.to;
 	}
 
+	parts.push(...repeatExportBlankLines(countBlankLines(context.state, cursor, item.to)));
 	return parts.join('').trim();
 }
 
@@ -621,16 +716,7 @@ async function splitCalloutContent(
  * @returns {Promise<string>}
  */
 async function renderQuoteChildren(context: ExportContext, node: SyntaxNode): Promise<string> {
-	const parts: string[] = [];
-	for (let child = node.firstChild; child; child = child.nextSibling) {
-		if (SKIP_MARKS.has(child.name)) {
-			continue;
-		}
-
-		parts.push(await renderBlock(context, child));
-	}
-
-	return parts.join('');
+	return renderChildBlocks(context, node, (child) => SKIP_MARKS.has(child.name));
 }
 
 /**
@@ -676,7 +762,11 @@ async function renderTable(context: ExportContext, node: SyntaxNode): Promise<st
 		}
 
 		const span  = occupancy.cells[0]?.[index];
-		const attrs = htmlSpanAttribute(span?.colspan ?? 1, span?.rowspan ?? 1);
+		const attrs = htmlCellAttribute(
+			span?.colspan ?? 1,
+			span?.rowspan ?? 1,
+			parseCellSpan(data.headerSources[index]?.text ?? ''),
+		);
 		headCells.push(`<th${attrs}>${await tableCellToHtml(context, data.headers[index] ?? [])}</th>`);
 	}
 
@@ -692,7 +782,11 @@ async function renderTable(context: ExportContext, node: SyntaxNode): Promise<st
 			}
 
 			const span  = occupancy.cells[position.row]?.[position.column];
-			const attrs = htmlSpanAttribute(span?.colspan ?? 1, span?.rowspan ?? 1);
+			const attrs = htmlCellAttribute(
+				span?.colspan ?? 1,
+				span?.rowspan ?? 1,
+				parseCellSpan(data.rowSources[rowIndex]?.[index]?.text ?? ''),
+			);
 			cells.push(`<td${attrs}>${await tableCellToHtml(context, row[index] ?? [])}</td>`);
 		}
 
@@ -705,9 +799,14 @@ async function renderTable(context: ExportContext, node: SyntaxNode): Promise<st
 /**
  * @param {number} colspan 列結合
  * @param {number} rowspan 行結合
+ * @param {ReturnType<typeof parseCellSpan>} span 配置
  * @returns {string}
  */
-function htmlSpanAttribute(colspan: number, rowspan: number): string {
+function htmlCellAttribute(
+	colspan: number,
+	rowspan: number,
+	span: ReturnType<typeof parseCellSpan>,
+): string {
 	const parts: string[] = [];
 	if (colspan > 1) {
 		parts.push(` colspan="${colspan}"`);
@@ -715,6 +814,11 @@ function htmlSpanAttribute(colspan: number, rowspan: number): string {
 
 	if (rowspan > 1) {
 		parts.push(` rowspan="${rowspan}"`);
+	}
+
+	const className = cellAlignmentClassNames(span);
+	if (className.length > 0) {
+		parts.push(` class="${className}"`);
 	}
 
 	return parts.join('');

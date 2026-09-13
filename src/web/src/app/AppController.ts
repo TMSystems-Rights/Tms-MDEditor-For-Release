@@ -7,7 +7,8 @@ import { buildToggleTaskMarkerTransaction } from '../editor/checkboxToggle';
 import { setLineEolsEffect } from '../editor/eolMarkers';
 import { compileCustomDecorationRules, type CompiledCustomDecorationRule } from '../livePreview/customDecorations';
 import { findMarkdownLinkUrlFromMouseEvent, isSupportedExternalLinkUrl, setDocumentContextEffect, setViewModeEffect } from '../livePreview/livePreviewPlugin';
-import { applyTableMergeAction, getTableMergeActionStateFromEvent } from '../livePreview/tableWidget';
+import { applyTableAlignAction, applyTableMergeAction, getTableMergeActionStateFromEvent } from '../livePreview/tableWidget';
+import type { TableAlignPatch } from '../livePreview/tableMerge';
 import { showActionToast, showToast, type ToastHandle } from './toast';
 import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, PasteForEditorResult, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
 import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
@@ -2244,6 +2245,12 @@ export class AppController {
 				toggleCheckbox : { shortcut: this.settings.keybindings.toggleCheckbox, hidden: !checkboxAction },
 				mergeTableCells: { hidden: !tableMerge?.canMerge, disabled: !view || view.state.readOnly },
 				unmergeTableCells: { hidden: !tableMerge?.canUnmerge, disabled: !view || view.state.readOnly },
+				alignTableCellLeft  : { hidden: !tableMerge, disabled: !view || view.state.readOnly },
+				alignTableCellCenter: { hidden: !tableMerge, disabled: !view || view.state.readOnly },
+				alignTableCellRight : { hidden: !tableMerge, disabled: !view || view.state.readOnly },
+				valignTableCellTop   : { hidden: !tableMerge, disabled: !view || view.state.readOnly },
+				valignTableCellMiddle: { hidden: !tableMerge, disabled: !view || view.state.readOnly },
+				valignTableCellBottom: { hidden: !tableMerge, disabled: !view || view.state.readOnly },
 				openLink       : { hidden: !linkUrl || !isSupportedExternalLinkUrl(linkUrl) },
 				toggleViewMode : { shortcut: this.settings.keybindings.toggleViewMode, disabled: !tab || tab.largeFile },
 				toggleOutline  : { shortcut: this.settings.keybindings.toggleOutline },
@@ -2383,6 +2390,13 @@ export class AppController {
 
 			if ((action === 'mergeTableCells' || action === 'unmergeTableCells') && menuEvent) {
 				applyTableMergeAction(view, menuEvent, action === 'mergeTableCells' ? 'merge' : 'unmerge');
+				view.focus();
+				return;
+			}
+
+			const alignPatch = tableAlignPatchFromAction(action);
+			if (alignPatch && menuEvent) {
+				applyTableAlignAction(view, menuEvent, alignPatch);
 				view.focus();
 				return;
 			}
@@ -3396,6 +3410,45 @@ export class AppController {
 	private formatError(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
 	}
+}
+
+/**
+ * エクスポート既定ファイル名を作る
+ * @param {TabRuntime} tab タブ
+ * @param {'html' | 'pdf'} ext 拡張子
+ * @returns {string}
+ */
+/**
+ * 右クリックの配置コマンドを文書変更へ変換する。
+ * @param {string} action コマンドID
+ * @returns {TableAlignPatch | null}
+ */
+function tableAlignPatchFromAction(action: string): TableAlignPatch | null {
+	if (action === 'alignTableCellLeft') {
+		return { align: 'left' };
+	}
+
+	if (action === 'alignTableCellCenter') {
+		return { align: 'center' };
+	}
+
+	if (action === 'alignTableCellRight') {
+		return { align: 'right' };
+	}
+
+	if (action === 'valignTableCellTop') {
+		return { valign: 'top' };
+	}
+
+	if (action === 'valignTableCellMiddle') {
+		return { valign: 'middle' };
+	}
+
+	if (action === 'valignTableCellBottom') {
+		return { valign: 'bottom' };
+	}
+
+	return null;
 }
 
 /**

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { createDocumentContextExtensions } from './documentContext';
 import {
+	buildAlignTableCellsChanges,
 	buildMergeTableCellsChanges,
 	buildTableOccupancy,
 	buildUnmergeTableCellsChanges,
+	cellAlignmentClassNames,
 	describeTableCellSelection,
 	formatCellSpan,
 	getTableMergeActionState,
@@ -81,6 +83,41 @@ describe('tableMerge', () => {
 		expect(formatCellSpan('A', 1, 1)).toBe('A');
 	});
 
+	it('末尾の align / valign を読む', () => {
+		expect(parseCellSpan('100{align=right}')).toMatchObject({
+			text  : '100',
+			align : 'right',
+			valign: 'top',
+		});
+		expect(parseCellSpan('見出し{valign=middle}')).toMatchObject({
+			text  : '見出し',
+			align : 'left',
+			valign: 'middle',
+		});
+		expect(parseCellSpan('新キャラ{colspan=3 align=center valign=middle}')).toMatchObject({
+			text   : '新キャラ',
+			colspan: 3,
+			align  : 'center',
+			valign : 'middle',
+		});
+		expect(parseCellSpan('A{align=center}{valign=bottom}')).toMatchObject({
+			text  : 'A',
+			align : 'center',
+			valign: 'bottom',
+		});
+		expect(parseCellSpan('B{valign=center}')).toMatchObject({ text: 'B', valign: 'middle' });
+		expect(formatCellSpan('100', 1, 1, 'right')).toBe('100{align=right}');
+		expect(formatCellSpan('見出し', 1, 1, 'left', 'middle')).toBe('見出し{valign=middle}');
+		expect(formatCellSpan('新キャラ', 3, 1, 'center', 'middle')).toBe(
+			'新キャラ{colspan=3 align=center valign=middle}',
+		);
+		expect(formatCellSpan('A', 1, 1, 'left', 'top')).toBe('A');
+		expect(cellAlignmentClassNames({ align: 'center', valign: 'middle' })).toBe(
+			'cm-md-table-align-center cm-md-table-valign-middle',
+		);
+		expect(cellAlignmentClassNames({ align: 'left', valign: 'top' })).toBe('');
+	});
+
 	it('占有グリッドで覆われるマスを付ける', () => {
 		const data      = tableData(createState('|   |   |   |\n|---|---|---|\n|新キャラ{colspan=3}|  |  |\n|A|B|C|'));
 		const occupancy = buildTableOccupancy(data);
@@ -103,6 +140,31 @@ describe('tableMerge', () => {
 		expect(getTableMergeActionState(mergedData, rect).canUnmerge).toBe(true);
 		const undone = buildUnmergeTableCellsChanges(mergedData, rect);
 		expect(undone?.[0]?.insert).toBe('A');
+	});
+
+	it('結合は配置を残し、解除は結合だけ外す', () => {
+		const data = tableData(createState('|   |   |   |\n|---|---|---|\n|A{align=center valign=middle}|B|C|'));
+		const rect = { startRow: 1, startColumn: 0, endRow: 1, endColumn: 2 };
+		expect(buildMergeTableCellsChanges(data, rect)?.map((change) => change.insert)).toContain(
+			'A{colspan=3 align=center valign=middle}',
+		);
+		const mergedData = tableData(createState(
+			'|   |   |   |\n|---|---|---|\n|A{colspan=3 align=center valign=middle}|  |  |',
+		));
+		expect(buildUnmergeTableCellsChanges(mergedData, rect)?.map((change) => change.insert)).toContain(
+			'A{align=center valign=middle}',
+		);
+	});
+
+	it('選択範囲の原点セルへ配置を書く', () => {
+		const data    = tableData(createState('|   |   |\n|---|---|\n|A|B{align=right}|'));
+		const rect    = { startRow: 1, startColumn: 0, endRow: 1, endColumn: 1 };
+		const written = buildAlignTableCellsChanges(data, rect, { align: 'center', valign: 'middle' });
+		expect(written?.map((change) => change.insert)).toEqual([
+			'B{align=center valign=middle}',
+			'A{align=center valign=middle}',
+		]);
+		expect(buildAlignTableCellsChanges(data, rect, { align: 'left' })?.[0]?.insert).toBe('B');
 	});
 
 	it('選択範囲の外周辺だけをセルに付ける', () => {
