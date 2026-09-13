@@ -4,7 +4,17 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.7.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.0)
+最新リリース: [v1.7.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.1)
+
+## v1.7.1 の主な変更
+
+- GFM 表の列幅・行高を `{colwidths}` / `{rowheights}` としてソースへ残す（罫線ドラッグ確定、HTML / PDF にも出す）
+- 結合セルがあっても列ごとの縦罫線をドラッグできる。別の表の列幅は連動しない
+- セル内 `Shift+Enter` の改行が見え、連続空行もソースを壊さない
+- `Tab` 移動で移動元が選択色のまま残らない
+- セル内改行があるとき、上下キーは同じ桁の行間へキャレットを移す
+- 上下キーの移動先が結合セルなら、その結合セルへ入る
+- セル結合はプレビューへ即時反映し、解除で `{colspan}` / `{rowspan}` を消す
 
 ## v1.7.0 の主な変更
 

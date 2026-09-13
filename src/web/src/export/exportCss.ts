@@ -150,6 +150,8 @@ export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export .cm-md-syntax-invalid { color: var(--tms-mde-color-syntax-invalid); }
 .tms-mde-export .cm-md-table-wrap { overflow-x: auto; margin: 0.35em 0; }
 .tms-mde-export .cm-md-table { border-collapse: collapse; width: max-content; max-width: 100%; }
+.tms-mde-export .cm-md-table.is-resized { table-layout: fixed; }
+.tms-mde-export .cm-md-table.is-resized th, .tms-mde-export .cm-md-table.is-resized td { overflow-wrap: anywhere; word-break: break-word; }
 .tms-mde-export .cm-md-table th, .tms-mde-export .cm-md-table td {
 	padding: 0.35em 0.7em;
 	border: 1px solid var(--tms-mde-color-border);

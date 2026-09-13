@@ -1,7 +1,7 @@
 import type { TableCellNode, TableCellPosition, TableData, TableDocumentChange } from './tableWidget';
 
-const CELL_ATTR_BLOCK_PATTERN = /^(?:\{(?:\s*(?:colspan|rowspan)\s*=\s*\d+|\s*align\s*=\s*(?:left|center|right|justify|start)|\s*valign\s*=\s*(?:top|middle|bottom|center|baseline))+\})+$/i;
-const CELL_ATTR_PATTERN       = /(colspan|rowspan|align|valign)\s*=\s*([a-z0-9]+)/gi;
+const CELL_ATTR_BLOCK_PATTERN = /^(?:\{(?:\s*(?:colspan|rowspan)\s*=\s*\d+|\s*align\s*=\s*(?:left|center|right|justify|start)|\s*valign\s*=\s*(?:top|middle|bottom|center|baseline)|\s*colwidths\s*=\s*[\d,]+|\s*rowheights\s*=\s*[\d,]+)+\})+$/i;
+const CELL_ATTR_PATTERN       = /(colspan|rowspan|align|valign|colwidths|rowheights)\s*=\s*([a-z0-9,]+)/gi;
 
 export type CellAlign = 'left' | 'center' | 'right';
 export type CellValign = 'top' | 'middle' | 'bottom';
@@ -12,7 +12,14 @@ export type CellSpan = {
 	rowspan: number;
 	align: CellAlign;
 	valign: CellValign;
+	colwidths: number[];
+	rowheights: number[];
 	suffix: string;
+};
+
+export type TableSizeLayout = {
+	widths?: number[];
+	heights?: number[];
 };
 
 export type TableAlignPatch = {
@@ -48,19 +55,21 @@ export type TableMergeActionState = {
 };
 
 /**
- * セル末尾の結合・配置属性を読む。
+ * セル末尾の結合・配置・列幅・行高属性を読む。
  * @param {string} text セルソース
  * @returns {CellSpan}
  */
 export function parseCellSpan(text: string): CellSpan {
-	const trimmedEnd       = text.replace(/[ \t]+$/u, '');
-	const trailWs          = text.slice(trimmedEnd.length);
-	let rest               = trimmedEnd;
-	let suffix             = '';
-	let colspan            = 1;
-	let rowspan            = 1;
-	let align: CellAlign   = 'left';
-	let valign: CellValign = 'top';
+	const trimmedEnd         = text.replace(/[ \t]+$/u, '');
+	const trailWs            = text.slice(trimmedEnd.length);
+	let rest                 = trimmedEnd;
+	let suffix               = '';
+	let colspan              = 1;
+	let rowspan              = 1;
+	let align: CellAlign     = 'left';
+	let valign: CellValign   = 'top';
+	let colwidths: number[]  = [];
+	let rowheights: number[] = [];
 
 	while (rest.length > 0) {
 		const close = rest.lastIndexOf('}');
@@ -89,8 +98,12 @@ export function parseCellSpan(text: string): CellSpan {
 				rowspan = Math.max(1, Number(value));
 			} else if (name === 'align') {
 				align = normalizeCellAlign(value) ?? align;
-			} else {
+			} else if (name === 'valign') {
 				valign = normalizeCellValign(value) ?? valign;
+			} else if (name === 'colwidths') {
+				colwidths = parseSizeList(value);
+			} else if (name === 'rowheights') {
+				rowheights = parseSizeList(value);
 			}
 
 			match = CELL_ATTR_PATTERN.exec(block);
@@ -101,22 +114,26 @@ export function parseCellSpan(text: string): CellSpan {
 	}
 
 	return {
-		text   : rest,
+		text      : rest,
 		colspan,
 		rowspan,
 		align,
 		valign,
-		suffix : suffix + trailWs,
+		colwidths,
+		rowheights,
+		suffix    : suffix + trailWs,
 	};
 }
 
 /**
- * 結合・配置属性をセル末尾へ付ける。既定の左詰め・上詰めは書かない。
+ * 結合・配置・列幅・行高属性をセル末尾へ付ける。既定の左詰め・上詰めと未指定の寸法は書かない。
  * @param {string} text 本文
  * @param {number} colspan 列結合
  * @param {number} rowspan 行結合
  * @param {CellAlign} [align] 横位置
  * @param {CellValign} [valign] 縦位置
+ * @param {number[]} [colwidths] 列幅
+ * @param {number[]} [rowheights] 行高
  * @returns {string}
  */
 export function formatCellSpan(
@@ -125,6 +142,8 @@ export function formatCellSpan(
 	rowspan: number,
 	align: CellAlign = 'left',
 	valign: CellValign = 'top',
+	colwidths: number[] = [],
+	rowheights: number[] = [],
 ): string {
 	const cols            = Math.max(1, Math.floor(colspan));
 	const rows            = Math.max(1, Math.floor(rowspan));
@@ -145,7 +164,87 @@ export function formatCellSpan(
 		parts.push(`valign=${valign}`);
 	}
 
+	const widthList  = formatSizeList(colwidths);
+	const heightList = formatSizeList(rowheights);
+	if (widthList) {
+		parts.push(`colwidths=${widthList}`);
+	}
+
+	if (heightList) {
+		parts.push(`rowheights=${heightList}`);
+	}
+
 	return parts.length === 0 ? text : `${text}{${parts.join(' ')}}`;
+}
+
+/**
+ * カンマ区切りの幅・高を読む。0 以下は未指定。
+ * @param {string} value 生値
+ * @returns {number[]}
+ */
+export function parseSizeList(value: string): number[] {
+	return value.split(',').map((part) => {
+		const parsed = Number(part.trim());
+		return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+	});
+}
+
+/**
+ * 幅・高の配列を属性値にする。すべて未指定なら書かない。
+ * @param {number[]} values 値
+ * @returns {string | null}
+ */
+export function formatSizeList(values: number[]): string | null {
+	if (values.length === 0 || values.every((value) => value <= 0)) {
+		return null;
+	}
+
+	return values.map((value) => (value > 0 ? String(Math.round(value)) : '')).join(',');
+}
+
+/**
+ * 見出し左上セルから列幅・行高を読む。
+ * @param {TableData} data 表
+ * @returns {TableSizeLayout}
+ */
+export function readTableLayout(data: TableData): TableSizeLayout {
+	const span = parseCellSpan(data.headerSources[0]?.text ?? '');
+	return {
+		widths : span.colwidths.length > 0 ? [...span.colwidths] : undefined,
+		heights: span.rowheights.length > 0 ? [...span.rowheights] : undefined,
+	};
+}
+
+/**
+ * 見出し左上セルへ列幅・行高を書く変更を返す。
+ * @param {TableData} data 表
+ * @param {TableSizeLayout} layout レイアウト
+ * @returns {TableDocumentChange | null}
+ */
+export function buildTableLayoutChange(
+	data: TableData,
+	layout: TableSizeLayout,
+): TableDocumentChange | null {
+	const source = data.headerSources[0];
+	if (!source) {
+		return null;
+	}
+
+	const parsed = parseCellSpan(source.text);
+	const insert = formatCellSpan(
+		parsed.text,
+		parsed.colspan,
+		parsed.rowspan,
+		parsed.align,
+		parsed.valign,
+		layout.widths ?? [],
+		layout.heights ?? [],
+	);
+	if (insert === source.text) {
+		return null;
+	}
+
+	return { from: source.from, to: source.to, insert };
 }
 
 /**
@@ -336,6 +435,15 @@ export function normalizeTableSelectionRect(
 	};
 }
 
+/**
+ * 結合用の矩形として塗る範囲か。1セルだけの選択は編集ハイライトと重なるので塗らない。
+ * @param {TableSelectionRect} rect 矩形
+ * @returns {boolean}
+ */
+export function isMultiCellTableSelectionRect(rect: TableSelectionRect): boolean {
+	return rect.startRow !== rect.endRow || rect.startColumn !== rect.endColumn;
+}
+
 export type TableCellSelectionEdges = {
 	selected: boolean;
 	north: boolean;
@@ -456,7 +564,15 @@ export function buildMergeTableCellsChanges(
 	const changes: TableDocumentChange[] = [{
 		from  : source.from,
 		to    : source.to,
-		insert: formatCellSpan(parsed.text, colspan, rowspan, parsed.align, parsed.valign),
+		insert: formatCellSpan(
+			parsed.text,
+			colspan,
+			rowspan,
+			parsed.align,
+			parsed.valign,
+			parsed.colwidths,
+			parsed.rowheights,
+		),
 	}];
 
 	for (const position of listTableSelectionCells(state.rect)) {
@@ -483,36 +599,51 @@ export function buildUnmergeTableCellsChanges(
 	data: TableData,
 	rect: TableSelectionRect,
 ): TableDocumentChange[] | null {
-	const state = getTableMergeActionState(data, rect);
-	if (!state.canUnmerge) {
-		return null;
-	}
-
 	const occupancy                      = buildTableOccupancy(data);
+	const clamped                        = clampSelectionRect(rect, occupancy);
 	const seen                           = new Set<string>();
 	const changes: TableDocumentChange[] = [];
-	for (const position of listTableSelectionCells(state.rect)) {
-		const cell = occupancy.cells[position.row]?.[position.column];
-		if (!cell || cell.covered || (cell.colspan <= 1 && cell.rowspan <= 1)) {
-			continue;
-		}
 
-		const key = `${cell.originRow}:${cell.originColumn}`;
+	/**
+	 * セルソース末尾の結合属性だけを外す。
+	 * @param {import('./tableWidget').TableCellPosition} position 位置
+	 * @returns {void}
+	 */
+	const consider = (position: { row: number; column: number }): void => {
+		const key = `${position.row}:${position.column}`;
 		if (seen.has(key)) {
-			continue;
+			return;
 		}
 
 		seen.add(key);
-		const source = getCellSource(data, { row: cell.originRow, column: cell.originColumn });
+		const source = getCellSource(data, position);
 		if (!source) {
-			continue;
+			return;
 		}
 
 		const parsed = parseCellSpan(source.text);
-		const next   = formatCellSpan(parsed.text, 1, 1, parsed.align, parsed.valign);
+		if (parsed.colspan <= 1 && parsed.rowspan <= 1) {
+			return;
+		}
+
+		const next = formatCellSpan(
+			parsed.text,
+			1,
+			1,
+			parsed.align,
+			parsed.valign,
+			parsed.colwidths,
+			parsed.rowheights,
+		);
 		if (next !== source.text) {
 			changes.push({ from: source.from, to: source.to, insert: next });
 		}
+	};
+
+	consider({ row: clamped.startRow, column: clamped.startColumn });
+	for (const position of listTableSelectionCells(clamped)) {
+		consider(getTableCellOrigin(occupancy, position));
+		consider(position);
 	}
 
 	return changes.length > 0 ? sortChangesDescending(changes) : null;
@@ -558,6 +689,8 @@ export function buildAlignTableCellsChanges(
 			parsed.rowspan,
 			patch.align ?? parsed.align,
 			patch.valign ?? parsed.valign,
+			parsed.colwidths,
+			parsed.rowheights,
 		);
 		if (insert !== source.text) {
 			changes.push({ from: source.from, to: source.to, insert });
@@ -583,7 +716,7 @@ export function stripCellSpanFromNodes(nodes: TableCellNode[], sourceText: strin
 }
 
 /**
- * 覆われているマスを飛ばした隣接セルを返す。
+ * 横移動は覆われているマスを飛ばし、縦移動は覆いの原点へ入る隣接セルを返す。
  * @param {TableData} data 表
  * @param {TableCellPosition} position 現在位置
  * @param {'next' | 'previous' | 'up' | 'down'} direction 方向
@@ -626,22 +759,48 @@ export function getVisibleAdjacentTableCellPosition(
 	}
 
 	if (direction === 'down') {
-		return findVisibleCell(
-			occupancy,
-			origin.row + cell.rowspan,
-			origin.column,
-			1,
-			false,
-		);
+		return findVerticalAdjacentCell(occupancy, origin, position.column, 1);
 	}
 
-	return findVisibleCell(
-		occupancy,
-		origin.row - 1,
-		origin.column,
-		-1,
-		false,
-	);
+	return findVerticalAdjacentCell(occupancy, origin, position.column, -1);
+}
+
+/**
+ * 結合／解除の対象矩形を決める。複数セル選択を優先し、1セルなら結合全体へ広げる。
+ * @param {TableData} data 表
+ * @param {TableSelectionRect | null} selected ドラッグ選択
+ * @param {TableCellPosition | null} clicked クリック位置
+ * @returns {TableSelectionRect | null}
+ */
+export function resolveTableMergeRect(
+	data: TableData,
+	selected: TableSelectionRect | null,
+	clicked: TableCellPosition | null,
+): TableSelectionRect | null {
+	if (selected && isMultiCellTableSelectionRect(selected)) {
+		return selected;
+	}
+
+	const position = clicked ?? (selected
+		? { row: selected.startRow, column: selected.startColumn }
+		: null);
+	if (!position) {
+		return null;
+	}
+
+	const occupancy = buildTableOccupancy(data);
+	const origin    = getTableCellOrigin(occupancy, position);
+	const cell      = occupancy.cells[origin.row]?.[origin.column];
+	if (cell && (cell.colspan > 1 || cell.rowspan > 1)) {
+		return {
+			startRow   : origin.row,
+			startColumn: origin.column,
+			endRow     : origin.row + cell.rowspan - 1,
+			endColumn  : origin.column + cell.colspan - 1,
+		};
+	}
+
+	return normalizeTableSelectionRect(origin, origin);
 }
 
 /**
@@ -682,6 +841,43 @@ function clampSelectionRect(rect: TableSelectionRect, occupancy: TableOccupancy)
  */
 function sortChangesDescending(changes: TableDocumentChange[]): TableDocumentChange[] {
 	return [...changes].sort((left, right) => right.from - left.from || right.to - left.to);
+}
+
+/**
+ * 縦方向は覆われているマスの原点へ入る。同じ結合の中は飛ばす。
+ * @param {TableOccupancy} occupancy 占有
+ * @param {TableCellPosition} origin 現在の原点
+ * @param {number} preferredColumn 着地したい列
+ * @param {1 | -1} step 進み
+ * @returns {TableCellPosition | null}
+ */
+function findVerticalAdjacentCell(
+	occupancy: TableOccupancy,
+	origin: TableCellPosition,
+	preferredColumn: number,
+	step: 1 | -1,
+): TableCellPosition | null {
+	const originCell = occupancy.cells[origin.row]?.[origin.column];
+	const column     = Math.min(
+		Math.max(0, preferredColumn),
+		Math.max(0, occupancy.columnCount - 1),
+	);
+	let row          = step === 1
+		? origin.row + (originCell?.rowspan ?? 1)
+		: origin.row - 1;
+	while (row >= 0 && row < occupancy.rowCount) {
+		const cell = occupancy.cells[row]?.[column];
+		if (cell) {
+			const landed = { row: cell.originRow, column: cell.originColumn };
+			if (landed.row !== origin.row || landed.column !== origin.column) {
+				return landed;
+			}
+		}
+
+		row += step;
+	}
+
+	return null;
 }
 
 /**

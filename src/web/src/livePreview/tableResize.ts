@@ -8,6 +8,18 @@ export type TableLayout = {
 	heights?: number[];
 };
 
+export type TableCellBox = {
+	column: number;
+	colspan: number;
+	left: number;
+	width: number;
+};
+
+export type TableResizeOptions = {
+	layout?: TableLayout;
+	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void;
+};
+
 const MIN_COLUMN_WIDTH = 32;
 const MIN_ROW_HEIGHT   = 24;
 
@@ -37,6 +49,15 @@ export function rememberTableLayout(key: string, layout: TableLayout): void {
 		widths : layout.widths ? [...layout.widths] : undefined,
 		heights: layout.heights ? [...layout.heights] : undefined,
 	});
+}
+
+/**
+ * 1 表の保存レイアウトを消す。
+ * @param {string} key 保存キー
+ * @returns {void}
+ */
+export function forgetTableLayout(key: string): void {
+	layouts.delete(key);
 }
 
 /**
@@ -116,7 +137,7 @@ export function clampRowHeight(height: number): number {
  * @returns {void}
  */
 export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | undefined): void {
-	const columnCount = Number(table.dataset.columnCount) || table.rows[0]?.cells.length || 0;
+	const columnCount = getRenderedColumnCount(table);
 	if (!layout || (!layout.widths?.length && !layout.heights?.length) || columnCount === 0) {
 		table.classList.remove('is-resized');
 		table.style.tableLayout = '';
@@ -132,8 +153,8 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
 	if (layout.widths && layout.widths.length > 0) {
 		let total = 0;
 		[...columns.children].forEach((column, index) => {
-			const width = layout.widths?.[index];
-			if (width && width > 0) {
+			const width = layout.widths?.[index] ?? 0;
+			if (width > 0) {
 				const clamped                       = clampColumnWidth(width);
 				(column as HTMLElement).style.width = `${clamped}px`;
 				total                              += clamped;
@@ -159,10 +180,16 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
  * @param {HTMLElement} wrap 表ラッパー
  * @param {HTMLTableElement} table 表
  * @param {string} key 保存キー
+ * @param {TableResizeOptions} [options] ソースのレイアウトと確定時の書き戻し
  * @returns {void}
  */
-export function attachTableResize(wrap: HTMLElement, table: HTMLTableElement, key: string): void {
-	applyTableLayout(table, recallTableLayout(key));
+export function attachTableResize(
+	wrap: HTMLElement,
+	table: HTMLTableElement,
+	key: string,
+	options: TableResizeOptions = {},
+): void {
+	applyTableLayout(table, options.layout);
 
 	const overlay     = document.createElement('div');
 	overlay.className = 'cm-md-table-resize-overlay';
@@ -174,7 +201,7 @@ export function attachTableResize(wrap: HTMLElement, table: HTMLTableElement, ke
 	 * @returns {void}
 	 */
 	const sync = (): void => {
-		syncTableResizeHandles(overlay, table, key);
+		syncTableResizeHandles(overlay, table, key, options.onPersist);
 	};
 
 	sync();
@@ -205,12 +232,14 @@ export function attachTableResize(wrap: HTMLElement, table: HTMLTableElement, ke
  * @param {HTMLElement} overlay オーバーレイ
  * @param {HTMLTableElement} table 表
  * @param {string} key 保存キー
+ * @param {(layout: TableLayout, hit: TableResizeHit) => void} [onPersist] 確定時
  * @returns {void}
  */
 export function syncTableResizeHandles(
 	overlay: HTMLElement,
 	table: HTMLTableElement,
 	key: string,
+	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void,
 ): void {
 	overlay.replaceChildren();
 	overlay.style.left   = `${table.offsetLeft}px`;
@@ -223,16 +252,21 @@ export function syncTableResizeHandles(
 		return;
 	}
 
-	const tableRect = table.getBoundingClientRect();
-	[...rows[0]!.cells].forEach((cell, index) => {
-		const cellRect      = cell.getBoundingClientRect();
+	const tableRect   = table.getBoundingClientRect();
+	const columnCount = getRenderedColumnCount(table);
+	const boxes       = collectTableCellBoxes(table);
+	computeColumnRightEdges(boxes, columnCount).forEach((right, index) => {
+		if (right <= 0) {
+			return;
+		}
+
 		const handle        = document.createElement('div');
 		handle.className    = 'cm-md-table-col-resizer';
 		handle.title        = 'ドラッグして列幅を変更';
-		handle.style.left   = `${cellRect.right - tableRect.left - TABLE_RESIZE_HANDLE_PX}px`;
+		handle.style.left   = `${right - TABLE_RESIZE_HANDLE_PX}px`;
 		handle.style.top    = '0';
 		handle.style.height = `${tableRect.height}px`;
-		bindResizeHandle(handle, table, key, { kind: 'col', index }, overlay);
+		bindResizeHandle(handle, table, key, { kind: 'col', index }, overlay, onPersist);
 		overlay.appendChild(handle);
 	});
 
@@ -244,7 +278,7 @@ export function syncTableResizeHandles(
 		handle.style.left  = '0';
 		handle.style.top   = `${rowRect.bottom - tableRect.top - TABLE_RESIZE_HANDLE_PX}px`;
 		handle.style.width = `${tableRect.width}px`;
-		bindResizeHandle(handle, table, key, { kind: 'row', index }, overlay);
+		bindResizeHandle(handle, table, key, { kind: 'row', index }, overlay, onPersist);
 		overlay.appendChild(handle);
 	});
 }
@@ -255,19 +289,77 @@ export function syncTableResizeHandles(
  * @returns {TableLayout} レイアウト
  */
 export function measureTableLayout(table: HTMLTableElement): TableLayout {
-	const firstRow = table.rows[0];
-	const columns  = firstRow?.cells.length ?? 0;
-	const widths   = Array.from({ length: columns }, () => 0);
-	[...table.rows].forEach((row) => {
-		[...row.cells].forEach((cell, index) => {
-			widths[index] = Math.max(widths[index] ?? 0, cell.getBoundingClientRect().width);
-		});
-	});
-
+	const columnCount = getRenderedColumnCount(table);
 	return {
-		widths : widths.map((width) => clampColumnWidth(width)),
+		widths : computeColumnWidths(collectTableCellBoxes(table), columnCount),
 		heights: [...table.rows].map((row) => clampRowHeight(row.getBoundingClientRect().height)),
 	};
+}
+
+/**
+ * 描画済みセルの列位置と幅を集める。
+ * @param {HTMLTableElement} table 表
+ * @returns {TableCellBox[]}
+ */
+export function collectTableCellBoxes(table: HTMLTableElement): TableCellBox[] {
+	const tableRect = table.getBoundingClientRect();
+	return [...table.querySelectorAll('th, td')].map((cell) => {
+		const rect = cell.getBoundingClientRect();
+		return {
+			column : Number((cell as HTMLTableCellElement).dataset.tableColumn) || 0,
+			colspan: (cell as HTMLTableCellElement).colSpan || 1,
+			left   : rect.left - tableRect.left,
+			width  : rect.width,
+		};
+	});
+}
+
+/**
+ * 各列の右端位置を返す。結合セルでも列境界を出す。
+ * @param {TableCellBox[]} boxes セル
+ * @param {number} columnCount 列数
+ * @returns {number[]}
+ */
+export function computeColumnRightEdges(boxes: TableCellBox[], columnCount: number): number[] {
+	const edges = Array.from({ length: columnCount }, () => 0);
+	for (let column = 0; column < columnCount; column += 1) {
+		const ending = boxes.find((box) => box.column + box.colspan - 1 === column);
+		if (ending) {
+			edges[column] = ending.left + ending.width;
+			continue;
+		}
+
+		const covering = boxes.find((box) => box.column <= column && box.column + box.colspan - 1 >= column);
+		if (covering) {
+			edges[column] = covering.left + (covering.width * ((column - covering.column + 1) / covering.colspan));
+		}
+	}
+
+	return edges;
+}
+
+/**
+ * 各列の幅を返す。結合セルは幅を列数で割る。
+ * @param {TableCellBox[]} boxes セル
+ * @param {number} columnCount 列数
+ * @returns {number[]}
+ */
+export function computeColumnWidths(boxes: TableCellBox[], columnCount: number): number[] {
+	const widths = Array.from({ length: columnCount }, () => 0);
+	for (let column = 0; column < columnCount; column += 1) {
+		const unmerged = boxes.filter((box) => box.column === column && box.colspan === 1);
+		if (unmerged.length > 0) {
+			widths[column] = Math.max(...unmerged.map((box) => box.width));
+			continue;
+		}
+
+		const covering = boxes.find((box) => box.column <= column && box.column + box.colspan - 1 >= column);
+		if (covering) {
+			widths[column] = covering.width / covering.colspan;
+		}
+	}
+
+	return widths.map((width) => clampColumnWidth(width || MIN_COLUMN_WIDTH));
 }
 
 /**
@@ -284,6 +376,7 @@ function bindResizeHandle(
 	key: string,
 	hit: TableResizeHit,
 	overlay: HTMLElement,
+	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void,
 ): void {
 	handle.addEventListener('pointerdown', (event) => {
 		if (event.button !== 0) {
@@ -294,15 +387,15 @@ function bindResizeHandle(
 		event.stopPropagation();
 		startTableResize(table, key, hit, event, () => {
 			if (!table.classList.contains('is-resizing')) {
-				syncTableResizeHandles(overlay, table, key);
+				syncTableResizeHandles(overlay, table, key, onPersist);
 			}
-		});
+		}, onPersist);
 	});
 }
 
 /**
  * @param {HTMLTableElement} table 表
- * @param {string} key 保存キー
+ * @param {string} _key 互換用（ドラッグ中は共有メモリへ書かない）
  * @param {TableResizeHit} hit ヒット
  * @param {PointerEvent} event 開始イベント
  * @param {() => void} onSync ハンドル再配置
@@ -310,19 +403,15 @@ function bindResizeHandle(
  */
 function startTableResize(
 	table: HTMLTableElement,
-	key: string,
+	_key: string,
 	hit: TableResizeHit,
 	event: PointerEvent,
 	onSync: () => void,
+	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void,
 ): void {
 	const measured = measureTableLayout(table);
-	const stored   = recallTableLayout(key);
-	const widths   = stored?.widths && stored.widths.length === measured.widths?.length
-		? [...stored.widths]
-		: [...(measured.widths ?? [])];
-	const heights  = stored?.heights && stored.heights.length === measured.heights?.length
-		? [...stored.heights]
-		: [...(measured.heights ?? [])];
+	const widths   = [...(measured.widths ?? [])];
+	const heights  = [...(measured.heights ?? [])];
 	const startX   = event.clientX;
 	const startY   = event.clientY;
 	const startW   = widths[hit.index] ?? MIN_COLUMN_WIDTH;
@@ -351,9 +440,7 @@ function startTableResize(
 			heights[hit.index] = clampRowHeight(startH + (moveEvent.clientY - startY));
 		}
 
-		const layout = { widths, heights };
-		rememberTableLayout(key, layout);
-		applyTableLayout(table, layout);
+		applyTableLayout(table, { widths, heights });
 	};
 
 	/**
@@ -374,6 +461,7 @@ function startTableResize(
 		}
 
 		onSync();
+		onPersist?.({ widths, heights }, hit);
 	};
 
 	if (handle instanceof HTMLElement) {
@@ -381,6 +469,32 @@ function startTableResize(
 		handle.addEventListener('pointerup', onUp);
 		handle.addEventListener('pointercancel', onUp);
 	}
+}
+
+/**
+ * @param {HTMLTableElement} table 表
+ * @param {number} columnCount 列数
+ * @returns {HTMLTableColElement} colgroup
+ */
+/**
+ * 表の論理列数を返す。
+ * @param {HTMLTableElement} table 表
+ * @returns {number}
+ */
+export function getRenderedColumnCount(table: HTMLTableElement): number {
+	const fromData = Number(table.dataset.columnCount);
+	if (Number.isInteger(fromData) && fromData > 0) {
+		return fromData;
+	}
+
+	const fromCells = Math.max(
+		0,
+		...[...table.querySelectorAll('th, td')].map((cell) => {
+			const start = Number((cell as HTMLTableCellElement).dataset.tableColumn) || 0;
+			return start + ((cell as HTMLTableCellElement).colSpan || 1);
+		}),
+	);
+	return fromCells;
 }
 
 /**

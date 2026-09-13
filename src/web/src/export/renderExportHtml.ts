@@ -49,7 +49,9 @@ import {
 	cellAlignmentClassNames,
 	isCoveredTableCell,
 	parseCellSpan,
+	readTableLayout,
 } from '../livePreview/tableMerge';
+import { clampColumnWidth, clampRowHeight } from '../livePreview/tableResize';
 import { isHtmlTableBlock, sanitizeHtmlTable } from '../livePreview/htmlTable';
 import {
 	EXPORT_OUTLINE_CSS,
@@ -755,6 +757,7 @@ async function renderFencedCode(context: ExportContext, node: SyntaxNode): Promi
 async function renderTable(context: ExportContext, node: SyntaxNode): Promise<string> {
 	const data      = extractTableData(context.state, node);
 	const occupancy = buildTableOccupancy(data);
+	const layout    = readTableLayout(data);
 	const headCells = [];
 	for (let index = 0; index < data.headers.length; index += 1) {
 		if (isCoveredTableCell(occupancy, { row: 0, column: index })) {
@@ -770,7 +773,9 @@ async function renderTable(context: ExportContext, node: SyntaxNode): Promise<st
 		headCells.push(`<th${attrs}>${await tableCellToHtml(context, data.headers[index] ?? [])}</th>`);
 	}
 
-	const head     = headCells.length > 0 ? `<thead><tr>${headCells.join('')}</tr></thead>` : '';
+	const head     = headCells.length > 0
+		? `<thead><tr${htmlRowHeightAttribute(layout.heights?.[0])}>${headCells.join('')}</tr></thead>`
+		: '';
 	const bodyRows = [];
 	for (let rowIndex = 0; rowIndex < data.rows.length; rowIndex += 1) {
 		const row   = data.rows[rowIndex]!;
@@ -790,10 +795,16 @@ async function renderTable(context: ExportContext, node: SyntaxNode): Promise<st
 			cells.push(`<td${attrs}>${await tableCellToHtml(context, row[index] ?? [])}</td>`);
 		}
 
-		bodyRows.push(`<tr>${cells.join('')}</tr>`);
+		bodyRows.push(`<tr${htmlRowHeightAttribute(layout.heights?.[rowIndex + 1])}>${cells.join('')}</tr>`);
 	}
 
-	return `<div class="cm-md-table-wrap"><table class="cm-md-table">${head}<tbody>${bodyRows.join('')}</tbody></table></div>`;
+	const colgroup   = htmlTableColGroup(layout.widths);
+	const tableClass = layout.widths?.some((width) => width > 0) || layout.heights?.some((height) => height > 0)
+		? 'cm-md-table is-resized'
+		: 'cm-md-table';
+	const tableWidth = (layout.widths ?? []).reduce((total, width) => total + (width > 0 ? clampColumnWidth(width) : 0), 0);
+	const widthAttr  = tableWidth > 0 ? ` style="width:${tableWidth}px"` : '';
+	return `<div class="cm-md-table-wrap"><table class="${tableClass}"${widthAttr}>${colgroup}${head}<tbody>${bodyRows.join('')}</tbody></table></div>`;
 }
 
 /**
@@ -822,6 +833,31 @@ function htmlCellAttribute(
 	}
 
 	return parts.join('');
+}
+
+/**
+ * 列幅の colgroup を返す。
+ * @param {number[] | undefined} widths 列幅
+ * @returns {string}
+ */
+function htmlTableColGroup(widths: number[] | undefined): string {
+	if (!widths || widths.every((width) => width <= 0)) {
+		return '';
+	}
+
+	const cols = widths.map((width) => (
+		width > 0 ? `<col style="width:${clampColumnWidth(width)}px">` : '<col>'
+	));
+	return `<colgroup>${cols.join('')}</colgroup>`;
+}
+
+/**
+ * 行高属性を返す。
+ * @param {number | undefined} height 行高
+ * @returns {string}
+ */
+function htmlRowHeightAttribute(height: number | undefined): string {
+	return height && height > 0 ? ` style="height:${clampRowHeight(height)}px"` : '';
 }
 
 /**

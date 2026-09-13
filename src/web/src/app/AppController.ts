@@ -7,7 +7,12 @@ import { buildToggleTaskMarkerTransaction } from '../editor/checkboxToggle';
 import { setLineEolsEffect } from '../editor/eolMarkers';
 import { compileCustomDecorationRules, type CompiledCustomDecorationRule } from '../livePreview/customDecorations';
 import { findMarkdownLinkUrlFromMouseEvent, isSupportedExternalLinkUrl, setDocumentContextEffect, setViewModeEffect } from '../livePreview/livePreviewPlugin';
-import { applyTableAlignAction, applyTableMergeAction, getTableMergeActionStateFromEvent } from '../livePreview/tableWidget';
+import {
+	applyTableAlignAction,
+	applyTableMergeSnapshot,
+	snapshotTableMergeActionFromEvent,
+	type TableMergeMenuSnapshot,
+} from '../livePreview/tableWidget';
 import type { TableAlignPatch } from '../livePreview/tableMerge';
 import { showActionToast, showToast, type ToastHandle } from './toast';
 import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, PasteForEditorResult, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
@@ -2228,7 +2233,7 @@ export class AppController {
 			: null;
 		const linkUrl        = view ? findMarkdownLinkUrlFromMouseEvent(view, event) : null;
 		const hasSelection   = Boolean(view && view.state.selection.ranges.some((range) => !range.empty));
-		const tableMerge     = view ? getTableMergeActionStateFromEvent(view, event) : null;
+		const tableMerge     = view ? snapshotTableMergeActionFromEvent(view, event) : null;
 		const entries        = this.buildConfiguredContextMenuEntries(
 			this.settings.contextMenu.editorOrder,
 			this.settings.contextMenu.editorHidden,
@@ -2261,7 +2266,7 @@ export class AppController {
 		);
 
 		showContextMenuAtPoint(event.clientX, event.clientY, entries, (action) => {
-			void this.handleEditorContextAction(action, clickPosition, linkUrl, event);
+			void this.handleEditorContextAction(action, clickPosition, linkUrl, event, tableMerge);
 		});
 	}
 
@@ -2346,6 +2351,7 @@ export class AppController {
 		clickPosition: number | null,
 		linkUrl: string | null,
 		menuEvent?: MouseEvent,
+		tableMerge?: TableMergeMenuSnapshot | null,
 	): Promise<void> {
 		const view = this.editorView;
 		if (!view) {
@@ -2388,16 +2394,22 @@ export class AppController {
 				return;
 			}
 
-			if ((action === 'mergeTableCells' || action === 'unmergeTableCells') && menuEvent) {
-				applyTableMergeAction(view, menuEvent, action === 'mergeTableCells' ? 'merge' : 'unmerge');
-				view.focus();
+			if ((action === 'mergeTableCells' || action === 'unmergeTableCells') && tableMerge) {
+				if (!applyTableMergeSnapshot(
+					view,
+					tableMerge,
+					action === 'mergeTableCells' ? 'merge' : 'unmerge',
+				)) {
+					view.focus();
+				}
 				return;
 			}
 
 			const alignPatch = tableAlignPatchFromAction(action);
 			if (alignPatch && menuEvent) {
-				applyTableAlignAction(view, menuEvent, alignPatch);
-				view.focus();
+				if (!applyTableAlignAction(view, menuEvent, alignPatch)) {
+					view.focus();
+				}
 				return;
 			}
 

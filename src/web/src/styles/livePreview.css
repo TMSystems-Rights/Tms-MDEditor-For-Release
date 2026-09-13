@@ -501,6 +501,17 @@
 	white-space: pre-wrap;
 }
 
+.tms-mde-editor-host .cm-md-table-cell-editing>div {
+	min-height: 1.4em;
+}
+
+.tms-mde-editor-host .cm-md-table :is(th, td):not(.cm-md-table-cell-editing):has(> br:last-child)::after {
+	content: '\200B';
+	display: inline-block;
+	width: 0;
+	height: 1.4em;
+}
+
 .tms-mde-editor-host .cm-md-image-wrap {
 	display: inline-block;
 	position: relative;

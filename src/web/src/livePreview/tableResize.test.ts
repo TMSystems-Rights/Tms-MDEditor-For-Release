@@ -8,6 +8,9 @@ import {
 	clampColumnWidth,
 	clampRowHeight,
 	clearTableLayouts,
+	computeColumnRightEdges,
+	computeColumnWidths,
+	forgetTableLayout,
 	getTableLayoutKey,
 	recallTableLayout,
 	rememberTableLayout,
@@ -31,6 +34,22 @@ describe('tableResize', () => {
 	it('列幅と行高を覚えて取り出す', () => {
 		rememberTableLayout('10:2', { widths: [80, 120], heights: [40, 48] });
 		expect(recallTableLayout('10:2')).toEqual({ widths: [80, 120], heights: [40, 48] });
+		forgetTableLayout('10:2');
+		expect(recallTableLayout('10:2')).toBeUndefined();
+	});
+
+	it('結合セルでも列ごとの右端と幅を出す', () => {
+		const boxes = [
+			{ column: 0, colspan: 3, left: 0, width: 300 },
+			{ column: 0, colspan: 1, left: 0, width: 90 },
+			{ column: 1, colspan: 1, left: 90, width: 110 },
+			{ column: 2, colspan: 1, left: 200, width: 100 },
+		];
+		expect(computeColumnRightEdges(boxes, 3)).toEqual([90, 200, 300]);
+		expect(computeColumnWidths(
+			[{ column: 0, colspan: 3, left: 0, width: 300 }],
+			3,
+		)).toEqual([100, 100, 100]);
 	});
 
 	it('列と行の近い罫線を選ぶ', () => {

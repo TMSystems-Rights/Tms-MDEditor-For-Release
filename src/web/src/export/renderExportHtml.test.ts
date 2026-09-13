@@ -101,6 +101,18 @@ describe('renderExportHtml', () => {
 		expect(html).not.toContain('{align=right');
 	});
 
+	it('GFM 表の colwidths / rowheights を出す', async () => {
+		const html = await render(
+			'| {colwidths=120,80 rowheights=32,48} |   |\n| --- | --- |\n| A | B |\n',
+		);
+		expect(html).toContain('class="cm-md-table is-resized"');
+		expect(html).toContain('<col style="width:120px">');
+		expect(html).toContain('<col style="width:80px">');
+		expect(html).toContain('style="height:32px"');
+		expect(html).toContain('style="height:48px"');
+		expect(html).not.toContain('{colwidths=');
+	});
+
 	it('フェンス無し HTML 表を出す', async () => {
 		const html = await render('<table>\n<tr><th colspan="2">見出し</th></tr>\n<tr><td>A</td><td>B</td></tr>\n</table>\n');
 		expect(html).toContain('<table');

@@ -1,21 +1,30 @@
-import { EditorSelection, EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState, type TransactionSpec } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { createDocumentContextExtensions } from './documentContext';
 import {
 	buildAlignTableCellsChanges,
 	buildMergeTableCellsChanges,
+	buildTableLayoutChange,
 	buildTableOccupancy,
 	buildUnmergeTableCellsChanges,
 	cellAlignmentClassNames,
 	describeTableCellSelection,
 	formatCellSpan,
+	isMultiCellTableSelectionRect,
 	getTableMergeActionState,
 	getVisibleAdjacentTableCellPosition,
 	isCoveredTableCell,
 	parseCellSpan,
+	readTableLayout,
+	resolveTableMergeRect,
 } from './tableMerge';
-import { extractTableData } from './tableWidget';
+import {
+	applyTableMergeSnapshot,
+	extractTableData,
+	getTableDataIdentity,
+	resolveTableMergeTargetFromParts,
+} from './tableWidget';
 import { syntaxTree } from '@codemirror/language';
 
 /**
@@ -118,6 +127,37 @@ describe('tableMerge', () => {
 		expect(cellAlignmentClassNames({ align: 'left', valign: 'top' })).toBe('');
 	});
 
+	it('末尾の colwidths / rowheights を読む', () => {
+		expect(parseCellSpan('{colwidths=120,80,200}')).toMatchObject({
+			text      : '',
+			colwidths : [120, 80, 200],
+			rowheights: [],
+		});
+		expect(parseCellSpan('見出し{colspan=2 colwidths=100,90 rowheights=32,40}')).toMatchObject({
+			text      : '見出し',
+			colspan   : 2,
+			colwidths : [100, 90],
+			rowheights: [32, 40],
+		});
+		expect(formatCellSpan('', 1, 1, 'left', 'top', [120, 80], [32, 40])).toBe(
+			'{colwidths=120,80 rowheights=32,40}',
+		);
+		expect(formatCellSpan('A', 2, 1, 'center', 'top', [100, 90], [])).toBe(
+			'A{colspan=2 align=center colwidths=100,90}',
+		);
+	});
+
+	it('見出し左上セルから列幅・行高を読み書きする', () => {
+		const data = tableData(createState('|   |   |\n|---|---|\n|A|B|\n'));
+		expect(readTableLayout(data)).toEqual({ widths: undefined, heights: undefined });
+		const change = buildTableLayoutChange(data, { widths: [120, 80], heights: [28, 40] });
+		expect(change?.insert).toBe('{colwidths=120,80 rowheights=28,40}');
+		const sized = tableData(createState(
+			'| {colwidths=120,80 rowheights=28,40} |   |\n|---|---|\n|A|B|\n',
+		));
+		expect(readTableLayout(sized)).toEqual({ widths: [120, 80], heights: [28, 40] });
+	});
+
 	it('占有グリッドで覆われるマスを付ける', () => {
 		const data      = tableData(createState('|   |   |   |\n|---|---|---|\n|新キャラ{colspan=3}|  |  |\n|A|B|C|'));
 		const occupancy = buildTableOccupancy(data);
@@ -140,6 +180,34 @@ describe('tableMerge', () => {
 		expect(getTableMergeActionState(mergedData, rect).canUnmerge).toBe(true);
 		const undone = buildUnmergeTableCellsChanges(mergedData, rect);
 		expect(undone?.[0]?.insert).toBe('A');
+	});
+
+	it('結合を文書へ書いたあと抽出し、解除で属性を消す', () => {
+		let state    = createState('|   |   |   |\n|---|---|---|\n|A|B|C|');
+		const data   = tableData(state);
+		const merged = buildMergeTableCellsChanges(data, {
+			startRow: 1, startColumn: 0, endRow: 1, endColumn: 2,
+		});
+		expect(merged).not.toBeNull();
+		state            = state.update({
+			changes: merged!.map((change) => ({
+				from: change.from, to: change.to, insert: change.insert,
+			})),
+		}).state;
+		const mergedData = tableData(state);
+		expect(mergedData.rowSources[0]![0]!.text).toContain('{colspan=3}');
+		expect(getTableDataIdentity(data)).not.toBe(getTableDataIdentity(mergedData));
+		const undone = buildUnmergeTableCellsChanges(
+			mergedData,
+			resolveTableMergeRect(mergedData, null, { row: 1, column: 1 })!,
+		);
+		expect(undone?.[0]?.insert).toBe('A');
+		state = state.update({
+			changes: undone!.map((change) => ({
+				from: change.from, to: change.to, insert: change.insert,
+			})),
+		}).state;
+		expect(tableData(state).rowSources[0]![0]!.text).toBe('A');
 	});
 
 	it('結合は配置を残し、解除は結合だけ外す', () => {
@@ -165,6 +233,18 @@ describe('tableMerge', () => {
 			'A{align=center valign=middle}',
 		]);
 		expect(buildAlignTableCellsChanges(data, rect, { align: 'left' })?.[0]?.insert).toBe('B');
+	});
+
+	it('1セルだけの矩形は塗らず、複数セルだけ塗る', () => {
+		expect(isMultiCellTableSelectionRect({
+			startRow: 1, startColumn: 1, endRow: 1, endColumn: 1,
+		})).toBe(false);
+		expect(isMultiCellTableSelectionRect({
+			startRow: 1, startColumn: 1, endRow: 1, endColumn: 2,
+		})).toBe(true);
+		expect(isMultiCellTableSelectionRect({
+			startRow: 1, startColumn: 1, endRow: 2, endColumn: 1,
+		})).toBe(true);
 	});
 
 	it('選択範囲の外周辺だけをセルに付ける', () => {
@@ -208,6 +288,114 @@ describe('tableMerge', () => {
 		expect(getVisibleAdjacentTableCellPosition(data, { row: 2, column: 0 }, 'up')).toEqual({
 			row   : 1,
 			column: 0,
+		});
+	});
+
+	it('上下キーは覆われているマスの結合原点へ入る', () => {
+		const data = tableData(createState([
+			'見出し１{colwidths=111,97,32 rowheights=32,263}|||',
+			'|---|---|---|',
+			'|データ１－１{colspan=3}||',
+			'|データ２－１|あああ<br>いいい|',
+			'|データ３－１{colspan=3}||',
+		].join('\n')));
+		expect(getVisibleAdjacentTableCellPosition(data, { row: 2, column: 1 }, 'up')).toEqual({
+			row   : 1,
+			column: 0,
+		});
+		expect(getVisibleAdjacentTableCellPosition(data, { row: 2, column: 1 }, 'down')).toEqual({
+			row   : 3,
+			column: 0,
+		});
+		expect(getVisibleAdjacentTableCellPosition(data, { row: 1, column: 0 }, 'down')).toEqual({
+			row   : 2,
+			column: 0,
+		});
+		expect(getVisibleAdjacentTableCellPosition(data, { row: 3, column: 0 }, 'up')).toEqual({
+			row   : 2,
+			column: 0,
+		});
+	});
+
+	it('検証表の結合セルは表位置だけから解除できる', () => {
+		const state    = createState([
+			'見出し１{colwidths=111,97,32 rowheights=32,263}|||',
+			'|---|---|---|',
+			'|データ１－１{colspan=3}||',
+			'|データ２－１|あああ<br>いいい|',
+			'|データ３－１{colspan=3}||',
+		].join('\n'));
+		const data     = tableData(state);
+		const resolved = resolveTableMergeTargetFromParts(state, data.tableFrom, null, { row: 1, column: 1 });
+		expect(resolved?.state.canUnmerge).toBe(true);
+		const undone = buildUnmergeTableCellsChanges(resolved!.data, resolved!.state.rect);
+		expect(undone?.[0]?.insert).toBe('データ１－１');
+		const next = state.update({
+			changes: undone!.map((change) => ({
+				from: change.from, to: change.to, insert: change.insert,
+			})),
+		}).state;
+		expect(tableData(next).rowSources[0]![0]!.text).toBe('データ１－１');
+		expect(tableData(next).rowSources[0]![0]!.text).not.toContain('colspan');
+	});
+
+	it('メニュー時点のスナップショットから解除すると colspan が消える', () => {
+		const state    = createState([
+			'見出し１{colwidths=111,97,32 rowheights=32,263}|||',
+			'|---|---|---|',
+			'|データ１－１{colspan=3}||',
+			'|データ２－１|あああ<br>いいい|',
+			'|データ３－１{colspan=3}||',
+		].join('\n'));
+		const data     = tableData(state);
+		const resolved = resolveTableMergeTargetFromParts(state, data.tableFrom, null, { row: 1, column: 1 });
+		const view     = {
+			state,
+			/**
+			 * @param {TransactionSpec} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: TransactionSpec) {
+				this.state = this.state.update(spec).state;
+			},
+			/**
+			 *
+			 */
+			focus() {},
+			dom: { /**
+			 *
+			 */
+				querySelector: () => null },
+		};
+
+		expect(applyTableMergeSnapshot(
+			view as never,
+			{ tableFrom: data.tableFrom, rect: resolved!.state.rect },
+			'unmerge',
+		)).toBe(true);
+		expect(tableData(view.state).rowSources[0]![0]!.text).toBe('データ１－１');
+		expect(tableData(view.state).rowSources[2]![0]!.text).toContain('{colspan=3}');
+	});
+
+	it('1セルクリックは結合全体を解除対象にする', () => {
+		const data = tableData(createState('|   |   |   |\n|---|---|---|\n|A{colspan=3}|  |  |\n|D|E|F|'));
+		expect(resolveTableMergeRect(data, null, { row: 1, column: 1 })).toEqual({
+			startRow   : 1,
+			startColumn: 0,
+			endRow     : 1,
+			endColumn  : 2,
+		});
+		expect(getTableMergeActionState(data, resolveTableMergeRect(data, null, { row: 1, column: 2 })!).canUnmerge)
+			.toBe(true);
+		expect(buildUnmergeTableCellsChanges(data, resolveTableMergeRect(data, null, { row: 1, column: 1 })!)?.[0]?.insert)
+			.toBe('A');
+		expect(resolveTableMergeRect(data, {
+			startRow: 2, startColumn: 0, endRow: 2, endColumn: 2,
+		}, { row: 2, column: 1 })).toEqual({
+			startRow   : 2,
+			startColumn: 0,
+			endRow     : 2,
+			endColumn  : 2,
 		});
 	});
 });

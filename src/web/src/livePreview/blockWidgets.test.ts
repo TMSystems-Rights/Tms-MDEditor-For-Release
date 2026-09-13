@@ -17,9 +17,11 @@ import {
 	TableWidget,
 	clearCellImageWidths,
 	extractTableData,
+	findTableNodeAt,
 	forgetCellImageWidth,
 	getTableDataIdentity,
 	normalizeTableCellTextForIdentity,
+	persistTableLayout,
 	writeTableCellImageWidth,
 	recallCellImageWidth,
 	rememberCellImageWidth,
@@ -28,14 +30,20 @@ import {
 	getNormalizedTableCellCaretOffset,
 	getTableCellEditableOffsetFromPreview,
 	getTableCellEditableCaretOffset,
+	getTableCellLineCaretPosition,
 	getTableCellVerticalArrowDirection,
+	getTableCellVerticalCaretOffset,
 	getTableCellVerticalNavigation,
 	getTableVerticalExitPosition,
 	getTableVerticalEntryTarget,
+	insertLineBreakAtOffset,
 	isTableCellSoftBreakKey,
 	isTableCellSelectAllKey,
 	isBreakHtmlTag,
+	normalizeEditableCellDomText,
 	normalizeTableCellSource,
+	syncTableDataAfterCellChange,
+	TABLE_CELL_BREAK_CARET,
 	tableCellNodesToPlainText,
 } from './tableWidget';
 import { collectHtmlDecorationEntries } from './htmlInline';
@@ -154,6 +162,129 @@ describe('blockWidgets', () => {
 		const sizedId = getTableDataIdentity(extractTableData(sized, findNode(sized, 'Table')!));
 		expect(normalizeTableCellTextForIdentity(`![[${path}\\|96]]`)).toBe(`![[${path}]]`);
 		expect(plainId).toBe(sizedId);
+	});
+
+	it('中身が同じ別の表は identity が違う', () => {
+		const block                                        = '| a | b |\n|---|---|\n| 1 | 2 |';
+		const state                                        = createState(`${block}\n\n${block}\n`);
+		const tables: import('@lezer/common').SyntaxNode[] = [];
+		syntaxTree(state).iterate({
+			/**
+			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
+			 * @returns {boolean | void}
+			 */
+			enter(ref) {
+				if (ref.name === 'Table') {
+					tables.push(ref.node);
+					return false;
+				}
+			},
+		});
+		expect(tables).toHaveLength(2);
+		const first  = getTableDataIdentity(extractTableData(state, tables[0]!));
+		const second = getTableDataIdentity(extractTableData(state, tables[1]!));
+		expect(first).not.toBe(second);
+		const firstWidget  = new TableWidget(extractTableData(state, tables[0]!));
+		const secondWidget = new TableWidget(extractTableData(state, tables[1]!));
+		expect(firstWidget.eq(secondWidget)).toBe(false);
+	});
+
+	it('列幅属性だけ違う同じ位置の表は identity が同じ', () => {
+		const plain = createState('| a | b |\n|---|---|\n| 1 | 2 |\n');
+		const sized = createState('| a{colwidths=120,80} | b |\n|---|---|\n| 1 | 2 |\n');
+		expect(getTableDataIdentity(extractTableData(plain, findNode(plain, 'Table')!)))
+			.toBe(getTableDataIdentity(extractTableData(sized, findNode(sized, 'Table')!)));
+	});
+
+	it('セル本文だけ違う同じ位置の表は identity が同じ', () => {
+		const first  = createState('| a | b |\n|---|---|\n| 1 | 2 |\n');
+		const second = createState('| a | b |\n|---|---|\n| 1<br>あ | 2 |\n');
+		expect(getTableDataIdentity(extractTableData(first, findNode(first, 'Table')!)))
+			.toBe(getTableDataIdentity(extractTableData(second, findNode(second, 'Table')!)));
+	});
+
+	it('結合だけ違う同じ位置の表は identity が違い、ウィジェットを再利用しない', () => {
+		const plain        = createState('|   |   |   |\n|---|---|---|\n|A|B|C|\n');
+		const merged       = createState('|   |   |   |\n|---|---|---|\n|A{colspan=3}|  |  |\n');
+		const plainWidget  = new TableWidget(extractTableData(plain, findNode(plain, 'Table')!));
+		const mergedWidget = new TableWidget(extractTableData(merged, findNode(merged, 'Table')!));
+		expect(getTableDataIdentity(plainWidget.data)).not.toBe(getTableDataIdentity(mergedWidget.data));
+		expect(plainWidget.eq(mergedWidget)).toBe(false);
+		expect(mergedWidget.eq(plainWidget)).toBe(false);
+	});
+
+	it('表と表の隙間では次の表を拾わない', () => {
+		const block                                        = '| a | b |\n|---|---|\n| 1 | 2 |';
+		const state                                        = createState(`${block}\n\n${block}\n`);
+		const tables: import('@lezer/common').SyntaxNode[] = [];
+		syntaxTree(state).iterate({
+			/**
+			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
+			 * @returns {boolean | void}
+			 */
+			enter(ref) {
+				if (ref.name === 'Table') {
+					tables.push(ref.node);
+					return false;
+				}
+			},
+		});
+		expect(tables).toHaveLength(2);
+		expect(findTableNodeAt(state, tables[0]!.from)?.from).toBe(tables[0]!.from);
+		expect(findTableNodeAt(state, tables[1]!.from)?.from).toBe(tables[1]!.from);
+		expect(findTableNodeAt(state, tables[0]!.to)?.from).not.toBe(tables[1]!.from);
+	});
+
+	it('列幅の書き戻しは指定した表だけを変える', () => {
+		const block = '| a | b |\n|---|---|\n| 1 | 2 |';
+		const view  = {
+			state: createState(`${block}\n\n${block}\n`),
+			/**
+			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
+				this.state = this.state.update(spec).state;
+			},
+		};
+		const tables: import('@lezer/common').SyntaxNode[] = [];
+		syntaxTree(view.state).iterate({
+			/**
+			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
+			 * @returns {boolean | void}
+			 */
+			enter(ref) {
+				if (ref.name === 'Table') {
+					tables.push(ref.node);
+					return false;
+				}
+			},
+		});
+		expect(tables).toHaveLength(2);
+		expect(persistTableLayout(
+			view as never,
+			tables[1]!.from,
+			{ widths: [160, 90], heights: [32, 32] },
+			{ kind: 'col', index: 0 },
+		)).toBe(true);
+
+		const after: import('@lezer/common').SyntaxNode[] = [];
+		syntaxTree(view.state).iterate({
+			/**
+			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
+			 * @returns {boolean | void}
+			 */
+			enter(ref) {
+				if (ref.name === 'Table') {
+					after.push(ref.node);
+					return false;
+				}
+			},
+		});
+		expect(after).toHaveLength(2);
+		expect(after[0]!.from).toBe(tables[0]!.from);
+		expect(view.state.doc.sliceString(after[0]!.from, after[0]!.to)).not.toContain('colwidths');
+		expect(view.state.doc.sliceString(after[1]!.from, after[1]!.to)).toContain('{colwidths=160,90}');
 	});
 
 	it('検証表の Windows パスでも覚えた幅で表示し、行へ書いたあと抽出できる', () => {
@@ -455,6 +586,15 @@ describe('blockWidgets', () => {
 		expect(change?.insert).toBe('200{align=right valign=middle}');
 	});
 
+	it('セル確定は文書上の結合を残し、無いときは付けない', () => {
+		const mergedState = createState('|   |   |   |\n|---|---|---|\n|A{colspan=3}|  |  |', 0);
+		const merged      = extractTableData(mergedState, findNode(mergedState, 'Table')!);
+		expect(buildTableCellChange(merged, { row: 1, column: 0 }, 'A')?.insert).toBe('A{colspan=3}');
+		const plainState = createState('|   |   |   |\n|---|---|---|\n|A|  |  |', 0);
+		const plain      = extractTableData(plainState, findNode(plainState, 'Table')!);
+		expect(buildTableCellChange(plain, { row: 1, column: 0 }, 'A')?.insert).toBe('A');
+	});
+
 	it('セル編集変更は対象セルだけを置換し、Undo可能な単一変更になる', () => {
 		const doc    = '| 見出し１ | 見出し２ |\n| --- | --- |\n| aa | bbb |';
 		const state  = createState(doc, 0);
@@ -476,6 +616,56 @@ describe('blockWidgets', () => {
 		expect(getTableCellEditableCaretOffset('a|b', 2)).toBe(3);
 		expect(getTableCellEditableCaretOffset('a\nb', 2)).toBe(2);
 		expect(getTableCellEditableCaretOffset('`a<br>b`', 8)).toBe(8);
+	});
+
+	it('末尾の br は編集用改行になり、列は割れない', () => {
+		const state = createState('| h1 | h2 | h3 |\n| --- | --- | --- |\n|データ２－１|データ２－２<br>|b|\n');
+		const data  = extractTableData(state, findNode(state, 'Table')!);
+		expect(data.rowSources[0]).toHaveLength(3);
+		expect(data.rowSources[0]![1]!.text).toBe('データ２－２<br>');
+		expect(data.rowSources[0]![1]!.editableText).toBe('データ２－２\n');
+		expect(data.rowSources[0]![2]!.text).toBe('b');
+		expect(data.rows[0]![1]!.some((node) => node.kind === 'br')).toBe(true);
+	});
+
+	it('連続した Shift+Enter は空行を1つずつソースへ残す', () => {
+		expect(insertLineBreakAtOffset('あああ\nああ', 6)).toBe('あああ\nああ\n');
+		expect(insertLineBreakAtOffset('あああ\nああ\n', 7)).toBe('あああ\nああ\n\n');
+		expect(normalizeTableCellSource('あああ\nああ\n')).toBe('あああ<br>ああ<br>');
+		expect(normalizeTableCellSource('あああ\nああ\n\n')).toBe('あああ<br>ああ<br><br>');
+		expect(normalizeTableCellSource('あああ\nああ\n\n\n')).toBe('あああ<br>ああ<br><br><br>');
+	});
+
+	it('セル改行の連続書き戻しは次セルを壊さない', () => {
+		const doc   = '| h1 | h2 | h3 |\n| --- | --- | --- |\n|データ２－１|データ２－２|b|\n';
+		let state   = createState(doc);
+		const data  = extractTableData(state, findNode(state, 'Table')!);
+		const first = buildTableCellChange(data, { row: 1, column: 1 }, `データ２－２\n`);
+		expect(first?.insert).toBe('データ２－２<br>');
+		expect(first?.insert.includes('\n')).toBe(false);
+		state = state.update({ changes: first! }).state;
+		syncTableDataAfterCellChange(data, { row: 1, column: 1 }, first!.insert, 'データ２－２\n');
+		const second = buildTableCellChange(data, { row: 1, column: 1 }, 'データ２－２\nあああ\n');
+		expect(second?.insert).toBe('データ２－２<br>あああ<br>');
+		state = state.update({ changes: second! }).state;
+		expect(state.doc.toString()).toBe(
+			'| h1 | h2 | h3 |\n| --- | --- | --- |\n|データ２－１|データ２－２<br>あああ<br>|b|\n',
+		);
+		expect(state.doc.toString()).not.toContain('br>>');
+		expect(state.doc.toString()).not.toMatch(/br><br>br>/);
+		syncTableDataAfterCellChange(data, { row: 1, column: 1 }, second!.insert, 'データ２－２\nあああ\n');
+		const third = buildTableCellChange(data, { row: 1, column: 1 }, 'データ２－２\nあああ\n\n');
+		expect(third?.insert).toBe('データ２－２<br>あああ<br><br>');
+		state = state.update({ changes: third! }).state;
+		expect(state.doc.toString()).toBe(
+			'| h1 | h2 | h3 |\n| --- | --- | --- |\n|データ２－１|データ２－２<br>あああ<br><br>|b|\n',
+		);
+		expect(state.doc.toString()).not.toContain('br>>');
+	});
+
+	it('編集用 DOM のゼロ幅文字はソースへ残さない', () => {
+		expect(normalizeEditableCellDomText(`データ２－２\n${TABLE_CELL_BREAK_CARET}`)).toBe('データ２－２\n');
+		expect(normalizeTableCellSource(`データ２－２\n${TABLE_CELL_BREAK_CARET}`)).toBe('データ２－２<br>');
 	});
 
 	it('Shift+Enterだけを表セル内改行として扱う', () => {
@@ -513,6 +703,21 @@ describe('blockWidgets', () => {
 		expect(getTableCellVerticalArrowDirection({ ...key('ArrowUp'), shiftKey: true })).toBeNull();
 	});
 
+	it('セル内改行では上下キーを同じ桁の前後行へ移す', () => {
+		const text = 'あああ\nいいい\nううう';
+		expect(getTableCellLineCaretPosition(text, 7)).toEqual({
+			line     : 1,
+			column   : 3,
+			lineCount: 3,
+		});
+		expect(getTableCellVerticalCaretOffset(text, 7, 'up')).toBe(3);
+		expect(getTableCellVerticalCaretOffset(text, 7, 'down')).toBe(11);
+		expect(getTableCellVerticalCaretOffset(text, 3, 'up')).toBeNull();
+		expect(getTableCellVerticalCaretOffset(text, 11, 'down')).toBeNull();
+		expect(getTableCellVerticalCaretOffset('単一行', 2, 'down')).toBeNull();
+		expect(getTableCellVerticalCaretOffset('短い\nあああ', 6, 'up')).toBe(2);
+	});
+
 	it('末尾空行の上下キーは同列移動し、上下端では表外の隣接行へ出る', () => {
 		const doc   = 'above\n| h1 | h2 | h3 |\n| --- | --- | --- |\n| a | b | c |\n| d | e | f |\n| | | |\n\nbelow';
 		const state = createState(doc, 0);
@@ -548,6 +753,34 @@ describe('blockWidgets', () => {
 			.toBe(state.doc.line(1).from);
 		expect(getTableVerticalExitPosition(state, data.tableFrom, data.tableTo, true))
 			.toBe(state.doc.line(7).from);
+	});
+
+	it('改行セルの上下端は結合セルの原点へ移る', () => {
+		const doc   = [
+			'見出し１{colwidths=111,97,32 rowheights=32,263}|||',
+			'|---|---|---|',
+			'|データ１－１{colspan=3}||',
+			'|データ２－１|あああ<br>いいい|',
+			'|データ３－１{colspan=3}||',
+		].join('\n');
+		const state = createState(doc, 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const key   = {
+			ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, key: 'ArrowUp',
+		};
+
+		expect(getTableCellVerticalNavigation(data, { row: 2, column: 1 }, key)).toEqual({
+			direction: 'up',
+			target   : { row: 1, column: 0 },
+		});
+		expect(getTableCellVerticalNavigation(data, { row: 2, column: 1 }, {
+			...key,
+			key: 'ArrowDown',
+		})).toEqual({
+			direction: 'down',
+			target   : { row: 3, column: 0 },
+		});
 	});
 
 	it('エスケープ済みパイプをセル境界として扱わない', () => {
