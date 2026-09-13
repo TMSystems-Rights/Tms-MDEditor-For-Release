@@ -62,6 +62,35 @@ describe('contextMenuSettings', () => {
 		expect(result.editorOrder.indexOf('pastePlain')).toBe(result.editorOrder.indexOf('selectAll') + 1);
 	});
 
+	it('既定のエディタメニューに表セル結合を含める', () => {
+		const defaults = createDefaultContextMenuSettings();
+		expect(defaults.editorOrder.indexOf('mergeTableCells')).toBe(
+			defaults.editorOrder.indexOf('toggleCheckbox') + 1,
+		);
+		expect(defaults.editorOrder.indexOf('unmergeTableCells')).toBe(
+			defaults.editorOrder.indexOf('mergeTableCells') + 1,
+		);
+	});
+
+	it('欠落した表セル結合をチェックボックスの次へ補完する', () => {
+		const defaults = createDefaultContextMenuSettings();
+		const result   = normalizeContextMenuSettings({
+			editorOrder : defaults.editorOrder.filter(
+				(itemId) => itemId !== 'mergeTableCells' && itemId !== 'unmergeTableCells',
+			),
+			editorHidden: [],
+			tabOrder    : [],
+			tabHidden   : [],
+		});
+
+		expect(result.editorOrder.indexOf('mergeTableCells')).toBe(
+			result.editorOrder.indexOf('toggleCheckbox') + 1,
+		);
+		expect(result.editorOrder.indexOf('unmergeTableCells')).toBe(
+			result.editorOrder.indexOf('mergeTableCells') + 1,
+		);
+	});
+
 	it('既定の表示メニューにアウトライン切替を含める', () => {
 		const defaults = createDefaultContextMenuSettings();
 		expect(defaults.editorOrder.indexOf('toggleOutline')).toBe(defaults.editorOrder.indexOf('toggleViewMode') + 1);

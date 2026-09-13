@@ -16,6 +16,8 @@ export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'replace',
 	'editorSeparatorContext',
 	'toggleCheckbox',
+	'mergeTableCells',
+	'unmergeTableCells',
 	'openLink',
 	'editorSeparatorView',
 	'toggleViewMode',
@@ -53,6 +55,8 @@ export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 	find                    : '検索',
 	replace                 : '置換',
 	toggleCheckbox          : 'チェックボックス切替',
+	mergeTableCells         : 'セルを結合',
+	unmergeTableCells       : '結合を解除',
 	openLink                : 'リンクを開く',
 	toggleViewMode          : 'ソース / ライブプレビュー切替',
 	toggleOutline           : 'アウトラインを表示 / 非表示',
@@ -152,7 +156,17 @@ function normalizeOrder(source: string[] | undefined, defaults: string[]): strin
 		}
 	});
 
-	return placeContextMenuItemAfter(result, 'pastePlain', 'paste', defaults);
+	return placeContextMenuItemAfter(
+		placeContextMenuItemAfter(
+			placeContextMenuItemAfter(result, 'pastePlain', 'paste', defaults),
+			'mergeTableCells',
+			'toggleCheckbox',
+			defaults,
+		),
+		'unmergeTableCells',
+		'mergeTableCells',
+		defaults,
+	);
 }
 
 /**
@@ -166,6 +180,22 @@ function insertMissingContextMenuItem(result: string[], itemId: string): void {
 		const pasteIndex = result.indexOf('paste');
 		if (pasteIndex >= 0) {
 			result.splice(pasteIndex + 1, 0, itemId);
+			return;
+		}
+	}
+
+	if (itemId === 'mergeTableCells') {
+		const checkboxIndex = result.indexOf('toggleCheckbox');
+		if (checkboxIndex >= 0) {
+			result.splice(checkboxIndex + 1, 0, itemId);
+			return;
+		}
+	}
+
+	if (itemId === 'unmergeTableCells') {
+		const mergeIndex = result.indexOf('mergeTableCells');
+		if (mergeIndex >= 0) {
+			result.splice(mergeIndex + 1, 0, itemId);
 			return;
 		}
 	}

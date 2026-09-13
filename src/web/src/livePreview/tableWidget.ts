@@ -41,6 +41,21 @@ import {
 	replaceImageWidthInCellText,
 } from './imageResize';
 import { attachTableResize, getTableLayoutKey } from './tableResize';
+import {
+	buildMergeTableCellsChanges,
+	buildTableOccupancy,
+	buildUnmergeTableCellsChanges,
+	describeTableCellSelection,
+	formatCellSpan,
+	getTableMergeActionState,
+	getVisibleAdjacentTableCellPosition,
+	isCoveredTableCell,
+	normalizeTableSelectionRect,
+	parseCellSpan,
+	stripCellSpanFromNodes,
+	type TableMergeActionState,
+	type TableSelectionRect,
+} from './tableMerge';
 
 export {
 	clearCellImageWidths,
@@ -458,14 +473,19 @@ function extractTableRowData(state: EditorState, rowNode: SyntaxNode): TableRowD
 	});
 	const sources = ranges.map((range, index) => {
 		const editable = extractEditableCellData(state, range, matchedCells[index] ?? null);
+		const raw      = state.doc.sliceString(range.from, range.to);
+		const span     = parseCellSpan(editable.text);
 		return {
 			...range,
-			text        : state.doc.sliceString(range.from, range.to),
-			editableText: editable.text,
-			inlineRanges: editable.inlineRanges,
+			text        : raw,
+			editableText: span.text,
+			inlineRanges: editable.inlineRanges.filter((item) => item.from < span.text.length),
 		};
 	});
-	return { nodes, sources };
+	return {
+		nodes: nodes.map((cellNodes, index) => stripCellSpanFromNodes(cellNodes, sources[index]?.text ?? '')),
+		sources,
+	};
 }
 
 /**
@@ -828,7 +848,7 @@ function resolveCellImageWidth(path: string, parsed: number | null): number | nu
  * @returns {{ path: string; width: number | null } | null}
  */
 function parseSoleCellImageRef(text: string): { path: string; width: number | null } | null {
-	const trimmed = text.trim();
+	const trimmed = parseCellSpan(text).text.trim();
 	const wiki    = /^!\[\[([\s\S]*?)\]\]$/.exec(trimmed);
 	if (wiki) {
 		const { path, size } = splitWikiEmbedTarget(wiki[1] ?? '');
@@ -1354,7 +1374,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
  * @returns {TableCellNode | null}
  */
 function extractSoleTableCellImage(state: EditorState, range: TableCellRange): TableCellNode | null {
-	const raw   = state.doc.sliceString(range.from, range.to);
+	const raw   = parseCellSpan(state.doc.sliceString(range.from, range.to)).text;
 	const match = /^(\s*)(!\[\[[\s\S]*?\]\]|!\[[^\]]*\]\([^)]+\))(\s*)$/.exec(raw);
 	if (!match) {
 		return null;
@@ -1704,10 +1724,15 @@ export function buildTableCellChange(
 		return null;
 	}
 
+	const existing   = parseCellSpan(source.text);
+	const normalized = normalizeTableCellSource(value);
+	const typed      = parseCellSpan(normalized);
+	const span       = typed.suffix.trim().length > 0 ? typed : existing;
+
 	return {
 		from  : source.from,
 		to    : source.to,
-		insert: normalizeTableCellSource(value),
+		insert: formatCellSpan(typed.text, span.colspan, span.rowspan),
 	};
 }
 
@@ -1723,29 +1748,11 @@ export function getAdjacentTableCellPosition(
 	position: TableCellPosition,
 	direction: 'next' | 'previous' | 'up' | 'down',
 ): TableCellPosition | null {
-	const columnCount = getTableColumnCount(data);
-	const rowCount    = 1 + data.rowSources.length;
-	if (columnCount === 0 || position.row < 0 || position.column < 0) {
+	if (getTableColumnCount(data) === 0 || position.row < 0 || position.column < 0) {
 		return null;
 	}
 
-	if (direction === 'up' || direction === 'down') {
-		const row = position.row + (direction === 'down' ? 1 : -1);
-		return row >= 0 && row < rowCount
-			? { row, column: Math.min(position.column, columnCount - 1) }
-			: null;
-	}
-
-	const currentIndex = position.row * columnCount + position.column;
-	const targetIndex  = currentIndex + (direction === 'next' ? 1 : -1);
-	if (targetIndex < 0 || targetIndex >= rowCount * columnCount) {
-		return null;
-	}
-
-	return {
-		row   : Math.floor(targetIndex / columnCount),
-		column: targetIndex % columnCount,
-	};
+	return getVisibleAdjacentTableCellPosition(data, position, direction);
 }
 
 /**
@@ -2313,6 +2320,270 @@ export function moveActiveTableCellVertically(view: EditorView, forward: boolean
 }
 
 /**
+ * 結合属性をセル DOM へ付ける。
+ * @param {HTMLTableCellElement} cell セル
+ * @param {ReturnType<typeof buildTableOccupancy>} occupancy 占有
+ * @param {TableCellPosition} position 位置
+ * @returns {void}
+ */
+function applyCellSpan(
+	cell: HTMLTableCellElement,
+	occupancy: ReturnType<typeof buildTableOccupancy>,
+	position: TableCellPosition,
+): void {
+	const item = occupancy.cells[position.row]?.[position.column];
+	if (!item || item.covered) {
+		return;
+	}
+
+	if (item.colspan > 1) {
+		cell.colSpan = item.colspan;
+	}
+
+	if (item.rowspan > 1) {
+		cell.rowSpan = item.rowspan;
+	}
+}
+
+/**
+ * 表の選択範囲を dataset から読む。
+ * @param {HTMLElement} wrap 表ラッパー
+ * @returns {TableSelectionRect | null}
+ */
+function readTableSelectionRect(wrap: HTMLElement): TableSelectionRect | null {
+	const raw = wrap.dataset.tableSelection;
+	if (!raw) {
+		return null;
+	}
+
+	const parts = raw.split(',').map((item) => Number(item));
+	if (parts.length !== 4 || parts.some((item) => !Number.isInteger(item))) {
+		return null;
+	}
+
+	return {
+		startRow   : parts[0]!,
+		startColumn: parts[1]!,
+		endRow     : parts[2]!,
+		endColumn  : parts[3]!,
+	};
+}
+
+/**
+ * 選択範囲を表へ書き、見た目を更新する。
+ * @param {HTMLElement} wrap 表ラッパー
+ * @param {HTMLTableElement} table 表
+ * @param {TableSelectionRect} rect 矩形
+ * @returns {void}
+ */
+function writeTableSelectionRect(
+	wrap: HTMLElement,
+	table: HTMLTableElement,
+	rect: TableSelectionRect,
+): void {
+	wrap.dataset.tableSelection = [
+		rect.startRow,
+		rect.startColumn,
+		rect.endRow,
+		rect.endColumn,
+	].join(',');
+	for (const cell of table.querySelectorAll<HTMLElement>('[data-table-row]')) {
+		const row    = Number(cell.dataset.tableRow);
+		const column = Number(cell.dataset.tableColumn);
+		if (!Number.isInteger(row) || !Number.isInteger(column)) {
+			continue;
+		}
+
+		const tableCell = cell instanceof HTMLTableCellElement ? cell : null;
+		const edges     = describeTableCellSelection(
+			{ row, column },
+			tableCell?.rowSpan ?? 1,
+			tableCell?.colSpan ?? 1,
+			rect,
+		);
+		cell.classList.toggle('cm-md-table-cell-selected', edges.selected);
+		cell.classList.toggle('cm-md-table-sel-n', edges.north);
+		cell.classList.toggle('cm-md-table-sel-s', edges.south);
+		cell.classList.toggle('cm-md-table-sel-e', edges.east);
+		cell.classList.toggle('cm-md-table-sel-w', edges.west);
+	}
+}
+
+/**
+ * ライブプレビュー表のセル選択を付ける。
+ * @param {HTMLElement} wrap 表ラッパー
+ * @param {HTMLTableElement} table 表
+ * @param {TableData} data 表データ
+ * @param {EditorView} view エディタ
+ * @returns {void}
+ */
+function attachTableCellSelection(
+	wrap: HTMLElement,
+	table: HTMLTableElement,
+	data: TableData,
+	view: EditorView,
+): void {
+	let anchor: TableCellPosition | null = null;
+	let dragging                         = false;
+
+	/**
+	 * @param {EventTarget | null} target 対象
+	 * @returns {TableCellPosition | null}
+	 */
+	const positionFromTarget = (target: EventTarget | null): TableCellPosition | null => {
+		const cell = target instanceof Element
+			? target.closest<HTMLElement>('[data-table-row][data-table-column]')
+			: null;
+		if (!cell || !table.contains(cell)) {
+			return null;
+		}
+
+		const row    = Number(cell.dataset.tableRow);
+		const column = Number(cell.dataset.tableColumn);
+		if (!Number.isInteger(row) || !Number.isInteger(column)) {
+			return null;
+		}
+
+		return { row, column };
+	};
+
+	wrap.addEventListener('mousedown', (event) => {
+		if (event.button !== 0) {
+			return;
+		}
+
+		if (event.target instanceof Element && event.target.closest('.cm-md-table-col-resizer, .cm-md-table-row-resizer, .cm-md-image-wrap')) {
+			return;
+		}
+
+		const position = positionFromTarget(event.target);
+		if (!position) {
+			return;
+		}
+
+		if (event.shiftKey && anchor) {
+			event.preventDefault();
+			writeTableSelectionRect(wrap, table, normalizeTableSelectionRect(anchor, position));
+			return;
+		}
+
+		anchor   = position;
+		dragging = true;
+		writeTableSelectionRect(wrap, table, normalizeTableSelectionRect(position, position));
+	});
+	wrap.addEventListener('mouseover', (event) => {
+		if (!dragging || !anchor || (event.buttons & 1) === 0) {
+			return;
+		}
+
+		const position = positionFromTarget(event.target);
+		if (!position) {
+			return;
+		}
+
+		writeTableSelectionRect(wrap, table, normalizeTableSelectionRect(anchor, position));
+	});
+	wrap.addEventListener('mouseup', () => {
+		dragging = false;
+	});
+	void view;
+	void data;
+}
+
+/**
+ * マウス位置の表結合操作状態を返す。
+ * @param {EditorView} view エディタ
+ * @param {MouseEvent} event マウス
+ * @returns {TableMergeActionState | null}
+ */
+export function getTableMergeActionStateFromEvent(
+	view: EditorView,
+	event: MouseEvent,
+): TableMergeActionState | null {
+	const resolved = resolveTableMergeTarget(view, event);
+	return resolved?.state ?? null;
+}
+
+/**
+ * セル結合または解除を文書へ書く。
+ * @param {EditorView} view エディタ
+ * @param {MouseEvent} event マウス
+ * @param {'merge' | 'unmerge'} action 操作
+ * @returns {boolean}
+ */
+export function applyTableMergeAction(
+	view: EditorView,
+	event: MouseEvent,
+	action: 'merge' | 'unmerge',
+): boolean {
+	if (view.state.readOnly) {
+		return false;
+	}
+
+	const resolved = resolveTableMergeTarget(view, event);
+	if (!resolved) {
+		return false;
+	}
+
+	const changes = action === 'merge'
+		? buildMergeTableCellsChanges(resolved.data, resolved.state.rect)
+		: buildUnmergeTableCellsChanges(resolved.data, resolved.state.rect);
+	if (!changes || changes.length === 0) {
+		return false;
+	}
+
+	view.dispatch({
+		changes  : changes.map((change) => ({ from: change.from, to: change.to, insert: change.insert })),
+		userEvent: action === 'merge' ? 'input.table.merge' : 'input.table.unmerge',
+	});
+	return true;
+}
+
+/**
+ * @param {EditorView} view エディタ
+ * @param {MouseEvent} event マウス
+ * @returns {{ data: TableData; state: TableMergeActionState } | null}
+ */
+function resolveTableMergeTarget(
+	view: EditorView,
+	event: MouseEvent,
+): { data: TableData; state: TableMergeActionState } | null {
+	const wrap = event.target instanceof Element
+		? event.target.closest<HTMLElement>('.cm-md-table-wrap')
+		: null;
+	if (!wrap || !view.dom.contains(wrap)) {
+		return null;
+	}
+
+	const tableFrom = Number(wrap.dataset.tableFrom);
+	if (!Number.isInteger(tableFrom)) {
+		return null;
+	}
+
+	const tableNode = findTableNodeAt(view.state, tableFrom);
+	if (!tableNode) {
+		return null;
+	}
+
+	const data     = extractTableData(view.state, tableNode);
+	const cell     = event.target instanceof Element
+		? event.target.closest<HTMLElement>('[data-table-row][data-table-column]')
+		: null;
+	const clicked  = cell && Number.isInteger(Number(cell.dataset.tableRow))
+		? { row: Number(cell.dataset.tableRow), column: Number(cell.dataset.tableColumn) }
+		: null;
+	const selected = readTableSelectionRect(wrap);
+	const rect     = selected ?? (clicked
+		? normalizeTableSelectionRect(clicked, clicked)
+		: null);
+	if (!rect) {
+		return null;
+	}
+
+	return { data, state: getTableMergeActionState(data, rect) };
+}
+
+/**
  * テーブル HTML ウィジェット
  */
 export class TableWidget extends WidgetType {
@@ -2351,9 +2622,11 @@ export class TableWidget extends WidgetType {
 		wrap.dataset.tableFrom = String(this.data.tableFrom);
 		wrap.dataset.tableTo   = String(this.data.tableTo);
 
-		const table       = document.createElement('table');
-		table.className   = 'cm-md-table';
-		const columnCount = getTableColumnCount(this.data);
+		const table               = document.createElement('table');
+		table.className           = 'cm-md-table';
+		const columnCount         = getTableColumnCount(this.data);
+		const occupancy           = buildTableOccupancy(this.data);
+		table.dataset.columnCount = String(columnCount);
 
 		/**
 		 * 編集可能セルを生成する。
@@ -2707,12 +2980,18 @@ export class TableWidget extends WidgetType {
 			const thead = document.createElement('thead');
 			const tr    = document.createElement('tr');
 			for (let index = 0; index < columnCount; index += 1) {
-				tr.appendChild(createCell(
+				if (isCoveredTableCell(occupancy, { row: 0, column: index })) {
+					continue;
+				}
+
+				const cell = createCell(
 					'th',
 					this.data.headers[index] ?? [],
 					this.data.headerSources[index],
 					{ row: 0, column: index },
-				));
+				);
+				applyCellSpan(cell, occupancy, { row: 0, column: index });
+				tr.appendChild(cell);
 			}
 
 			thead.appendChild(tr);
@@ -2725,12 +3004,19 @@ export class TableWidget extends WidgetType {
 				const row = this.data.rows[rowIndex]!;
 				const tr  = document.createElement('tr');
 				for (let index = 0; index < columnCount; index += 1) {
-					tr.appendChild(createCell(
+					const position = { row: rowIndex + 1, column: index };
+					if (isCoveredTableCell(occupancy, position)) {
+						continue;
+					}
+
+					const cell = createCell(
 						'td',
 						row[index] ?? [],
 						this.data.rowSources[rowIndex]?.[index],
-						{ row: rowIndex + 1, column: index },
-					));
+						position,
+					);
+					applyCellSpan(cell, occupancy, position);
+					tr.appendChild(cell);
 				}
 
 				tbody.appendChild(tr);
@@ -2740,6 +3026,7 @@ export class TableWidget extends WidgetType {
 		}
 
 		wrap.appendChild(table);
+		attachTableCellSelection(wrap, table, this.data, view);
 		if (columnCount > 0) {
 			attachTableResize(wrap, table, getTableLayoutKey(this.data.tableFrom, columnCount));
 		}

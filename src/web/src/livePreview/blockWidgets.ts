@@ -12,6 +12,8 @@ import {
 	pushMermaidReplace,
 } from './mermaidWidget';
 import { extractTableData, pushTableReplace } from './tableWidget';
+import { isHtmlTableBlock } from './htmlTable';
+import { pushHtmlTableReplace } from './htmlTableWidget';
 
 /**
  * ノード範囲の全行がプレビュー行か判定する
@@ -128,6 +130,16 @@ export function collectBlockDecorationEntries(
 
 				const source = extractFencedCodeText(state, ref.node);
 				pushMermaidReplace(entries, ref.from, ref.to, source);
+				return false;
+			}
+
+			if (ref.name === 'HTMLBlock') {
+				const raw = state.doc.sliceString(ref.from, ref.to);
+				if (!isHtmlTableBlock(raw) || !isFullyPreviewRange(state, ref.from, ref.to, sourceLineNumbers)) {
+					return false;
+				}
+
+				pushHtmlTableReplace(entries, ref.from, ref.to, raw);
 				return false;
 			}
 

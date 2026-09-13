@@ -4,7 +4,12 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.5.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.5.0)
+最新リリース: [v1.6.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.6.0)
+
+## v1.6.0 の主な変更
+
+- GFM 表で `{colspan}` / `{rowspan}` によるセル結合を表示・編集できる（ライブプレビューの矩形選択と右クリック、Excel / Web 貼り付け）
+- フェンス無しの HTML 表をライブプレビューと HTML / PDF エクスポートで描画する
 
 ## v1.5.0 の主な変更
 

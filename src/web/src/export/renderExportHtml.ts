@@ -44,6 +44,8 @@ import {
 	extractTableData,
 	type TableCellNode,
 } from '../livePreview/tableWidget';
+import { buildTableOccupancy, isCoveredTableCell } from '../livePreview/tableMerge';
+import { isHtmlTableBlock, sanitizeHtmlTable } from '../livePreview/htmlTable';
 import {
 	EXPORT_OUTLINE_CSS,
 	EXPORT_PREVIEW_CSS,
@@ -460,8 +462,18 @@ async function renderBlock(context: ExportContext, node: SyntaxNode): Promise<st
 		return '<hr class="cm-line cm-md-hr">';
 	}
 
-	if (node.name.startsWith('YamlFrontMatter') || node.name === 'HTMLBlock') {
+	if (node.name.startsWith('YamlFrontMatter')) {
 		return '';
+	}
+
+	if (node.name === 'HTMLBlock') {
+		const raw = context.state.doc.sliceString(node.from, node.to);
+		if (!isHtmlTableBlock(raw)) {
+			return '';
+		}
+
+		const html = sanitizeHtmlTable(raw);
+		return html ? `<div class="cm-md-table-wrap cm-md-html-table-wrap">${html}</div>` : '';
 	}
 
 	if (node.name === 'Image' || node.name === 'WikiEmbed') {
@@ -656,15 +668,56 @@ async function renderFencedCode(context: ExportContext, node: SyntaxNode): Promi
  */
 async function renderTable(context: ExportContext, node: SyntaxNode): Promise<string> {
 	const data      = extractTableData(context.state, node);
-	const headCells = data.headers.length > 0
-		? await Promise.all(data.headers.map(async (cell) => `<th>${await tableCellToHtml(context, cell)}</th>`))
-		: [];
-	const head      = headCells.length > 0 ? `<thead><tr>${headCells.join('')}</tr></thead>` : '';
-	const bodyRows  = await Promise.all(data.rows.map(async (row) => {
-		const cells = await Promise.all(row.map(async (cell) => `<td>${await tableCellToHtml(context, cell)}</td>`));
-		return `<tr>${cells.join('')}</tr>`;
-	}));
+	const occupancy = buildTableOccupancy(data);
+	const headCells = [];
+	for (let index = 0; index < data.headers.length; index += 1) {
+		if (isCoveredTableCell(occupancy, { row: 0, column: index })) {
+			continue;
+		}
+
+		const span  = occupancy.cells[0]?.[index];
+		const attrs = htmlSpanAttribute(span?.colspan ?? 1, span?.rowspan ?? 1);
+		headCells.push(`<th${attrs}>${await tableCellToHtml(context, data.headers[index] ?? [])}</th>`);
+	}
+
+	const head     = headCells.length > 0 ? `<thead><tr>${headCells.join('')}</tr></thead>` : '';
+	const bodyRows = [];
+	for (let rowIndex = 0; rowIndex < data.rows.length; rowIndex += 1) {
+		const row   = data.rows[rowIndex]!;
+		const cells = [];
+		for (let index = 0; index < row.length; index += 1) {
+			const position = { row: rowIndex + 1, column: index };
+			if (isCoveredTableCell(occupancy, position)) {
+				continue;
+			}
+
+			const span  = occupancy.cells[position.row]?.[position.column];
+			const attrs = htmlSpanAttribute(span?.colspan ?? 1, span?.rowspan ?? 1);
+			cells.push(`<td${attrs}>${await tableCellToHtml(context, row[index] ?? [])}</td>`);
+		}
+
+		bodyRows.push(`<tr>${cells.join('')}</tr>`);
+	}
+
 	return `<div class="cm-md-table-wrap"><table class="cm-md-table">${head}<tbody>${bodyRows.join('')}</tbody></table></div>`;
+}
+
+/**
+ * @param {number} colspan 列結合
+ * @param {number} rowspan 行結合
+ * @returns {string}
+ */
+function htmlSpanAttribute(colspan: number, rowspan: number): string {
+	const parts: string[] = [];
+	if (colspan > 1) {
+		parts.push(` colspan="${colspan}"`);
+	}
+
+	if (rowspan > 1) {
+		parts.push(` rowspan="${rowspan}"`);
+	}
+
+	return parts.join('');
 }
 
 /**
@@ -957,7 +1010,13 @@ async function renderInline(context: ExportContext, node: SyntaxNode): Promise<s
 	}
 
 	if (node.name === 'HTMLBlock') {
-		return '';
+		const raw = context.state.doc.sliceString(node.from, node.to);
+		if (!isHtmlTableBlock(raw)) {
+			return '';
+		}
+
+		const html = sanitizeHtmlTable(raw);
+		return html ? `<div class="cm-md-table-wrap cm-md-html-table-wrap">${html}</div>` : '';
 	}
 
 	if (node.name === 'HTMLTag') {

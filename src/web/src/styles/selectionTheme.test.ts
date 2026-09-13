@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
 const stylesDir = dirname(fileURLToPath(import.meta.url));
 
 describe('範囲選択の CSS 変数', () => {
-	const baseCss  = readFileSync(join(stylesDir, 'base.css'), 'utf8');
-	const shellCss = readFileSync(join(stylesDir, 'shell.css'), 'utf8');
+	const baseCss        = readFileSync(join(stylesDir, 'base.css'), 'utf8');
+	const shellCss       = readFileSync(join(stylesDir, 'shell.css'), 'utf8');
+	const livePreviewCss = readFileSync(join(stylesDir, 'livePreview.css'), 'utf8');
 
 	it('色と透過度を CSS 変数として公開する', () => {
 		expect(baseCss).toContain('--tms-mde-color-selection:');
@@ -49,6 +50,16 @@ describe('範囲選択の CSS 変数', () => {
 		expect(shellCss).toContain('z-index: var(--tms-mde-caret-layer-z-index) !important');
 		expect(shellCss).toContain('caret-color: transparent !important');
 		expect(shellCss).toContain('border-left-color: var(--tms-mde-color-caret) !important');
+	});
+
+	it('表セル選択は縞模様より後に定義し、選択色で範囲を示す', () => {
+		const zebraAt    = livePreviewCss.indexOf('.cm-md-table tr:nth-child(even) td');
+		const selectedAt = livePreviewCss.lastIndexOf('cm-md-table-cell-selected');
+		expect(zebraAt).toBeGreaterThan(-1);
+		expect(selectedAt).toBeGreaterThan(zebraAt);
+		expect(livePreviewCss).toContain('tr:nth-child(even) td.cm-md-table-cell-selected');
+		expect(livePreviewCss).toContain('var(--tms-mde-color-selection)');
+		expect(livePreviewCss).toContain('cm-md-table-sel-n');
 	});
 
 	it('行番号ガターを CM ライト既定色ではなくテーマ変数で塗る', () => {

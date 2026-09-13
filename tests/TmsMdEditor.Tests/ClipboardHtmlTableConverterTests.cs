@@ -43,14 +43,26 @@ public class ClipboardHtmlTableConverterTests
 	}
 
 	[Fact]
-	public void ToMarkdown_flattens_colspan_to_empty_cells()
+	public void ToMarkdown_emits_colspan_attribute()
 	{
 		const string html = "<table><tbody><tr><th colspan=\"3\">新キャラ</th></tr><tr><td>A</td><td>B</td><td>C</td></tr></tbody></table>";
 
 		string markdown = ClipboardHtmlTableConverter.ToMarkdown(html, static _ => null);
 
 		Assert.Equal(
-			"|   |   |   |\n|---|---|---|\n|新キャラ|||\n|A|B|C|",
+			"|   |   |   |\n|---|---|---|\n|新キャラ{colspan=3}|||\n|A|B|C|",
+			markdown);
+	}
+
+	[Fact]
+	public void ToMarkdown_emits_rowspan_and_fills_occupied_cells()
+	{
+		const string html = "<table><tr><td rowspan=\"2\">A</td><td>B</td></tr><tr><td>C</td></tr></table>";
+
+		string markdown = ClipboardHtmlTableConverter.ToMarkdown(html, static _ => null);
+
+		Assert.Equal(
+			"|   |   |\n|---|---|\n|A{rowspan=2}|B|\n||C|",
 			markdown);
 	}
 

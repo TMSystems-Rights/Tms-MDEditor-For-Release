@@ -223,7 +223,8 @@ internal static class ClipboardHtmlTableConverter
 			return string.Empty;
 		}
 
-		List<List<string>> rows = [];
+		List<List<string?>> grid = [];
+		int rowIndex = 0;
 		foreach (string rowHtml in FindElementsOutsideNestedTables(inner, "tr"))
 		{
 			if (!TryReadInner(rowHtml, "tr", out string rowInner))
@@ -231,24 +232,29 @@ internal static class ClipboardHtmlTableConverter
 				continue;
 			}
 
-			List<string> cells = [];
+			EnsureGridRow(grid, rowIndex);
+			int column = 0;
 			foreach (string cellHtml in FindElementsOutsideNestedTables(rowInner, "td", "th"))
 			{
-				int colspan = Math.Max(1, ReadPositiveAttribute(cellHtml, "colspan"));
-				string cell = ConvertCell(cellHtml, resolveImageMarkup);
-				cells.Add(cell);
-				for (int extra = 1; extra < colspan; extra++)
+				while (CellTaken(grid, rowIndex, column))
 				{
-					cells.Add(string.Empty);
+					column++;
 				}
+
+				int colspan = Math.Max(1, ReadPositiveAttribute(cellHtml, "colspan"));
+				int rowspan = Math.Max(1, ReadPositiveAttribute(cellHtml, "rowspan"));
+				string cell = ConvertCell(cellHtml, resolveImageMarkup);
+				PlaceSpannedCell(grid, rowIndex, column, FormatCellSpan(cell, colspan, rowspan), colspan, rowspan);
+				column += colspan;
 			}
 
-			if (cells.Count > 0)
-			{
-				rows.Add(cells);
-			}
+			rowIndex++;
 		}
 
+		List<List<string>> rows = grid
+			.Select(static row => row.Select(static cell => cell ?? string.Empty).ToList())
+			.Where(static row => row.Count > 0)
+			.ToList();
 		return RenderGfmTable(rows);
 	}
 
@@ -312,6 +318,68 @@ internal static class ClipboardHtmlTableConverter
 		if (text.Length > 0)
 		{
 			pieces.Add(text);
+		}
+	}
+
+	private static string FormatCellSpan(string cell, int colspan, int rowspan)
+	{
+		if (colspan <= 1 && rowspan <= 1)
+		{
+			return cell;
+		}
+
+		List<string> parts = [];
+		if (colspan > 1)
+		{
+			parts.Add("colspan=" + colspan.ToString(CultureInfo.InvariantCulture));
+		}
+
+		if (rowspan > 1)
+		{
+			parts.Add("rowspan=" + rowspan.ToString(CultureInfo.InvariantCulture));
+		}
+
+		return cell + "{" + string.Join(" ", parts) + "}";
+	}
+
+	private static void EnsureGridRow(List<List<string?>> grid, int row)
+	{
+		while (grid.Count <= row)
+		{
+			grid.Add([]);
+		}
+	}
+
+	private static bool CellTaken(List<List<string?>> grid, int row, int column)
+	{
+		return row < grid.Count && column < grid[row].Count && grid[row][column] is not null;
+	}
+
+	private static void PlaceSpannedCell(
+		List<List<string?>> grid,
+		int row,
+		int column,
+		string text,
+		int colspan,
+		int rowspan)
+	{
+		for (int rowOffset = 0; rowOffset < rowspan; rowOffset++)
+		{
+			EnsureGridRow(grid, row + rowOffset);
+			List<string?> line = grid[row + rowOffset];
+			while (line.Count < column + colspan)
+			{
+				line.Add(null);
+			}
+
+			for (int colOffset = 0; colOffset < colspan; colOffset++)
+			{
+				bool origin = rowOffset == 0 && colOffset == 0;
+				if (line[column + colOffset] is null)
+				{
+					line[column + colOffset] = origin ? text : string.Empty;
+				}
+			}
 		}
 	}
 

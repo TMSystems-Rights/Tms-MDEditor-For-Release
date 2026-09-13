@@ -999,7 +999,15 @@ internal sealed class ConfigStore
 			}
 		}
 
-		return PlaceMenuItemAfter(result, "pastePlain", "paste", defaults);
+		return PlaceMenuItemAfter(
+			PlaceMenuItemAfter(
+				PlaceMenuItemAfter(result, "pastePlain", "paste", defaults),
+				"mergeTableCells",
+				"toggleCheckbox",
+				defaults),
+			"unmergeTableCells",
+			"mergeTableCells",
+			defaults);
 	}
 
 	/// <summary>
@@ -1015,6 +1023,26 @@ internal sealed class ConfigStore
 			if (pasteIndex >= 0)
 			{
 				result.Insert(pasteIndex + 1, itemId);
+				return;
+			}
+		}
+
+		if (itemId == "mergeTableCells")
+		{
+			int checkboxIndex = result.IndexOf("toggleCheckbox");
+			if (checkboxIndex >= 0)
+			{
+				result.Insert(checkboxIndex + 1, itemId);
+				return;
+			}
+		}
+
+		if (itemId == "unmergeTableCells")
+		{
+			int mergeIndex = result.IndexOf("mergeTableCells");
+			if (mergeIndex >= 0)
+			{
+				result.Insert(mergeIndex + 1, itemId);
 				return;
 			}
 		}

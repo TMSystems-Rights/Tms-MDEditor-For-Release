@@ -116,7 +116,7 @@ export function clampRowHeight(height: number): number {
  * @returns {void}
  */
 export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | undefined): void {
-	const columnCount = table.rows[0]?.cells.length ?? 0;
+	const columnCount = Number(table.dataset.columnCount) || table.rows[0]?.cells.length || 0;
 	if (!layout || (!layout.widths?.length && !layout.heights?.length) || columnCount === 0) {
 		table.classList.remove('is-resized');
 		table.style.tableLayout = '';

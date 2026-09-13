@@ -87,6 +87,21 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('1');
 	});
 
+	it('GFM 表の colspan を出す', async () => {
+		const html = await render('|   |   |   |\n| --- | --- | --- |\n| 新キャラ{colspan=3} |  |  |\n| A | B | C |\n');
+		expect(html).toContain('colspan="3"');
+		expect(html).toContain('新キャラ');
+		expect(html).not.toContain('{colspan=3}');
+	});
+
+	it('フェンス無し HTML 表を出す', async () => {
+		const html = await render('<table>\n<tr><th colspan="2">見出し</th></tr>\n<tr><td>A</td><td>B</td></tr>\n</table>\n');
+		expect(html).toContain('<table');
+		expect(html).toContain('colspan="2"');
+		expect(html).toContain('見出し');
+		expect(html).toContain('A');
+	});
+
 	it('コールアウトを展開して出す', async () => {
 		const html = await render('> [!warning] 注意\n> 本体です\n');
 		expect(html).toContain('cm-md-callout-warning');

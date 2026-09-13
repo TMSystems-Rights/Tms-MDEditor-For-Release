@@ -151,6 +151,8 @@ internal sealed class ContextMenuSettings
 		"replace",
 		"editorSeparatorContext",
 		"toggleCheckbox",
+		"mergeTableCells",
+		"unmergeTableCells",
 		"openLink",
 		"editorSeparatorView",
 		"toggleViewMode",

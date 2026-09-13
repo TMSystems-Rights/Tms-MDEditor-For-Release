@@ -94,6 +94,22 @@ describe('blockWidgets', () => {
 		expect(classifyImageSource('images/a.png')).toBe('relative');
 	});
 
+	it('セル末尾の colspan は表示 AST から除きソースには残す', () => {
+		const state = createState('|   |   |   |\n| --- | --- | --- |\n| 新キャラ{colspan=3} |  |  |\n', 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		expect(tableCellNodesToPlainText(data.rows[0]![0]!)).toBe('新キャラ');
+		expect(data.rowSources[0]![0]!.text).toContain('{colspan=3}');
+		expect(data.rowSources[0]![0]!.editableText).toBe('新キャラ');
+	});
+
+	it('フェンス無し HTML 表をブロック widget にする', () => {
+		const doc     = '<table>\n<tr><th>見出し１</th><th>見出し２</th></tr>\n<tr><td>データ１－１</td><td>データ１－２</td></tr>\n</table>\n';
+		const state   = createState(doc, doc.length);
+		const entries = collectBlockDecorationEntries(state);
+		expect(entries.some((entry) => entry.decoration.spec.widget?.constructor.name === 'HtmlTableWidget')).toBe(true);
+	});
+
 	it('テーブルセル内の WikiEmbed を画像ノードにする', () => {
 		const state = createState('|   |\n| --- |\n| ![[C:\\\\shots\\\\a.png]] |\n', 0);
 		const table = findNode(state, 'Table');
