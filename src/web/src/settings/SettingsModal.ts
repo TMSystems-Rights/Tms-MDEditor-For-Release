@@ -81,6 +81,7 @@ const KEYBINDING_DEFINITIONS: KeybindingDefinition[] = [
 	{ key: 'exportHtml', label: 'HTMLとしてエクスポート' },
 	{ key: 'exportPdf', label: 'PDFとしてエクスポート' },
 	{ key: 'print', label: '印刷' },
+	{ key: 'pastePlain', label: 'プレーンテキストとして貼り付け' },
 ];
 
 const FIXED_SHORTCUTS: Record<string, string> = {

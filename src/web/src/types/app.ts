@@ -30,6 +30,7 @@ export type KeybindingsSettings = {
 	exportHtml: string;
 	exportPdf: string;
 	print: string;
+	pastePlain: string;
 };
 
 /**
@@ -167,7 +168,7 @@ export type ConfigGetResponse = {
 
 export type PasteForEditorResult = {
 	ok: boolean;
-	kind?: 'image' | 'text' | 'empty';
+	kind?: 'image' | 'text' | 'table' | 'empty';
 	text?: string;
 	error?: string;
 };

@@ -9,6 +9,7 @@ export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'cut',
 	'copy',
 	'paste',
+	'pastePlain',
 	'selectAll',
 	'editorSeparatorSearch',
 	'find',
@@ -47,6 +48,7 @@ export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 	cut                     : '切り取り',
 	copy                    : 'コピー',
 	paste                   : '貼り付け',
+	pastePlain              : 'プレーンテキストとして貼り付け',
 	selectAll               : 'すべて選択',
 	find                    : '検索',
 	replace                 : '置換',
@@ -145,11 +147,62 @@ function normalizeOrder(source: string[] | undefined, defaults: string[]): strin
 
 	defaults.forEach((itemId) => {
 		if (!seen.has(itemId)) {
-			result.push(itemId);
+			seen.add(itemId);
+			insertMissingContextMenuItem(result, itemId);
 		}
 	});
 
-	return result;
+	return placeContextMenuItemAfter(result, 'pastePlain', 'paste', defaults);
+}
+
+/**
+ * 欠落した既定項目を挿入する。貼り付け系は「貼り付け」の次へ置く。
+ * @param {string[]} result 構築中の順序
+ * @param {string} itemId 追加する項目
+ * @returns {void}
+ */
+function insertMissingContextMenuItem(result: string[], itemId: string): void {
+	if (itemId === 'pastePlain') {
+		const pasteIndex = result.indexOf('paste');
+		if (pasteIndex >= 0) {
+			result.splice(pasteIndex + 1, 0, itemId);
+			return;
+		}
+	}
+
+	result.push(itemId);
+}
+
+/**
+ * 保存順が既定と同一なら、指定項目を基準項目の次へ移す。
+ * @param {string[]} order 現在の順序
+ * @param {string} itemId 移動する項目
+ * @param {string} afterId 直前に置く項目
+ * @param {string[]} defaults 既定順
+ * @returns {string[]} 補正後の順序
+ */
+function placeContextMenuItemAfter(
+	order: string[],
+	itemId: string,
+	afterId: string,
+	defaults: string[],
+): string[] {
+	const itemIndex  = order.indexOf(itemId);
+	const afterIndex = order.indexOf(afterId);
+	if (itemIndex < 0 || afterIndex < 0 || itemIndex === afterIndex + 1) {
+		return order;
+	}
+
+	const withoutItem    = order.filter((id) => id !== itemId);
+	const defaultWithout = defaults.filter((id) => id !== itemId);
+	if (withoutItem.length !== defaultWithout.length
+		|| withoutItem.some((id, index) => id !== defaultWithout[index])) {
+		return order;
+	}
+
+	const next = [...withoutItem];
+	next.splice(next.indexOf(afterId) + 1, 0, itemId);
+	return next;
 }
 
 /**

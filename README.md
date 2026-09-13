@@ -4,7 +4,13 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.4.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.4.1)
+最新リリース: [v1.5.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.5.0)
+
+## v1.5.0 の主な変更
+
+- Excel でセルコピーした内容が画像として貼り付けられる不具合を修正する（HTML 表 / TSV は GFM 表として貼り付ける）
+- ライブプレビューの表で、罫線ドラッグにより列幅・行高を調整できる（表示のみ。Markdown には書かない）
+- 表セル内の画像をドラッグでリサイズし、`\|幅` をソースへ残す
 
 ## v1.4.1 の主な変更
 

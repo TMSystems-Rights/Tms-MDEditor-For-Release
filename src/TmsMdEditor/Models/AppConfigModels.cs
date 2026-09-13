@@ -144,6 +144,7 @@ internal sealed class ContextMenuSettings
 		"cut",
 		"copy",
 		"paste",
+		"pastePlain",
 		"selectAll",
 		"editorSeparatorSearch",
 		"find",
@@ -267,6 +268,8 @@ internal sealed class KeybindingsSettings
 	public string ExportPdf { get; set; } = "Ctrl+Shift+P";
 
 	public string Print { get; set; } = "Ctrl+P";
+
+	public string PastePlain { get; set; } = "Ctrl+Shift+V";
 }
 
 /// <summary>

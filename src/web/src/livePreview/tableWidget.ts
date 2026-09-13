@@ -1,6 +1,6 @@
 import { redo, undo } from '@codemirror/commands';
 import { Decoration, type EditorView, WidgetType } from '@codemirror/view';
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import type { SyntaxNode, SyntaxNodeRef } from '@lezer/common';
 import {
@@ -18,7 +18,36 @@ import {
 	requestCodeLanguage,
 	resolveCodeLanguage,
 } from '../editor/codeLanguage';
+import { documentContextFacet } from './documentContext';
+import {
+	ImageWidget,
+	bindImageResizePersister,
+	bindImageWrapEditorView,
+	classifyImageSource,
+	getImageWrapPath,
+	type ImageSpec,
+} from './imageWidget';
+import { splitImageAlt, splitWikiEmbedTarget } from './imageSize';
 import type { DecorationEntry } from './inlineDecorations';
+import {
+	forgetCellImageWidth,
+	recallCellImageWidth,
+	rememberCellImageWidth,
+} from './cellImageWidthMemory';
+import {
+	applyImageDisplayWidth,
+	applyImageWidthByPath,
+	applyImageWidthOnDocumentLine,
+	replaceImageWidthInCellText,
+} from './imageResize';
+import { attachTableResize, getTableLayoutKey } from './tableResize';
+
+export {
+	clearCellImageWidths,
+	forgetCellImageWidth,
+	recallCellImageWidth,
+	rememberCellImageWidth,
+} from './cellImageWidthMemory';
 
 export { isBreakHtmlTag };
 
@@ -36,7 +65,8 @@ export type TableCellNode =
 	}
 	| { kind: 'em' | 'strong' | 'strike' | 'highlight' | 'code'; children: TableCellNode[] }
 	| { kind: 'link'; href: string; children: TableCellNode[] }
-	| { kind: 'wikilink'; children: TableCellNode[] };
+	| { kind: 'wikilink'; children: TableCellNode[] }
+	| { kind: 'image'; spec: ImageSpec };
 
 export type TableData = {
 	headers: TableCellNode[][];
@@ -413,6 +443,11 @@ function extractTableRowData(state: EditorState, rowNode: SyntaxNode): TableRowD
 		return findCellNodeForRange(cells, used, range);
 	});
 	const nodes: TableCellNode[][] = ranges.map((range, index) => {
+		const soleImage = extractSoleTableCellImage(state, range);
+		if (soleImage) {
+			return [soleImage];
+		}
+
 		const cell = matchedCells[index] ?? null;
 		if (cell) {
 			return extractTableCellNodes(state, cell);
@@ -628,6 +663,39 @@ function extractInlineNodes(state: EditorState, node: SyntaxNode): TableCellNode
 			continue;
 		}
 
+		if (name === 'WikiEmbed') {
+			const raw = state.doc.sliceString(child.from, child.to);
+			if (raw.startsWith('![[') && raw.endsWith(']]')) {
+				current.push(createTableCellImage(
+					state,
+					child.from,
+					child.to,
+					raw.slice(3, -2),
+					'',
+					true,
+				));
+				cursor = child.to;
+				continue;
+			}
+		}
+
+		if (name === 'Image') {
+			const raw      = state.doc.sliceString(child.from, child.to);
+			const closeAlt = raw.indexOf('](');
+			if (raw.startsWith('![') && closeAlt >= 0 && raw.endsWith(')')) {
+				current.push(createTableCellImage(
+					state,
+					child.from,
+					child.to,
+					raw.slice(closeAlt + 2, -1),
+					raw.slice(2, closeAlt),
+					false,
+				));
+				cursor = child.to;
+				continue;
+			}
+		}
+
 		// 未知の入れ子は中身だけ取り込む
 		if (child.firstChild) {
 			current.push(...extractInlineNodes(state, child));
@@ -677,6 +745,11 @@ function flattenTableCellText(nodes: TableCellNode[]): string {
 
 			if (item.kind === 'br') {
 				parts.push('\n');
+				continue;
+			}
+
+			if (item.kind === 'image') {
+				parts.push(item.spec.alt || item.spec.raw);
 				continue;
 			}
 
@@ -735,12 +808,458 @@ export function extractTableData(state: EditorState, tableNode: SyntaxNode): Tab
 }
 
 /**
+ * ソースの幅が無ければ、ドラッグ中に覚えた幅を使う
+ * @param {string} path 画像パス
+ * @param {number | null} parsed ソースの幅
+ * @returns {number | null}
+ */
+function resolveCellImageWidth(path: string, parsed: number | null): number | null {
+	if (parsed && parsed > 0) {
+		rememberCellImageWidth(path, parsed);
+		return parsed;
+	}
+
+	return recallCellImageWidth(path) ?? null;
+}
+
+/**
+ * セルソースが画像だけならパスと幅を返す
+ * @param {string} text セルソース
+ * @returns {{ path: string; width: number | null } | null}
+ */
+function parseSoleCellImageRef(text: string): { path: string; width: number | null } | null {
+	const trimmed = text.trim();
+	const wiki    = /^!\[\[([\s\S]*?)\]\]$/.exec(trimmed);
+	if (wiki) {
+		const { path, size } = splitWikiEmbedTarget(wiki[1] ?? '');
+		return path ? { path, width: size.width } : null;
+	}
+
+	const markdown = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(trimmed);
+	if (!markdown) {
+		return null;
+	}
+
+	const { size } = splitImageAlt(markdown[1] ?? '');
+	const path     = (markdown[2] ?? '').trim();
+	return path ? { path, width: size.width } : null;
+}
+
+/**
+ * ソース編集で幅指定や画像自体を消したら、覚えた幅も消す
+ * @param {string} previous 編集前
+ * @param {string} next 編集後
+ * @returns {void}
+ */
+function forgetCellImageWidthIfSourceDropped(
+	previous: string,
+	next: string,
+	position: TableCellPosition,
+): void {
+	const prev = parseSoleCellImageRef(previous);
+	if (!prev) {
+		return;
+	}
+
+	const after = parseSoleCellImageRef(next);
+	if (!after || after.path !== prev.path || !after.width) {
+		forgetCellImageWidth(prev.path, position);
+	}
+}
+
+/**
+ * 画像の `\|幅` / `|幅` を除いて、表の再描画判定用テキストにする。
+ * 幅だけ変わったときに表 DOM を作り直さない。
+ * @param {string} text セルソース
+ * @returns {string}
+ */
+export function normalizeTableCellTextForIdentity(text: string): string {
+	return text
+		.replace(/\\\|(\d+)(?:x\d+)?(?=\]\])/gi, '')
+		.replace(/\|(\d+)(?:x\d+)?(?=\]\])/gi, '')
+		.replace(/\\\|(\d+)(?:x\d+)?(?=\]\()/gi, '')
+		.replace(/\|(\d+)(?:x\d+)?(?=\]\()/gi, '');
+}
+
+/**
+ * 表の再描画判定用に、ソース文字列だけを比較するキーを返す。
+ * 表示 AST のゆらぎや画像幅の書き戻しでウィジェットを作り直して画像サイズを失わない。
+ * @param {TableData} data 表データ
+ * @returns {string}
+ */
+export function getTableDataIdentity(data: TableData): string {
+	return JSON.stringify({
+		headers: data.headerSources.map((source) => normalizeTableCellTextForIdentity(source.text)),
+		rows   : data.rowSources.map((row) => row.map((source) => normalizeTableCellTextForIdentity(source.text))),
+	});
+}
+
+/**
+ * 画像幅の書き戻しでずれたセル位置を、既存ウィジェット側へ反映する
+ * @param {TableData} data 表データ
+ * @param {TableCellPosition} position 書き換えたセル
+ * @param {number} width 幅
+ * @returns {number} 増えた文字数
+ */
+export function syncTableDataAfterImageWidth(
+	data: TableData,
+	position: TableCellPosition,
+	width: number,
+): number {
+	const source = getTableCellSource(data, position);
+	if (!source) {
+		return 0;
+	}
+
+	const next = replaceImageWidthInCellText(source.text, width, true);
+	if (next === null || next === source.text) {
+		return 0;
+	}
+
+	const delta         = next.length - source.text.length;
+	const oldTo         = source.to;
+	source.text         = next;
+	source.editableText = next;
+	source.to           = source.from + next.length;
+	data.tableTo       += delta;
+
+	/**
+	 * 書き戻し位置より後ろのセル範囲をずらす
+	 * @param {TableCellSource} other 他セル
+	 * @returns {void}
+	 */
+	const shiftSource = (other: TableCellSource): void => {
+		if (other === source || other.from < oldTo) {
+			return;
+		}
+
+		other.from += delta;
+		other.to   += delta;
+	};
+
+	data.headerSources.forEach(shiftSource);
+	data.rowSources.forEach((row) => row.forEach(shiftSource));
+
+	/**
+	 * @param {TableCellNode[]} nodes ノード
+	 * @returns {void}
+	 */
+	const shiftNodes = (nodes: TableCellNode[]): void => {
+		for (const node of nodes) {
+			if (node.kind === 'image') {
+				if (node.spec.sourceTo !== undefined && node.spec.sourceTo >= oldTo) {
+					node.spec.sourceTo += delta;
+				}
+
+				if (node.spec.sourceFrom !== undefined && node.spec.sourceFrom >= oldTo) {
+					node.spec.sourceFrom += delta;
+				}
+
+				if (node.spec.sourceFrom !== undefined && node.spec.sourceFrom < oldTo) {
+					node.spec.width  = width;
+					node.spec.height = null;
+				}
+			}
+
+			if ('children' in node) {
+				shiftNodes(node.children);
+			}
+		}
+	};
+
+	data.headers.forEach(shiftNodes);
+	data.rows.forEach((row) => row.forEach(shiftNodes));
+	return delta;
+}
+
+/**
+ * 位置を含む Table ノードを返す
+ * @param {EditorState} state 状態
+ * @param {number} pos 位置
+ * @returns {SyntaxNode | null}
+ */
+export function findTableNodeAt(state: EditorState, pos: number): SyntaxNode | null {
+	ensureSyntaxTree(state, state.doc.length, 200);
+	let current: SyntaxNode | null = syntaxTree(state).resolveInner(
+		Math.max(0, Math.min(pos, state.doc.length)),
+		1,
+	);
+	while (current) {
+		if (current.name === 'Table') {
+			return current;
+		}
+
+		current = current.parent;
+	}
+
+	return null;
+}
+
+/**
+ * セルの現在の表示 AST を文書から取り出す
+ * @param {EditorState} state 状態
+ * @param {number} tableFrom 表開始位置
+ * @param {TableCellPosition} position セル位置
+ * @returns {TableCellNode[] | null}
+ */
+export function getCurrentTableCellNodes(
+	state: EditorState,
+	tableFrom: number,
+	position: TableCellPosition,
+): TableCellNode[] | null {
+	const tableNode = findTableNodeAt(state, tableFrom);
+	if (!tableNode) {
+		return null;
+	}
+
+	const data = extractTableData(state, tableNode);
+	if (position.row === 0) {
+		return data.headers[position.column] ?? null;
+	}
+
+	return data.rows[position.row - 1]?.[position.column] ?? null;
+}
+
+/**
+ * 画像ノードの表示幅を更新する
+ * @param {TableCellNode[]} nodes セル AST
+ * @param {number} width 幅
+ * @returns {void}
+ */
+function updateImageNodeWidths(nodes: TableCellNode[], width: number): void {
+	for (const node of nodes) {
+		if (node.kind === 'image') {
+			node.spec.width  = width;
+			node.spec.height = null;
+		}
+
+		if ('children' in node) {
+			updateImageNodeWidths(node.children, width);
+		}
+	}
+}
+
+/**
+ * プレビューが画像だけのセルか判定する
+ * @param {HTMLElement} cell セル
+ * @returns {boolean}
+ */
+function cellShowsOnlyImage(cell: HTMLElement): boolean {
+	const children = [...cell.children];
+	return children.length === 1 && children[0]!.classList.contains('cm-md-image-wrap');
+}
+
+/**
+ * セル内の画像へ、ソースまたは記憶した幅を適用する
+ * @param {HTMLElement} cell セル
+ * @param {TableCellNode[]} nodes セル AST
+ * @param {TableCellPosition} position セル位置
+ * @returns {void}
+ */
+function applyRememberedWidthToCell(
+	cell: HTMLElement,
+	nodes: TableCellNode[],
+	position: TableCellPosition,
+): void {
+	const wrap = cell.querySelector<HTMLElement>('.cm-md-image-wrap');
+	const img  = cell.querySelector<HTMLImageElement>('.cm-md-image');
+	if (!wrap || !img) {
+		return;
+	}
+
+	const path  = getImageWrapPath(wrap);
+	const width = recallCellImageWidth(path, position);
+	if (!width) {
+		return;
+	}
+
+	updateImageNodeWidths(nodes, width);
+	img.classList.add('is-sized');
+	img.style.width     = `${width}px`;
+	img.style.height    = 'auto';
+	img.style.maxWidth  = '100%';
+	img.style.maxHeight = 'none';
+}
+
+/**
+ * 表セル内の画像幅をセルソースへ書き戻す
+ * @param {EditorView} view エディタ
+ * @param {HTMLElement} cell セル
+ * @param {number} width 幅
+ * @returns {boolean} 更新したか
+ */
+export function applyTableCellImageWidth(
+	view: EditorView,
+	cell: HTMLElement,
+	width: number,
+): boolean {
+	const wrap      = cell.closest<HTMLElement>('.cm-md-table-wrap');
+	const imageWrap = cell.querySelector<HTMLElement>('.cm-md-image-wrap');
+	const row       = Number(cell.dataset.tableRow);
+	const column    = Number(cell.dataset.tableColumn);
+	const hint      = Number(imageWrap?.dataset.sourceFrom ?? wrap?.dataset.tableFrom);
+	if (!Number.isInteger(row) || !Number.isInteger(column) || !Number.isFinite(hint)) {
+		return false;
+	}
+
+	if (applyImageWidthOnDocumentLine(view, hint, width)) {
+		const next = replaceImageWidthInCellText(cell.dataset.source ?? '', width, true);
+		if (next) {
+			cell.dataset.source       = next;
+			cell.dataset.editableText = next;
+		}
+
+		return true;
+	}
+
+	const tableNode = findTableNodeAt(view.state, hint);
+	if (!tableNode) {
+		return false;
+	}
+
+	const data   = extractTableData(view.state, tableNode);
+	const source = getTableCellSource(data, { row, column });
+	if (!source) {
+		return false;
+	}
+
+	const insert = replaceImageWidthInCellText(source.text, width, true);
+	if (insert === null || insert === source.text) {
+		return false;
+	}
+
+	view.dispatch({
+		changes  : { from: source.from, to: source.to, insert },
+		userEvent: 'input.imageResize',
+	});
+	cell.dataset.source       = insert;
+	cell.dataset.editableText = insert;
+	return true;
+}
+
+/**
+ * 表が持つ EditorView から、セル画像へ `\|幅` を書き戻す。
+ * findFromDOM に依存しない。
+ * @param {EditorView} view エディタ
+ * @param {TableData} data 表データ
+ * @param {TableCellPosition} position セル位置
+ * @param {HTMLElement} imageWrap 画像ラッパ
+ * @param {TableCellNode[]} nodes セル AST
+ * @param {number} width 幅
+ * @returns {boolean} 更新したか
+ */
+export function writeTableCellImageWidth(
+	view: EditorView,
+	data: TableData,
+	position: TableCellPosition,
+	imageWrap: HTMLElement,
+	nodes: TableCellNode[],
+	width: number,
+): boolean {
+	const path = getImageWrapPath(imageWrap) || findTableCellImagePath(nodes);
+	const hint = Number(imageWrap.dataset.sourceFrom);
+	const end  = Number(imageWrap.dataset.sourceTo);
+	const cell = imageWrap.closest<HTMLElement>('[data-table-row]');
+	rememberCellImageWidth(path, width, position);
+
+	const wrote = (Boolean(path) && applyImageWidthByPath(
+		view,
+		path,
+		width,
+		Number.isFinite(hint) ? hint : undefined,
+	))
+		|| writeExactTableCellImageWidth(view, data, position, width)
+		|| (Number.isFinite(hint) && applyImageWidthOnDocumentLine(view, hint, width))
+		|| Boolean(cell && applyTableCellImageWidth(view, cell, width))
+		|| (Number.isFinite(hint) && applyImageDisplayWidth(
+			view,
+			hint,
+			width,
+			Number.isFinite(end) ? end : undefined,
+		));
+	if (!wrote) {
+		return false;
+	}
+
+	const delta = syncTableDataAfterImageWidth(data, position, width);
+	updateImageNodeWidths(nodes, width);
+	if (delta !== 0 && imageWrap.dataset.sourceTo) {
+		const currentTo = Number(imageWrap.dataset.sourceTo);
+		if (Number.isFinite(currentTo)) {
+			imageWrap.dataset.sourceTo = String(currentTo + delta);
+		}
+	}
+
+	return true;
+}
+
+/**
+ * セル AST から画像パスを探す
+ * @param {TableCellNode[]} nodes セル AST
+ * @returns {string}
+ */
+function findTableCellImagePath(nodes: TableCellNode[]): string {
+	for (const node of nodes) {
+		if (node.kind === 'image') {
+			return node.spec.raw;
+		}
+
+		if ('children' in node) {
+			const nested = findTableCellImagePath(node.children);
+			if (nested) {
+				return nested;
+			}
+		}
+	}
+
+	return '';
+}
+
+/**
+ * 表データのセル範囲が現文書と一致するとき、その範囲へ幅を書く
+ * @param {EditorView} view エディタ
+ * @param {TableData} data 表データ
+ * @param {TableCellPosition} position セル位置
+ * @param {number} width 幅
+ * @returns {boolean} 更新したか
+ */
+function writeExactTableCellImageWidth(
+	view: EditorView,
+	data: TableData,
+	position: TableCellPosition,
+	width: number,
+): boolean {
+	const source = getTableCellSource(data, position);
+	if (!source) {
+		return false;
+	}
+
+	const insert = replaceImageWidthInCellText(source.text, width, true);
+	if (insert === null || insert === source.text) {
+		return false;
+	}
+
+	const liveTo = Math.min(source.to, view.state.doc.length);
+	const live   = view.state.sliceDoc(source.from, liveTo);
+	if (live !== source.text) {
+		return false;
+	}
+
+	view.dispatch({
+		changes  : { from: source.from, to: source.to, insert },
+		userEvent: 'input.imageResize',
+	});
+	return true;
+}
+
+/**
  * セル AST を DOM へ展開する
  * @param {HTMLElement} parent 親要素
  * @param {TableCellNode[]} nodes セル AST
+ * @param {EditorView} [view] エディタ
  * @returns {void}
  */
-export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]): void {
+export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[], view?: EditorView): void {
 	for (const node of nodes) {
 		if (node.kind === 'text') {
 			parent.appendChild(document.createTextNode(node.text));
@@ -756,7 +1275,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 			const el = document.createElement(node.tagName);
 			applySanitizedAttributes(el, node.attributes);
 			el.classList.add('cm-md-html', `cm-md-html-${node.tagName}`);
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
 			continue;
 		}
@@ -764,7 +1283,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 		if (node.kind === 'em') {
 			const el     = document.createElement('em');
 			el.className = 'cm-md-em';
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
 			continue;
 		}
@@ -772,7 +1291,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 		if (node.kind === 'strong') {
 			const el     = document.createElement('strong');
 			el.className = 'cm-md-strong';
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
 			continue;
 		}
@@ -780,7 +1299,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 		if (node.kind === 'strike') {
 			const el     = document.createElement('span');
 			el.className = 'cm-md-strike';
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
 			continue;
 		}
@@ -788,7 +1307,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 		if (node.kind === 'highlight') {
 			const el     = document.createElement('mark');
 			el.className = 'cm-md-highlight';
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
 			continue;
 		}
@@ -808,7 +1327,7 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 				el.dataset.href = node.href;
 			}
 
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
 			continue;
 		}
@@ -816,21 +1335,119 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 		if (node.kind === 'wikilink') {
 			const el     = document.createElement('span');
 			el.className = 'cm-md-wikilink';
-			appendTableCellNodes(el, node.children);
+			appendTableCellNodes(el, node.children, view);
 			parent.appendChild(el);
+			continue;
+		}
+
+		if (node.kind === 'image') {
+			parent.appendChild(new ImageWidget(node.spec).toDOM(view));
 		}
 	}
+}
+
+/**
+ * セル全体が画像記法だけなら画像ノードにする。
+ * Lezer の表が `\|` で分割しても、行の `|` 分割結果から幅を拾う。
+ * @param {EditorState} state 状態
+ * @param {TableCellRange} range セル範囲
+ * @returns {TableCellNode | null}
+ */
+function extractSoleTableCellImage(state: EditorState, range: TableCellRange): TableCellNode | null {
+	const raw   = state.doc.sliceString(range.from, range.to);
+	const match = /^(\s*)(!\[\[[\s\S]*?\]\]|!\[[^\]]*\]\([^)]+\))(\s*)$/.exec(raw);
+	if (!match) {
+		return null;
+	}
+
+	const markupFrom = range.from + (match[1]?.length ?? 0);
+	const markup     = match[2] ?? '';
+	if (markup.startsWith('![[') && markup.endsWith(']]')) {
+		return createTableCellImage(
+			state,
+			markupFrom,
+			markupFrom + markup.length,
+			markup.slice(3, -2),
+			'',
+			true,
+		);
+	}
+
+	const closeAlt = markup.indexOf('](');
+	if (!markup.startsWith('![') || closeAlt < 0 || !markup.endsWith(')')) {
+		return null;
+	}
+
+	return createTableCellImage(
+		state,
+		markupFrom,
+		markupFrom + markup.length,
+		markup.slice(closeAlt + 2, -1),
+		markup.slice(2, closeAlt),
+		false,
+	);
+}
+
+/**
+ * 表セル内の画像ノードを組み立てる
+ * @param {EditorState} state 状態
+ * @param {number} from ソース開始
+ * @param {number} to ソース終了
+ * @param {string} raw パスまたは URL
+ * @param {string} alt alt
+ * @param {boolean} embed WikiEmbed か
+ * @returns {TableCellNode}
+ */
+function createTableCellImage(
+	state: EditorState,
+	from: number,
+	to: number,
+	raw: string,
+	alt: string,
+	embed: boolean,
+): TableCellNode {
+	const context = state.facet(documentContextFacet);
+	if (embed) {
+		const { path, size }  = splitWikiEmbedTarget(raw);
+		const spec: ImageSpec = {
+			alt             : path,
+			raw             : path,
+			kind            : 'embed',
+			documentPath    : context.filePath,
+			loadRemoteImages: context.loadRemoteImages,
+			width           : resolveCellImageWidth(path, size.width),
+			height          : size.height,
+			sourceFrom      : from,
+			sourceTo        : to,
+		};
+		return { kind: 'image', spec };
+	}
+
+	const { alt: altText, size } = splitImageAlt(alt);
+	const spec: ImageSpec        = {
+		alt             : altText,
+		raw,
+		kind            : classifyImageSource(raw),
+		documentPath    : context.filePath,
+		loadRemoteImages: context.loadRemoteImages,
+		width           : resolveCellImageWidth(raw, size.width),
+		height          : size.height,
+		sourceFrom      : from,
+		sourceTo        : to,
+	};
+	return { kind: 'image', spec };
 }
 
 /**
  * セル内容を DOM に設定する
  * @param {HTMLElement} cell セル要素
  * @param {TableCellNode[]} nodes セル AST
+ * @param {EditorView} [view] エディタ
  * @returns {void}
  */
-export function fillTableCellContent(cell: HTMLElement, nodes: TableCellNode[]): void {
+export function fillTableCellContent(cell: HTMLElement, nodes: TableCellNode[], view?: EditorView): void {
 	cell.textContent = '';
-	appendTableCellNodes(cell, nodes);
+	appendTableCellNodes(cell, nodes, view);
 }
 
 /**
@@ -1540,7 +2157,12 @@ function activateTableCell(cell: HTMLElement): void {
 		return;
 	}
 
-	cell.dataset.editing = 'true';
+	if (cellShowsOnlyImage(cell) && cell.dataset.forceImageEdit !== 'true') {
+		return;
+	}
+
+	cell.dataset.forceImageEdit = 'false';
+	cell.dataset.editing        = 'true';
 	cell.classList.add('cm-md-table-cell-editing');
 	let inlineRanges: TableCellInlineRange[] = [];
 	try {
@@ -1716,7 +2338,7 @@ export class TableWidget extends WidgetType {
 		}
 
 		return other.languageGeneration === this.languageGeneration
-			&& JSON.stringify(other.data) === JSON.stringify(this.data);
+			&& getTableDataIdentity(other.data) === getTableDataIdentity(this.data);
 	}
 
 	/**
@@ -1757,11 +2379,96 @@ export class TableWidget extends WidgetType {
 			cell.contentEditable      = view.state.readOnly || !source ? 'false' : 'plaintext-only';
 			cell.spellcheck           = false;
 			cell.setAttribute('aria-label', `表 ${position.row + 1} 行 ${position.column + 1} 列`);
-			fillTableCellContent(cell, nodes);
+			fillTableCellContent(cell, nodes, view);
+			applyRememberedWidthToCell(cell, nodes, position);
+			/**
+			 * セル内画像へ、表の view から直接書き戻す処理を束縛する
+			 * @param {TableCellNode[]} cellNodes セル AST
+			 * @returns {void}
+			 */
+			const bindCellImagePersist = (cellNodes: TableCellNode[]): void => {
+				if (view.state.readOnly) {
+					return;
+				}
+
+				const imageWrap = cell.querySelector<HTMLElement>('.cm-md-image-wrap');
+				if (!imageWrap) {
+					return;
+				}
+
+				bindImageWrapEditorView(imageWrap, view);
+				bindImageResizePersister(imageWrap, (width) => writeTableCellImageWidth(
+					view,
+					this.data,
+					position,
+					imageWrap,
+					cellNodes,
+					width,
+				));
+			};
+
+			bindCellImagePersist(nodes);
+			let skipEditFromImage = false;
+			cell.addEventListener('mousedown', (event) => {
+				const target      = event.target;
+				skipEditFromImage = target instanceof Element && Boolean(target.closest('.cm-md-image-wrap'));
+				if (skipEditFromImage) {
+					event.stopPropagation();
+				}
+			});
 
 			if (!source || view.state.readOnly) {
 				return cell;
 			}
+
+			cell.addEventListener('tms-mde-table-image-resized', (event: Event) => {
+				const detail = (event as CustomEvent<{ width?: number; persisted?: boolean }>).detail;
+				const width  = detail?.width;
+				if (typeof width !== 'number' || !Number.isFinite(width)) {
+					return;
+				}
+
+				const imageWrap = cell.querySelector<HTMLElement>('.cm-md-image-wrap');
+				if (!imageWrap) {
+					return;
+				}
+
+				/**
+				 * 束縛済み view からソースへ書く
+				 * @returns {boolean} 書けたか
+				 */
+				const persist = (): boolean => writeTableCellImageWidth(
+					view,
+					this.data,
+					position,
+					imageWrap,
+					nodes,
+					width,
+				);
+
+				if (detail?.persisted || persist()) {
+					const tableWrap = cell.closest<HTMLElement>('.cm-md-table-wrap');
+					if (tableWrap) {
+						tableWrap.dataset.tableTo = String(this.data.tableTo);
+					}
+
+					const next = replaceImageWidthInCellText(cell.dataset.source ?? '', width, true);
+					if (next) {
+						cell.dataset.source       = next;
+						cell.dataset.editableText = next;
+					}
+
+					return;
+				}
+
+				queueMicrotask(persist);
+				window.setTimeout(persist, 0);
+				window.requestAnimationFrame(() => {
+					window.requestAnimationFrame(() => {
+						persist();
+					});
+				});
+			});
 
 			let composing                = false;
 			let compositionCommitPending = false;
@@ -1771,6 +2478,10 @@ export class TableWidget extends WidgetType {
 			 * @returns {void}
 			 */
 			const dispatchCellValue = (userEvent: string): void => {
+				if (cell.dataset.editing !== 'true') {
+					return;
+				}
+
 				const value       = cell.textContent ?? '';
 				const caretOffset = getTableCellEditableCaretOffset(value, getCellCaretOffset(cell));
 				const change      = buildTableCellChange(this.data, position, value);
@@ -1778,6 +2489,7 @@ export class TableWidget extends WidgetType {
 					return;
 				}
 
+				forgetCellImageWidthIfSourceDropped(source.text, change.insert, position);
 				view.dispatch({ changes: change, userEvent });
 				restoreTableCellFocus(
 					view,
@@ -1794,13 +2506,30 @@ export class TableWidget extends WidgetType {
 				}
 			});
 			cell.addEventListener('keyup', () => updateTableCellInlineMarks(cell));
+			cell.addEventListener('dblclick', (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				cell.dataset.forceImageEdit = 'true';
+				activateTableCell(cell);
+				setCellSelection(cell, 0, true);
+			});
 			cell.addEventListener('focus', () => {
-				if (cell.dataset.editing === 'true') {
+				if (
+					cell.dataset.editing === 'true'
+					|| skipEditFromImage
+					|| cellShowsOnlyImage(cell)
+				) {
+					skipEditFromImage = false;
 					return;
 				}
 
 				window.setTimeout(() => {
-					if (cell.dataset.editing === 'true') {
+					if (
+						cell.dataset.editing === 'true'
+						|| skipEditFromImage
+						|| cellShowsOnlyImage(cell)
+					) {
+						skipEditFromImage = false;
 						return;
 					}
 
@@ -1823,6 +2552,7 @@ export class TableWidget extends WidgetType {
 				}, 0);
 			});
 			cell.addEventListener('blur', () => {
+				const wasEditing = cell.dataset.editing === 'true';
 				if (composing || compositionCommitPending) {
 					composing                = false;
 					compositionCommitPending = false;
@@ -1831,7 +2561,13 @@ export class TableWidget extends WidgetType {
 
 				cell.dataset.editing = 'false';
 				cell.classList.remove('cm-md-table-cell-editing');
-				fillTableCellContent(cell, nodes);
+				if (wasEditing) {
+					const fresh = getCurrentTableCellNodes(view.state, this.data.tableFrom, position);
+					const next  = fresh ?? nodes;
+					fillTableCellContent(cell, next, view);
+					applyRememberedWidthToCell(cell, next, position);
+					bindCellImagePersist(next);
+				}
 			});
 			cell.addEventListener('compositionstart', () => {
 				composing                = true;
@@ -2004,6 +2740,10 @@ export class TableWidget extends WidgetType {
 		}
 
 		wrap.appendChild(table);
+		if (columnCount > 0) {
+			attachTableResize(wrap, table, getTableLayoutKey(this.data.tableFrom, columnCount));
+		}
+
 		return wrap;
 	}
 

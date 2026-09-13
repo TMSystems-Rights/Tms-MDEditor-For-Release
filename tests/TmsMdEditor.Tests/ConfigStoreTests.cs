@@ -123,6 +123,27 @@ public class ConfigStoreTests : IDisposable
 	}
 
 	[Fact]
+	public void UpdateSettings_places_appended_paste_plain_after_paste()
+	{
+		_configStore.Load();
+		List<string> defaults = new ContextMenuSettings().EditorOrder;
+		List<string> appended = [.. defaults.Where(item => item != "pastePlain"), "pastePlain"];
+		string payload = "{\"contextMenu\":{\"editorOrder\":"
+			+ System.Text.Json.JsonSerializer.Serialize(appended)
+			+ "}}";
+
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse(payload).RootElement);
+
+		Assert.True(update.Success, update.Message);
+		ContextMenuSettings settings = Assert.IsType<ContextMenuSettings>(update.Config?.Settings.ContextMenu);
+		int pasteIndex = settings.EditorOrder.IndexOf("paste");
+		Assert.True(pasteIndex >= 0);
+		Assert.Equal("pastePlain", settings.EditorOrder[pasteIndex + 1]);
+		Assert.Equal(defaults, settings.EditorOrder);
+	}
+
+	[Fact]
 	public void UpdateSettings_persists_custom_external_browser_settings()
 	{
 		LoadConfigResult load = _configStore.Load();

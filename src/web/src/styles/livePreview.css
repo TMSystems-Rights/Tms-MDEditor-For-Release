@@ -325,18 +325,72 @@
 
 .tms-mde-editor-host .cm-md-table-wrap {
 	display: block;
-	width: 100%;
+	position: relative;
+	width: max-content;
+	max-width: none;
 	margin: 0.35em 0;
-	overflow-x: auto;
+}
+
+/*
+ * overflow-x:visible と overflow-y:auto は両方 auto になる。
+ * 横は hidden、縦だけ auto。スニペットの overflow:auto より詳細度を上げる。
+ */
+.tms-mde-editor-host div.cm-md-table-wrap {
+	overflow-x: hidden;
+	overflow-y: auto;
 }
 
 .tms-mde-editor-host .cm-md-table {
 	width: max-content;
-	min-width: 40%;
-	max-width: 100%;
 	border-collapse: collapse;
+	table-layout: auto;
 	font-size: inherit;
 	line-height: 1.4;
+}
+
+.tms-mde-editor-host .cm-md-table.is-resizing {
+	user-select: none;
+}
+
+.tms-mde-editor-host .cm-md-table-resize-overlay {
+	position: absolute;
+	pointer-events: none;
+	z-index: 3;
+}
+
+.tms-mde-editor-host .cm-md-table-col-resizer,
+.tms-mde-editor-host .cm-md-table-row-resizer {
+	position: absolute;
+	box-sizing: border-box;
+	pointer-events: auto;
+	touch-action: none;
+	background: transparent;
+}
+
+.tms-mde-editor-host .cm-md-table-col-resizer {
+	width: 14px;
+	cursor: col-resize;
+}
+
+.tms-mde-editor-host .cm-md-table-row-resizer {
+	height: 14px;
+	cursor: row-resize;
+}
+
+.tms-mde-editor-host .cm-md-table-col-resizer:hover,
+.tms-mde-editor-host .cm-md-table-col-resizer.is-active {
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 38%, transparent);
+}
+
+.tms-mde-editor-host .cm-md-table-row-resizer:hover,
+.tms-mde-editor-host .cm-md-table-row-resizer.is-active {
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 38%, transparent);
+}
+
+.tms-mde-editor-host .cm-md-table.is-resized th,
+.tms-mde-editor-host .cm-md-table.is-resized td {
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 
 .tms-mde-editor-host .cm-md-table th,
@@ -386,6 +440,10 @@
 	vertical-align: middle;
 }
 
+.tms-mde-editor-host .cm-md-table .cm-md-image-wrap {
+	max-width: 100%;
+}
+
 .tms-mde-editor-host .cm-md-image {
 	display: block;
 	box-sizing: border-box;
@@ -417,6 +475,7 @@
 	border: 2px solid var(--tms-mde-color-primary, #4ea0a4);
 	background: color-mix(in srgb, var(--tms-mde-color-surface) 70%, transparent);
 	cursor: nwse-resize;
+	touch-action: none;
 	opacity: 0;
 }
 

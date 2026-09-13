@@ -1,7 +1,41 @@
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { invokeBridge } from '../bridge';
 import type { DecorationEntry } from './inlineDecorations';
-import { applyImageDisplayWidth } from './imageResize';
+import { rememberCellImageWidth, recallCellImageWidth } from './cellImageWidthMemory';
+import { applyImageDisplayWidth, applyImageWidthByPath, applyImageWidthOnDocumentLine } from './imageResize';
+
+const imageWrapPaths      = new WeakMap<HTMLElement, string>();
+const imageWrapViews      = new WeakMap<HTMLElement, EditorView>();
+const imageWrapPersisters = new WeakMap<HTMLElement, (width: number) => boolean>();
+
+/**
+ * 画像ラッパに保持したパスを返す
+ * @param {HTMLElement} wrap ラッパ
+ * @returns {string}
+ */
+export function getImageWrapPath(wrap: HTMLElement): string {
+	return imageWrapPaths.get(wrap) ?? wrap.dataset.imagePath ?? '';
+}
+
+/**
+ * 表セルなど findFromDOM が使えない場所へ EditorView を束縛する
+ * @param {HTMLElement} wrap ラッパ
+ * @param {EditorView} view エディタ
+ * @returns {void}
+ */
+export function bindImageWrapEditorView(wrap: HTMLElement, view: EditorView): void {
+	imageWrapViews.set(wrap, view);
+}
+
+/**
+ * 表セル専用の幅書き戻しを束縛する
+ * @param {HTMLElement} wrap ラッパ
+ * @param {(width: number) => boolean} persist 書き戻し
+ * @returns {void}
+ */
+export function bindImageResizePersister(wrap: HTMLElement, persist: (width: number) => boolean): void {
+	imageWrapPersisters.set(wrap, persist);
+}
 
 export type ImageSourceKind = 'url' | 'absolute' | 'relative' | 'embed';
 
@@ -14,6 +48,10 @@ export type ImageSpec = {
 	loadRemoteImages: boolean;
 	width: number | null;
 	height: number | null;
+	/** 表セル内など、posAtDOM が使えないときのソース位置 */
+	sourceFrom?: number;
+	/** 記法の終了位置 */
+	sourceTo?: number;
 };
 
 type ReadImageResult = {
@@ -128,16 +166,32 @@ export class ImageWidget extends WidgetType {
 			&& other.spec.documentPath === this.spec.documentPath
 			&& other.spec.loadRemoteImages === this.spec.loadRemoteImages
 			&& other.spec.width === this.spec.width
-			&& other.spec.height === this.spec.height;
+			&& other.spec.height === this.spec.height
+			&& other.spec.sourceFrom === this.spec.sourceFrom
+			&& other.spec.sourceTo === this.spec.sourceTo;
 	}
 
 	/**
+	 * @param {EditorView} [view] エディタ（表セルから渡す／CodeMirror が渡す）
 	 * @returns {HTMLElement}
 	 */
-	toDOM(): HTMLElement {
+	toDOM(view?: EditorView): HTMLElement {
 		const wrap     = document.createElement('span');
 		wrap.className = 'cm-md-image-wrap';
 		wrap.setAttribute('contenteditable', 'false');
+		if (this.spec.sourceFrom !== undefined) {
+			wrap.dataset.sourceFrom = String(this.spec.sourceFrom);
+		}
+
+		if (this.spec.sourceTo !== undefined) {
+			wrap.dataset.sourceTo = String(this.spec.sourceTo);
+		}
+
+		wrap.dataset.imagePath = this.spec.raw.replaceAll('\\', '/');
+		imageWrapPaths.set(wrap, this.spec.raw);
+		if (view) {
+			imageWrapViews.set(wrap, view);
+		}
 
 		const img     = document.createElement('img');
 		img.className = 'cm-md-image';
@@ -197,6 +251,8 @@ export class ImageWidget extends WidgetType {
 			}
 
 			img.src = dataUrl;
+			applyImageDisplayStyle(img, this.spec);
+			img.addEventListener('load', () => applyImageDisplayStyle(img, this.spec));
 			img.addEventListener('error', () => showFallback('読み込み失敗'));
 			placeholder.replaceWith(img);
 			wrap.appendChild(handle);
@@ -228,9 +284,12 @@ export class ImageWidget extends WidgetType {
  * @returns {void}
  */
 function applyImageDisplayStyle(img: HTMLImageElement, spec: ImageSpec): void {
-	if (spec.width && spec.width > 0) {
+	const width = spec.width && spec.width > 0
+		? spec.width
+		: recallCellImageWidth(spec.raw);
+	if (width && width > 0) {
 		img.classList.add('is-sized');
-		img.style.width     = `${spec.width}px`;
+		img.style.width     = `${width}px`;
 		img.style.height    = spec.height && spec.height > 0 ? `${spec.height}px` : 'auto';
 		img.style.maxWidth  = '100%';
 		img.style.maxHeight = 'none';
@@ -252,27 +311,42 @@ function applyImageDisplayStyle(img: HTMLImageElement, spec: ImageSpec): void {
  * @returns {void}
  */
 function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle: HTMLElement): void {
-	handle.addEventListener('mousedown', (event) => {
-		if (event.button !== 0) {
+	let dragging = false;
+
+	/**
+	 * ハンドルのドラッグを開始する
+	 * @param {number} clientX 開始 X
+	 * @param {number} [pointerId] Pointer Capture 用 ID
+	 * @returns {void}
+	 */
+	const startDrag = (clientX: number, pointerId?: number): void => {
+		if (dragging) {
 			return;
 		}
 
-		event.preventDefault();
-		event.stopPropagation();
-
-		const startX     = event.clientX;
-		const startWidth = img.getBoundingClientRect().width;
+		dragging         = true;
+		const startX     = clientX;
+		const startWidth = img.getBoundingClientRect().width || img.naturalWidth || 120;
 		const maxWidth   = Math.max(80, wrap.closest('.cm-content')?.clientWidth ?? 720);
 		let lastWidth    = startWidth;
 		let moved        = false;
+		let finished     = false;
+
+		if (pointerId !== undefined) {
+			try {
+				handle.setPointerCapture(pointerId);
+			} catch {
+				// Pointer Capture 非対応環境では document 追跡に落とす
+			}
+		}
 
 		/**
 		 * ドラッグ中の幅を更新する
-		 * @param {MouseEvent} moveEvent マウス移動
+		 * @param {number} moveX ポインタ X
 		 * @returns {void}
 		 */
-		const onMove = (moveEvent: MouseEvent): void => {
-			const next = Math.min(maxWidth, Math.max(24, startWidth + (moveEvent.clientX - startX)));
+		const applyMove = (moveX: number): void => {
+			const next = Math.min(maxWidth, Math.max(24, startWidth + (moveX - startX)));
 			if (Math.abs(next - startWidth) >= 2) {
 				moved = true;
 			}
@@ -289,25 +363,137 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 		 * ドラッグ終了時にソースへ書き戻す
 		 * @returns {void}
 		 */
-		const onUp = (): void => {
-			window.removeEventListener('mousemove', onMove, true);
-			window.removeEventListener('mouseup', onUp, true);
+		const finish = (): void => {
+			if (finished) {
+				return;
+			}
+
+			finished = true;
+			dragging = false;
+			window.removeEventListener('pointermove', onPointerMove, true);
+			window.removeEventListener('pointerup', finish, true);
+			window.removeEventListener('pointercancel', finish, true);
+			window.removeEventListener('mousemove', onMouseMove, true);
+			window.removeEventListener('mouseup', finish, true);
+			document.removeEventListener('pointerup', finish, true);
+			document.removeEventListener('mouseup', finish, true);
+			handle.removeEventListener('lostpointercapture', finish);
+			if (pointerId !== undefined) {
+				try {
+					if (handle.hasPointerCapture(pointerId)) {
+						handle.releasePointerCapture(pointerId);
+					}
+				} catch {
+					// Pointer Capture 非対応環境では解放不要
+				}
+			}
+
 			if (!moved) {
 				return;
 			}
 
-			const view = EditorView.findFromDOM(wrap);
-			if (!view) {
-				return;
-			}
-
-			const pos = view.posAtDOM(wrap);
-			applyImageDisplayWidth(view, pos, lastWidth);
+			persistImageResizeWidth(wrap, lastWidth);
 		};
 
-		window.addEventListener('mousemove', onMove, true);
-		window.addEventListener('mouseup', onUp, true);
+		/**
+		 * @param {PointerEvent} moveEvent ポインタ移動
+		 * @returns {void}
+		 */
+		const onPointerMove = (moveEvent: PointerEvent): void => {
+			applyMove(moveEvent.clientX);
+		};
+
+		/**
+		 * @param {MouseEvent} moveEvent マウス移動
+		 * @returns {void}
+		 */
+		const onMouseMove = (moveEvent: MouseEvent): void => {
+			applyMove(moveEvent.clientX);
+		};
+
+		window.addEventListener('pointermove', onPointerMove, true);
+		window.addEventListener('pointerup', finish, true);
+		window.addEventListener('pointercancel', finish, true);
+		window.addEventListener('mousemove', onMouseMove, true);
+		window.addEventListener('mouseup', finish, true);
+		document.addEventListener('pointerup', finish, true);
+		document.addEventListener('mouseup', finish, true);
+		handle.addEventListener('lostpointercapture', finish);
+	};
+
+	handle.addEventListener('pointerdown', (event) => {
+		if (event.button !== 0) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		startDrag(event.clientX, event.pointerId);
 	});
+	handle.addEventListener('mousedown', (event) => {
+		if (event.button !== 0) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		startDrag(event.clientX);
+	});
+}
+
+/**
+ * ドラッグ結果を Markdown へ書き戻す。
+ * 表セルでは findFromDOM が失敗しても、束縛した view / 書き戻しでソースへ残す。
+ * @param {HTMLElement} wrap 画像ラッパ
+ * @param {number} width 幅
+ * @returns {boolean} 更新したか
+ */
+export function persistImageResizeWidth(wrap: HTMLElement, width: number): boolean {
+	const path      = getImageWrapPath(wrap);
+	const tableCell = wrap.closest<HTMLElement>('[data-table-row]');
+	const row       = Number(tableCell?.dataset.tableRow);
+	const column    = Number(tableCell?.dataset.tableColumn);
+	rememberCellImageWidth(
+		path,
+		width,
+		Number.isInteger(row) && Number.isInteger(column) ? { row, column } : undefined,
+	);
+
+	const persist = imageWrapPersisters.get(wrap);
+	let   wrote   = persist?.(width) ?? false;
+	const view    = imageWrapViews.get(wrap) ?? EditorView.findFromDOM(wrap);
+	if (!wrote && view) {
+		const sourceFrom = wrap.dataset.sourceFrom;
+		const sourceTo   = wrap.dataset.sourceTo;
+		let pos          = sourceFrom !== undefined && sourceFrom !== ''
+			? Number(sourceFrom)
+			: NaN;
+		if (!Number.isFinite(pos)) {
+			try {
+				pos = view.posAtDOM(wrap);
+			} catch {
+				pos = NaN;
+			}
+		}
+
+		const end = sourceTo !== undefined && sourceTo !== ''
+			? Number(sourceTo)
+			: undefined;
+		wrote     = applyImageWidthByPath(view, path, width, Number.isFinite(pos) ? pos : undefined)
+			|| (Number.isFinite(pos) && applyImageWidthOnDocumentLine(view, pos, width))
+			|| (Number.isFinite(pos) && applyImageDisplayWidth(
+				view,
+				pos,
+				width,
+				Number.isFinite(end) ? end : undefined,
+			));
+	}
+
+	wrap.dispatchEvent(new CustomEvent('tms-mde-table-image-resized', {
+		bubbles: true,
+		detail : { width, persisted: wrote },
+	}));
+	return wrote;
 }
 
 /**

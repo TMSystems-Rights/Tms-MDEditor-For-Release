@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { history, undo } from '@codemirror/commands';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import {
 	collectBlockDecorationEntries,
@@ -10,11 +10,19 @@ import {
 } from './blockWidgets';
 import { createDocumentContextExtensions } from './documentContext';
 import { classifyImageSource } from './imageWidget';
+import { applyImageDisplayWidth, applyImageWidthOnDocumentLine } from './imageResize';
 import {
 	buildAppendTableRowChange,
 	buildTableCellChange,
 	TableWidget,
+	clearCellImageWidths,
 	extractTableData,
+	forgetCellImageWidth,
+	getTableDataIdentity,
+	normalizeTableCellTextForIdentity,
+	writeTableCellImageWidth,
+	recallCellImageWidth,
+	rememberCellImageWidth,
 	getActiveTableCellInlineRangeIds,
 	getAdjacentTableCellPosition,
 	getNormalizedTableCellCaretOffset,
@@ -75,11 +83,185 @@ function findNode(state: EditorState, name: string) {
 }
 
 describe('blockWidgets', () => {
+	afterEach(() => {
+		clearCellImageWidths();
+	});
+
 	it('classifyImageSource は URL / 絶対 / 相対を判定する', () => {
 		expect(classifyImageSource('https://example.com/a.png')).toBe('url');
 		expect(classifyImageSource('C:\\images\\a.png')).toBe('absolute');
 		expect(classifyImageSource('./a.png')).toBe('relative');
 		expect(classifyImageSource('images/a.png')).toBe('relative');
+	});
+
+	it('テーブルセル内の WikiEmbed を画像ノードにする', () => {
+		const state = createState('|   |\n| --- |\n| ![[C:\\\\shots\\\\a.png]] |\n', 0);
+		const table = findNode(state, 'Table');
+		expect(table).not.toBeNull();
+		const data = extractTableData(state, table!);
+		expect(data.rows[0]![0]!.some((node) => node.kind === 'image')).toBe(true);
+		const image = data.rows[0]![0]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.kind : null).toBe('embed');
+	});
+
+	it('表セルの \\|幅 を画像サイズとして保持する', () => {
+		const state = createState('|   |\n| --- |\n| ![[C:\\\\shots\\\\a.png\\|72]] |\n', 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const image = data.rows[0]![0]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.width : null).toBe(72);
+		expect(image?.kind === 'image' ? image.spec.sourceTo : null).toBeGreaterThan(
+			image?.kind === 'image' ? image.spec.sourceFrom ?? 0 : 0,
+		);
+	});
+
+	it('画像幅だけ違う表は同じ identity で、ウィジェットを作り直さない', () => {
+		const path    = 'C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image001-5.png';
+		const plain   = createState(
+			`|   |\n|---|\n|![[${path}]]|\n`,
+			0,
+		);
+		const sized   = createState(
+			`|   |\n|---|\n|![[${path}\\|96]]|\n`,
+			0,
+		);
+		const plainId = getTableDataIdentity(extractTableData(plain, findNode(plain, 'Table')!));
+		const sizedId = getTableDataIdentity(extractTableData(sized, findNode(sized, 'Table')!));
+		expect(normalizeTableCellTextForIdentity(`![[${path}\\|96]]`)).toBe(`![[${path}]]`);
+		expect(plainId).toBe(sizedId);
+	});
+
+	it('検証表の Windows パスでも覚えた幅で表示し、行へ書いたあと抽出できる', () => {
+		const path = 'C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image001-5.png';
+		rememberCellImageWidth(path, 64, { row: 1, column: 3 });
+		const doc   = [
+			'|   |   |   |   |   |',
+			'|---|---|---|---|---|',
+			`|クリスマス|ユイ(クリスマス)|クリユイ|![[${path}]]|火|`,
+		].join('\n');
+		const state = createState(doc, 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const image = data.rows[0]![3]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.raw : null).toBe(path);
+		expect(image?.kind === 'image' ? image.spec.width : null).toBe(64);
+
+		const view = {
+			state,
+			/**
+			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
+				this.state = this.state.update(spec).state;
+			},
+		};
+		const pos = doc.indexOf('![[');
+		expect(applyImageWidthOnDocumentLine(view as never, pos, 64)).toBe(true);
+		const written = extractTableData(view.state, findNode(view.state, 'Table')!);
+		const sized   = written.rows[0]![3]!.find((node) => node.kind === 'image');
+		expect(sized?.kind === 'image' ? sized.spec.width : null).toBe(64);
+		expect(written.rowSources[0]![3]!.text).toContain('\\|64');
+	});
+
+	it('検証表4行目は TableWidget の view から \\|幅 を書く', () => {
+		const path     = 'C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image004.png';
+		const princess = `|プリンセス|ユイ(プリンセス)|プリユイ|![[${path}]]|光|`;
+		const doc      = [
+			'|   |   |   |   |   |',
+			'|---|---|---|---|---|',
+			'|クリスマス|ユイ(クリスマス)|クリユイ|![[C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image001-5.png]]|火|',
+			'|サマー|ユイ(サマー)|水ユイ|![[C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image002.png]]|水|',
+			'|ニューイヤー|ユイ(ニューイヤー)|正月ユイ|![[C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image003.png]]|光|',
+			princess,
+		].join('\n');
+		const state    = createState(doc, 0);
+		const data     = extractTableData(state, findNode(state, 'Table')!);
+		const view     = {
+			state,
+			/**
+			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
+				this.state = this.state.update(spec).state;
+			},
+		};
+		const wrap = {
+			dataset: { imagePath: path.replaceAll('\\', '/') },
+			/**
+			 * @returns {null}
+			 */
+			closest() {
+				return null;
+			},
+		} as unknown as HTMLElement;
+		expect(writeTableCellImageWidth(
+			view as never,
+			data,
+			{ row: 4, column: 3 },
+			wrap,
+			data.rows[3]![3] ?? [],
+			430,
+		)).toBe(true);
+		expect(view.state.doc.toString()).toContain(
+			'![[C:\\Users\\tmsys\\Pictures\\TMS-MDEditor\\Screenshots\\clip_image004.png\\|430]]',
+		);
+		expect(view.state.doc.toString()).toContain('|光|');
+		expect(view.state.doc.toString()).not.toContain('png|430]]|光|');
+		expect(view.state.doc.toString()).toContain('clip_image003.png]]');
+	});
+
+	it('ソースに幅が無くても覚えた幅でセル画像を表示する', () => {
+		rememberCellImageWidth('C:\\\\shots\\\\a.png', 96);
+		const state = createState('|   |\n| --- |\n| ![[C:\\\\shots\\\\a.png]] |\n', 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const image = data.rows[0]![0]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.raw : null).toBe('C:\\\\shots\\\\a.png');
+		expect(image?.kind === 'image' ? image.spec.width : null).toBe(96);
+	});
+
+	it('ソースの幅を優先し、覚えた幅も更新する', () => {
+		rememberCellImageWidth('C:\\\\shots\\\\a.png', 40);
+		const state = createState('|   |\n| --- |\n| ![[C:\\\\shots\\\\a.png\\|72]] |\n', 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const image = data.rows[0]![0]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.width : null).toBe(72);
+		expect(recallCellImageWidth('C:\\\\shots\\\\a.png')).toBe(72);
+	});
+
+	it('ソースから幅を消したら覚えた幅も忘れる', () => {
+		rememberCellImageWidth('C:\\\\shots\\\\a.png', 88);
+		forgetCellImageWidth('C:\\\\shots\\\\a.png');
+		const state = createState('|   |\n| --- |\n| ![[C:\\\\shots\\\\a.png]] |\n', 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const image = data.rows[0]![0]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.width : null).toBeNull();
+	});
+
+	it('表セルへ幅を書いたあと抽出でも幅を保つ', () => {
+		const doc  = '| a | 画像 |\n| --- | --- |\n| 1 | ![[C:\\\\shots\\\\a.png]] |\n';
+		const view = {
+			state: createState(doc, 0),
+			/**
+			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
+				this.state = this.state.update(spec).state;
+			},
+		};
+		const pos = doc.indexOf('![[');
+		expect(applyImageDisplayWidth(view as never, pos, 88)).toBe(true);
+		const table = findNode(view.state, 'Table');
+		const data  = extractTableData(view.state, table!);
+		const image = data.rows[0]![1]!.find((node) => node.kind === 'image');
+		expect(image?.kind === 'image' ? image.spec.width : null).toBe(88);
+		expect(data.rowSources[0]![1]!.text).toContain('\\|88');
+		expect(getTableDataIdentity(data)).toBe(getTableDataIdentity(extractTableData(view.state, table!)));
 	});
 
 	it('テーブルデータを抽出し、強調・ハイライトを保持する', () => {

@@ -28,8 +28,21 @@ describe('imageSize', () => {
 
 	it('記法へ幅を書き戻す', () => {
 		expect(formatWikiEmbed('C:\\a.png', 320)).toBe('![[C:\\a.png|320]]');
+		expect(formatWikiEmbed('C:\\a.png', 320, { escapePipe: true })).toBe('![[C:\\a.png\\|320]]');
 		expect(formatMarkdownImage('図', './a.png', 200)).toBe('![図|200](./a.png)');
+		expect(formatMarkdownImage('図', './a.png', 200, { escapePipe: true })).toBe('![図\\|200](./a.png)');
 		expect(formatMarkdownImage('', './a.png', 200)).toBe('![|200](./a.png)');
+	});
+
+	it('表セル用の \\|幅 を解釈する', () => {
+		expect(splitWikiEmbedTarget('C:\\shots\\a.png\\|320')).toEqual({
+			path: 'C:\\shots\\a.png',
+			size: { width: 320, height: null },
+		});
+		expect(splitImageAlt('図\\|180')).toEqual({
+			alt : '図',
+			size: { width: 180, height: null },
+		});
 	});
 
 	it('標準画像 alt からサイズを分離する', () => {

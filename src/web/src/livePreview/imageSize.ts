@@ -27,6 +27,14 @@ export function parseImageSizeToken(token: string): ImageDisplaySize {
  * @returns {{ path: string; size: ImageDisplaySize }}
  */
 export function splitWikiEmbedTarget(raw: string): { path: string; size: ImageDisplaySize } {
+	const escaped = raw.indexOf('\\|');
+	if (escaped >= 0) {
+		return {
+			path: raw.slice(0, escaped).trim(),
+			size: parseImageSizeToken(raw.slice(escaped + 2)),
+		};
+	}
+
 	const pipe = raw.indexOf('|');
 	if (pipe < 0) {
 		return { path: raw.trim(), size: { width: null, height: null } };
@@ -44,6 +52,14 @@ export function splitWikiEmbedTarget(raw: string): { path: string; size: ImageDi
  * @returns {{ alt: string; size: ImageDisplaySize }}
  */
 export function splitImageAlt(alt: string): { alt: string; size: ImageDisplaySize } {
+	const escaped = alt.indexOf('\\|');
+	if (escaped >= 0) {
+		return {
+			alt : alt.slice(0, escaped),
+			size: parseImageSizeToken(alt.slice(escaped + 2)),
+		};
+	}
+
 	const pipe = alt.indexOf('|');
 	if (pipe < 0) {
 		return { alt, size: { width: null, height: null } };
@@ -61,12 +77,13 @@ export function splitImageAlt(alt: string): { alt: string; size: ImageDisplaySiz
  * @param {number | null} width 幅（px）
  * @returns {string}
  */
-export function formatWikiEmbed(path: string, width: number | null): string {
+export function formatWikiEmbed(path: string, width: number | null, options?: { escapePipe?: boolean }): string {
 	if (width === null || width <= 0) {
 		return `![[${path}]]`;
 	}
 
-	return `![[${path}|${Math.round(width)}]]`;
+	const delimiter = options?.escapePipe ? '\\|' : '|';
+	return `![[${path}${delimiter}${Math.round(width)}]]`;
 }
 
 /**
@@ -76,7 +93,13 @@ export function formatWikiEmbed(path: string, width: number | null): string {
  * @param {number | null} width 幅（px）
  * @returns {string}
  */
-export function formatMarkdownImage(alt: string, url: string, width: number | null): string {
-	const altPart = width !== null && width > 0 ? `${alt}|${Math.round(width)}` : alt;
+export function formatMarkdownImage(
+	alt: string,
+	url: string,
+	width: number | null,
+	options?: { escapePipe?: boolean },
+): string {
+	const delimiter = options?.escapePipe ? '\\|' : '|';
+	const altPart   = width !== null && width > 0 ? `${alt}${delimiter}${Math.round(width)}` : alt;
 	return `![${altPart}](${url})`;
 }

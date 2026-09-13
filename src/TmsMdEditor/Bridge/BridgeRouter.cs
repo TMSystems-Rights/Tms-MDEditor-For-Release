@@ -105,7 +105,7 @@ internal sealed class BridgeRouter
 				"ui:dismissMenus"      => _appApi.DismissMenus(),
 				"clipboard:readText"   => _clipboardApi.ReadText(),
 				"clipboard:writeText"  => _clipboardApi.WriteText(paramsElement),
-				"clipboard:pasteForEditor" => _clipboardApi.PasteForEditor(),
+				"clipboard:pasteForEditor" => _clipboardApi.PasteForEditor(paramsElement),
 				"shell:pickFolder"     => _shellApi.PickFolder(),
 				"update:check"         => await _updateApi.CheckAsync().ConfigureAwait(false),
 				"update:download"      => await _updateApi.DownloadAsync().ConfigureAwait(false),

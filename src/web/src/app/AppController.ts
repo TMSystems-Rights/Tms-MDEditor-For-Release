@@ -124,7 +124,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 		toggleCheckbox: 'Ctrl+Enter',
 		exportHtml: 'Ctrl+Shift+H',
 		exportPdf: 'Ctrl+Shift+P',
-		print: 'Ctrl+P'
+		print: 'Ctrl+P',
+		pastePlain: 'Ctrl+Shift+V'
 	},
 	search: {
 		restoreCalloutFoldStateOnMove: false
@@ -161,6 +162,8 @@ export class AppController {
 	private activeTabId: string | null = null;
 
 	private editorView: EditorView | null = null;
+
+	private suppressSmartPaste = false;
 
 	private updateDownloadToast: ToastHandle | null = null;
 
@@ -1636,6 +1639,29 @@ export class AppController {
 			return;
 		}
 
+		if (matchesShortcut(event, keybindings.pastePlain ?? 'Ctrl+Shift+V')) {
+			const target = event.target;
+			if (target instanceof Element && (
+				target.closest('.cm-md-table')
+				|| target.closest('.cm-search')
+				|| target.closest('.tms-mde-dialog-backdrop')
+				|| target.closest('.tms-mde-settings-backdrop')
+			)) {
+				return;
+			}
+
+			event.preventDefault();
+			this.suppressSmartPaste = true;
+			if (this.editorView && !this.editorView.state.readOnly) {
+				await this.pasteIntoEditor(this.editorView, 'plain');
+			}
+
+			window.setTimeout(() => {
+				this.suppressSmartPaste = false;
+			}, 0);
+			return;
+		}
+
 		if (matchesShortcut(event, keybindings.openFile)) {
 			event.preventDefault();
 			await this.openFileDialog();
@@ -2209,6 +2235,7 @@ export class AppController {
 				cut            : { shortcut: 'Ctrl+X', disabled: !view || view.state.readOnly || !hasSelection },
 				copy           : { shortcut: 'Ctrl+C', disabled: !hasSelection },
 				paste          : { shortcut: 'Ctrl+V', disabled: !view || view.state.readOnly },
+				pastePlain     : { shortcut: this.settings.keybindings.pastePlain ?? 'Ctrl+Shift+V', disabled: !view || view.state.readOnly },
 				selectAll      : { shortcut: 'Ctrl+A', disabled: !view || view.state.doc.length === 0 },
 				find           : { shortcut: this.settings.keybindings.find, disabled: !view },
 				replace        : { shortcut: this.settings.keybindings.replace, disabled: !view || view.state.readOnly },
@@ -2239,7 +2266,11 @@ export class AppController {
 		}
 
 		event.preventDefault();
-		void this.pasteIntoEditor(view);
+		if (this.suppressSmartPaste) {
+			return true;
+		}
+
+		void this.pasteIntoEditor(view, 'smart');
 		return true;
 	}
 
@@ -2248,13 +2279,13 @@ export class AppController {
 	 * @param {EditorView} view エディタ
 	 * @returns {Promise<void>}
 	 */
-	private async pasteIntoEditor(view: EditorView): Promise<void> {
+	private async pasteIntoEditor(view: EditorView, mode: 'smart' | 'plain' = 'smart'): Promise<void> {
 		if (view.state.readOnly) {
 			return;
 		}
 
 		try {
-			const result = await invokeBridge<PasteForEditorResult>('clipboard:pasteForEditor');
+			const result = await invokeBridge<PasteForEditorResult>('clipboard:pasteForEditor', { mode });
 			if (!result.ok) {
 				showToast(result.error ?? '貼り付けに失敗しました。');
 				return;
@@ -2324,8 +2355,8 @@ export class AppController {
 				return;
 			}
 
-			if (action === 'paste') {
-				await this.pasteIntoEditor(view);
+			if (action === 'paste' || action === 'pastePlain') {
+				await this.pasteIntoEditor(view, action === 'pastePlain' ? 'plain' : 'smart');
 				view.focus();
 				return;
 			}

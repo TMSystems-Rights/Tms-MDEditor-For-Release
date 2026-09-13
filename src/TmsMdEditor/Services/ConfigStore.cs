@@ -72,6 +72,7 @@ internal sealed class ConfigStore
 		"keybindings.exportHtml",
 		"keybindings.exportPdf",
 		"keybindings.print",
+		"keybindings.pastePlain",
 		"contextMenu.editorOrder",
 		"contextMenu.editorHidden",
 		"contextMenu.tabOrder",
@@ -994,11 +995,63 @@ internal sealed class ConfigStore
 		{
 			if (seen.Add(itemId))
 			{
-				result.Add(itemId);
+				InsertMissingMenuItem(result, itemId);
 			}
 		}
 
-		return result;
+		return PlaceMenuItemAfter(result, "pastePlain", "paste", defaults);
+	}
+
+	/// <summary>
+	/// 欠落した既定項目を挿入する。貼り付け系は「貼り付け」の次へ置く
+	/// </summary>
+	/// <param name="result">構築中の順序</param>
+	/// <param name="itemId">追加する項目</param>
+	private static void InsertMissingMenuItem(List<string> result, string itemId)
+	{
+		if (itemId == "pastePlain")
+		{
+			int pasteIndex = result.IndexOf("paste");
+			if (pasteIndex >= 0)
+			{
+				result.Insert(pasteIndex + 1, itemId);
+				return;
+			}
+		}
+
+		result.Add(itemId);
+	}
+
+	/// <summary>
+	/// 保存順が既定と同一なら、指定項目を基準項目の次へ移す
+	/// </summary>
+	/// <param name="order">現在の順序</param>
+	/// <param name="itemId">移動する項目</param>
+	/// <param name="afterId">直前に置く項目</param>
+	/// <param name="defaults">既定順</param>
+	/// <returns>補正後の順序</returns>
+	private static List<string> PlaceMenuItemAfter(
+		List<string> order,
+		string itemId,
+		string afterId,
+		IReadOnlyList<string> defaults)
+	{
+		int itemIndex  = order.IndexOf(itemId);
+		int afterIndex = order.IndexOf(afterId);
+		if (itemIndex < 0 || afterIndex < 0 || itemIndex == afterIndex + 1)
+		{
+			return order;
+		}
+
+		List<string> withoutItem    = order.Where(id => id != itemId).ToList();
+		List<string> defaultWithout = defaults.Where(id => id != itemId).ToList();
+		if (!withoutItem.SequenceEqual(defaultWithout, StringComparer.Ordinal))
+		{
+			return order;
+		}
+
+		withoutItem.Insert(withoutItem.IndexOf(afterId) + 1, itemId);
+		return withoutItem;
 	}
 
 	/// <summary>
@@ -1048,6 +1101,7 @@ internal sealed class ConfigStore
 			ExportHtml       = Coalesce(source.ExportHtml, defaults.ExportHtml),
 			ExportPdf        = Coalesce(source.ExportPdf, defaults.ExportPdf),
 			Print            = Coalesce(source.Print, defaults.Print),
+			PastePlain       = Coalesce(source.PastePlain, defaults.PastePlain),
 		};
 	}
 

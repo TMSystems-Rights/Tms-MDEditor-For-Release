@@ -31,7 +31,7 @@ import {
 	sanitizeHtmlAttributes,
 	VOID_HTML_TAGS,
 } from '../livePreview/htmlSanitizer';
-import { classifyImageSource, type ImageSourceKind } from '../livePreview/imageWidget';
+import { classifyImageSource, type ImageSourceKind, type ImageSpec } from '../livePreview/imageWidget';
 import { splitImageAlt, splitWikiEmbedTarget } from '../livePreview/imageSize';
 import { findCalloutInfo } from '../livePreview/lineDecorations';
 import {
@@ -453,7 +453,7 @@ async function renderBlock(context: ExportContext, node: SyntaxNode): Promise<st
 	}
 
 	if (node.name === 'Table') {
-		return renderTable(context, node);
+		return await renderTable(context, node);
 	}
 
 	if (node.name === 'HorizontalRule') {
@@ -654,15 +654,17 @@ async function renderFencedCode(context: ExportContext, node: SyntaxNode): Promi
  * @param {SyntaxNode} node Table
  * @returns {string}
  */
-function renderTable(context: ExportContext, node: SyntaxNode): string {
-	const data = extractTableData(context.state, node);
-	const head = data.headers.length > 0
-		? `<thead><tr>${data.headers.map((cell) => `<th>${tableCellToHtml(context, cell)}</th>`).join('')}</tr></thead>`
-		: '';
-	const body = data.rows.map((row) => (
-		`<tr>${row.map((cell) => `<td>${tableCellToHtml(context, cell)}</td>`).join('')}</tr>`
-	)).join('');
-	return `<div class="cm-md-table-wrap"><table class="cm-md-table">${head}<tbody>${body}</tbody></table></div>`;
+async function renderTable(context: ExportContext, node: SyntaxNode): Promise<string> {
+	const data      = extractTableData(context.state, node);
+	const headCells = data.headers.length > 0
+		? await Promise.all(data.headers.map(async (cell) => `<th>${await tableCellToHtml(context, cell)}</th>`))
+		: [];
+	const head      = headCells.length > 0 ? `<thead><tr>${headCells.join('')}</tr></thead>` : '';
+	const bodyRows  = await Promise.all(data.rows.map(async (row) => {
+		const cells = await Promise.all(row.map(async (cell) => `<td>${await tableCellToHtml(context, cell)}</td>`));
+		return `<tr>${cells.join('')}</tr>`;
+	}));
+	return `<div class="cm-md-table-wrap"><table class="cm-md-table">${head}<tbody>${bodyRows.join('')}</tbody></table></div>`;
 }
 
 /**
@@ -671,8 +673,8 @@ function renderTable(context: ExportContext, node: SyntaxNode): string {
  * @param {TableCellNode[]} nodes セル
  * @returns {string}
  */
-function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): string {
-	return nodes.map((node) => {
+async function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): Promise<string> {
+	const parts = await Promise.all(nodes.map(async (node) => {
 		if (node.kind === 'text') {
 			return decorateText(node.text, context.rules);
 		}
@@ -687,15 +689,19 @@ function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): string
 				return `<${node.tagName}${attrs}>`;
 			}
 
-			return `<${node.tagName}${attrs}>${tableCellToHtml(context, node.children)}</${node.tagName}>`;
+			return `<${node.tagName}${attrs}>${await tableCellToHtml(context, node.children)}</${node.tagName}>`;
 		}
 
 		if (node.kind === 'link') {
-			return `<a class="cm-md-link" href="${escapeAttribute(node.href)}">${tableCellToHtml(context, node.children)}</a>`;
+			return `<a class="cm-md-link" href="${escapeAttribute(node.href)}">${await tableCellToHtml(context, node.children)}</a>`;
 		}
 
 		if (node.kind === 'wikilink') {
-			return `<span class="cm-md-wikilink">${tableCellToHtml(context, node.children)}</span>`;
+			return `<span class="cm-md-wikilink">${await tableCellToHtml(context, node.children)}</span>`;
+		}
+
+		if (node.kind === 'image') {
+			return renderTableCellImage(context, node.spec);
 		}
 
 		const className = node.kind === 'highlight'
@@ -712,8 +718,40 @@ function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): string
 				: node.kind === 'strike'
 					? 's'
 					: node.kind;
-		return `<${tag} class="${className}">${tableCellToHtml(context, node.children)}</${tag}>`;
-	}).join('');
+		return `<${tag} class="${className}">${await tableCellToHtml(context, node.children)}</${tag}>`;
+	}));
+	return parts.join('');
+}
+
+/**
+ * 表セル内画像を HTML にする
+ * @param {ExportContext} context 文脈
+ * @param {ImageSpec} spec 画像
+ * @returns {Promise<string>}
+ */
+async function renderTableCellImage(context: ExportContext, spec: ImageSpec): Promise<string> {
+	const sizedClass = spec.width ? ' cm-md-image is-sized' : ' cm-md-image';
+	const sizedStyle = imageWidthStyle(spec.width, spec.height);
+	if (spec.kind === 'url' && !spec.raw.startsWith('data:') && !context.loadRemoteImages) {
+		return imageFallback(spec.raw || 'リモート画像');
+	}
+
+	if (spec.kind === 'url') {
+		return `<img class="${sizedClass.trim()}" src="${escapeAttribute(spec.raw)}" alt="${escapeAttribute(spec.alt)}"${sizedStyle}>`;
+	}
+
+	const dataUrl = await context.resolveImage({
+		raw         : spec.raw,
+		kind        : spec.kind,
+		alt         : spec.alt,
+		embed       : spec.kind === 'embed',
+		documentPath: context.filePath,
+	});
+	if (!dataUrl) {
+		return imageFallback(spec.raw);
+	}
+
+	return `<img class="${sizedClass.trim()}" src="${escapeAttribute(dataUrl)}" alt="${escapeAttribute(spec.alt)}"${sizedStyle}>`;
 }
 
 /**

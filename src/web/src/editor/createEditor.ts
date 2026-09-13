@@ -203,7 +203,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		}),
 		Prec.high(EditorView.domEventHandlers({
 			/**
-			 * クリップボード画像貼り付けを C# 側へ委譲する
+			 * クリップボード貼り付けを C# 側へ委譲する
 			 * @param {ClipboardEvent} event 貼り付け
 			 * @param {EditorView} view ビュー
 			 * @returns {boolean}

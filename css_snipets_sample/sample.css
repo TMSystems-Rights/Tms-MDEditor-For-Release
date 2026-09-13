@@ -406,11 +406,12 @@ html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
  * 基本スタイル
  * --------------------------------------------------- */
 
-/* 大きい表は高さ制限して縦横スクロール */
+/* 大きい表は高さ制限して縦スクロール。横はエディタ本体に任せる */
 .tms-mde-editor-host .cm-md-table-wrap {
 	max-height: var(--mde-snippet-table-max-height);
 	margin: 0.55em 0;
-	overflow: auto;
+	overflow-x: hidden;
+	overflow-y: auto;
 }
 
 .tms-mde-editor-host .cm-md-table {
