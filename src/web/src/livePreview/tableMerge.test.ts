@@ -20,10 +20,14 @@ import {
 	resolveTableMergeRect,
 } from './tableMerge';
 import {
+	applyTableAlignSnapshot,
 	applyTableMergeSnapshot,
+	buildTableCellChange,
+	collapseTableDocumentChanges,
 	extractTableData,
 	getTableDataIdentity,
 	resolveTableMergeTargetFromParts,
+	syncRenderedTableAlignment,
 } from './tableWidget';
 import { syntaxTree } from '@codemirror/language';
 
@@ -221,6 +225,211 @@ describe('tableMerge', () => {
 		));
 		expect(buildUnmergeTableCellsChanges(mergedData, rect)?.map((change) => change.insert)).toContain(
 			'A{align=center valign=middle}',
+		);
+	});
+
+	it('見出し結合がある表でも1行目3列目へ配置を書く', () => {
+		const doc   = [
+			'|見出し１{colspan=3 colwidths=138,136,169 rowheights=32,32,32}|||',
+			'|---|---|---|',
+			'|データ１－１|データ１－２|a|',
+			'|データ２－１|a<br>b<br>c|b{align=right valign=middle}|',
+		].join('\n');
+		const state = createState(doc);
+		const data  = tableData(state);
+		expect(data.rowSources[0]![2]!.text).toBe('a');
+		const written = buildAlignTableCellsChanges(data, {
+			startRow: 1, startColumn: 2, endRow: 1, endColumn: 2,
+		}, { align: 'right', valign: 'middle' });
+		expect(written?.[0]?.insert).toBe('a{align=right valign=middle}');
+
+		const view = {
+			state,
+			/**
+			 * @param {TransactionSpec} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: TransactionSpec) {
+				this.state = this.state.update(spec).state;
+			},
+			dom: { /**
+			 *
+			 */
+				querySelector: () => null },
+		};
+		expect(applyTableAlignSnapshot(
+			view as never,
+			{ tableFrom: data.tableFrom, rect: { startRow: 1, startColumn: 2, endRow: 1, endColumn: 2 } },
+			{ align: 'right', valign: 'middle' },
+		)).toBe(true);
+		expect(tableData(view.state).rowSources[0]![2]!.text).toBe('a{align=right valign=middle}');
+		expect(tableData(view.state).rowSources[1]![2]!.text).toBe('b{align=right valign=middle}');
+	});
+
+	it('配置の書き込みは表全体を1置換にしてウィジェットを作り直す', () => {
+		const state   = createState('|   |\n|---|\n|100|');
+		const data    = tableData(state);
+		const written = buildAlignTableCellsChanges(data, {
+			startRow: 1, startColumn: 0, endRow: 1, endColumn: 0,
+		}, { align: 'right' });
+		expect(written).not.toBeNull();
+		const collapsed = collapseTableDocumentChanges(
+			state.doc.sliceString(data.tableFrom, data.tableTo),
+			data.tableFrom,
+			data.tableTo,
+			written!,
+		);
+		expect(collapsed.from).toBe(data.tableFrom);
+		expect(collapsed.to).toBe(data.tableTo);
+		expect(collapsed.insert).toContain('100{align=right}');
+
+		const dispatched: TransactionSpec[] = [];
+		const view                          = {
+			state,
+			/**
+			 * @param {TransactionSpec} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: TransactionSpec) {
+				dispatched.push(spec);
+				this.state = this.state.update(spec).state;
+			},
+			dom: { /**
+			 *
+			 */
+				querySelector: () => null },
+		};
+		expect(applyTableAlignSnapshot(
+			view as never,
+			{ tableFrom: data.tableFrom, rect: { startRow: 1, startColumn: 0, endRow: 1, endColumn: 0 } },
+			{ align: 'right' },
+		)).toBe(true);
+		expect(dispatched[0]?.changes).toEqual({
+			from  : data.tableFrom,
+			to    : data.tableTo,
+			insert: collapsed.insert,
+		});
+		expect(tableData(view.state).rowSources[0]![0]!.text).toBe('100{align=right}');
+	});
+
+	it('配置書き込み後は描画中のセルへ揃えクラスを付ける', () => {
+		const names = new Set<string>();
+		const cell  = {
+			dataset  : {
+				tableRow    : '1',
+				tableColumn : '2',
+				source      : 'a',
+				editableText: 'a',
+			},
+			style    : { textAlign: '', verticalAlign: '' },
+			classList: {
+				/**
+				 * @returns {IterableIterator<string>} クラス
+				 */
+				[Symbol.iterator](): IterableIterator<string> {
+					return names.values();
+				},
+				/**
+				 * @param {string[]} next 追加
+				 * @returns {void}
+				 */
+				add(...next: string[]) {
+					for (const name of next) {
+						names.add(name);
+					}
+				},
+				/**
+				 * @param {string[]} next 削除
+				 * @returns {void}
+				 */
+				remove(...next: string[]) {
+					for (const name of next) {
+						names.delete(name);
+					}
+				},
+			},
+		};
+		const wrap  = {
+			classList      : { /**
+			 *
+			 */
+				contains: (name: string) => name === 'cm-md-table-wrap' },
+			dataset        : { tableFrom: '0', tableTo: '0' },
+			/**
+			 * @returns {typeof cell[]} セル
+			 */
+			querySelectorAll() {
+				return [cell];
+			},
+		};
+		const doc   = [
+			'|見出し１{colspan=3 colwidths=138,136,169 rowheights=32,32,32}|||',
+			'|---|---|---|',
+			'|データ１－１|データ１－２|a{align=right}|',
+			'|データ２－１|a<br>b<br>c|b|',
+		].join('\n');
+		const state = createState(doc);
+		const data  = tableData(state);
+		const view  = {
+			state,
+			dom: {
+				/**
+				 * @returns {typeof wrap} 表
+				 */
+				querySelector() {
+					return wrap;
+				},
+				/**
+				 * @returns {typeof wrap[]} 表
+				 */
+				querySelectorAll() {
+					return [wrap];
+				},
+			},
+			contentDOM: {
+				/**
+				 * @returns {typeof wrap} 表
+				 */
+				querySelector() {
+					return wrap;
+				},
+				/**
+				 * @returns {typeof wrap[]} 表
+				 */
+				querySelectorAll() {
+					return [wrap];
+				},
+			},
+		};
+
+		syncRenderedTableAlignment(view as never, data.tableFrom);
+		expect(cell.dataset.source).toBe('a{align=right}');
+		expect([...names]).toEqual(['cm-md-table-align-right']);
+		expect(cell.style.textAlign).toBe('right');
+	});
+
+	it('配置だけ違う同じ位置の表は identity が違う', () => {
+		const plain   = tableData(createState('|   |\n|---|\n|100|'));
+		const aligned = tableData(createState('|   |\n|---|\n|100{align=right valign=middle}|'));
+		expect(getTableDataIdentity(plain)).not.toBe(getTableDataIdentity(aligned));
+	});
+
+	it('配置を書いた直後のセル確定は属性を消さない', () => {
+		let state     = createState('|   |\n|---|\n|100|');
+		const data    = tableData(state);
+		const written = buildAlignTableCellsChanges(data, {
+			startRow: 1, startColumn: 0, endRow: 1, endColumn: 0,
+		}, { align: 'right', valign: 'middle' });
+		expect(written?.[0]?.insert).toBe('100{align=right valign=middle}');
+		state       = state.update({
+			changes: written!.map((change) => ({
+				from: change.from, to: change.to, insert: change.insert,
+			})),
+		}).state;
+		const after = tableData(state);
+		expect(after.rowSources[0]![0]!.text).toBe('100{align=right valign=middle}');
+		expect(buildTableCellChange(after, { row: 1, column: 0 }, '100')?.insert).toBe(
+			'100{align=right valign=middle}',
 		);
 	});
 

@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.7.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.1)
+最新リリース: [v1.7.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.2)
+
+## v1.7.2 の主な変更
+
+- ライブプレビュー表で、右クリックの左詰め・中央揃え・右詰め・上詰め・上下中央・下詰めが即時反映される
 
 ## v1.7.1 の主な変更
 

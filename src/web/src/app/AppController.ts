@@ -8,7 +8,7 @@ import { setLineEolsEffect } from '../editor/eolMarkers';
 import { compileCustomDecorationRules, type CompiledCustomDecorationRule } from '../livePreview/customDecorations';
 import { findMarkdownLinkUrlFromMouseEvent, isSupportedExternalLinkUrl, setDocumentContextEffect, setViewModeEffect } from '../livePreview/livePreviewPlugin';
 import {
-	applyTableAlignAction,
+	applyTableAlignSnapshot,
 	applyTableMergeSnapshot,
 	snapshotTableMergeActionFromEvent,
 	type TableMergeMenuSnapshot,
@@ -2266,7 +2266,7 @@ export class AppController {
 		);
 
 		showContextMenuAtPoint(event.clientX, event.clientY, entries, (action) => {
-			void this.handleEditorContextAction(action, clickPosition, linkUrl, event, tableMerge);
+			void this.handleEditorContextAction(action, clickPosition, linkUrl, tableMerge);
 		});
 	}
 
@@ -2344,13 +2344,13 @@ export class AppController {
 	 * @param {string} action コマンドID
 	 * @param {number | null} clickPosition 右クリックした文書位置
 	 * @param {string | null} linkUrl 右クリックしたリンクURL
+	 * @param {TableMergeMenuSnapshot | null} [tableMerge] 右クリック時点の表対象
 	 * @returns {Promise<void>}
 	 */
 	private async handleEditorContextAction(
 		action: string,
 		clickPosition: number | null,
 		linkUrl: string | null,
-		menuEvent?: MouseEvent,
 		tableMerge?: TableMergeMenuSnapshot | null,
 	): Promise<void> {
 		const view = this.editorView;
@@ -2406,8 +2406,8 @@ export class AppController {
 			}
 
 			const alignPatch = tableAlignPatchFromAction(action);
-			if (alignPatch && menuEvent) {
-				if (!applyTableAlignAction(view, menuEvent, alignPatch)) {
+			if (alignPatch && tableMerge) {
+				if (!applyTableAlignSnapshot(view, tableMerge, alignPatch)) {
 					view.focus();
 				}
 				return;

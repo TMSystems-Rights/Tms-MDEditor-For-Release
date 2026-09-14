@@ -917,8 +917,18 @@ export function normalizeTableCellTextForIdentity(text: string): string {
 }
 
 /**
+ * セルの配置だけを再描画判定用のキーにする。
+ * @param {string} text セルソース
+ * @returns {string}
+ */
+function tableCellAlignmentIdentity(text: string): string {
+	const span = parseCellSpan(text);
+	return `${span.align}:${span.valign}`;
+}
+
+/**
  * 表の再描画判定用キーを返す。
- * 位置と行列構造だけを見る。セル本文の入力でウィジェットを作り直すと IME と改行が見えなくなる。
+ * 位置・行列構造・配置を見る。配置が同じだと CodeMirror が表 DOM を差し替えず、プレビューが古いまま残る。
  * @param {TableData} data 表データ
  * @returns {string}
  */
@@ -931,6 +941,10 @@ export function getTableDataIdentity(data: TableData): string {
 		spans    : occupancy.cells.map((row) => row.map((cell) => (
 			cell.covered ? 'x' : `${cell.colspan}x${cell.rowspan}`
 		))),
+		aligns   : [
+			data.headerSources.map((source) => tableCellAlignmentIdentity(source.text)),
+			...data.rowSources.map((row) => row.map((source) => tableCellAlignmentIdentity(source.text))),
+		],
 	});
 }
 
@@ -2953,6 +2967,31 @@ export function moveActiveTableCellVertically(view: EditorView, forward: boolean
 }
 
 /**
+ * 配置クラスをセルへ付け直す。既定の左詰め・上詰めはクラスを外す。
+ * @param {HTMLElement} cell セル
+ * @param {string} sourceText セルソース
+ * @returns {void}
+ */
+function applyCellAlignmentClasses(cell: HTMLElement, sourceText: string): void {
+	for (const name of [...cell.classList]) {
+		if (name.startsWith('cm-md-table-align-') || name.startsWith('cm-md-table-valign-')) {
+			cell.classList.remove(name);
+		}
+	}
+
+	const span      = parseCellSpan(sourceText);
+	const className = cellAlignmentClassNames(span);
+	if (className.length > 0) {
+		cell.classList.add(...className.split(/\s+/));
+	}
+
+	if (cell.style) {
+		cell.style.textAlign     = span.align === 'left' ? '' : span.align;
+		cell.style.verticalAlign = span.valign === 'top' ? '' : span.valign;
+	}
+}
+
+/**
  * 結合属性をセル DOM へ付ける。
  * @param {HTMLTableCellElement} cell セル
  * @param {ReturnType<typeof buildTableOccupancy>} occupancy 占有
@@ -2978,10 +3017,7 @@ function applyCellSpan(
 		cell.rowSpan = item.rowspan;
 	}
 
-	const className = cellAlignmentClassNames(parseCellSpan(sourceText));
-	if (className.length > 0) {
-		cell.classList.add(...className.split(/\s+/));
-	}
+	applyCellAlignmentClasses(cell, sourceText);
 }
 
 /**
@@ -3322,6 +3358,159 @@ export function applyTableMergeAction(
 }
 
 /**
+ * メニュー時点の矩形へ配置を書く。選択時の DOM には依存しない。
+ * @param {EditorView} view エディタ
+ * @param {Pick<TableMergeMenuSnapshot, 'tableFrom' | 'rect'>} snapshot 右クリック時点の対象
+ * @param {TableAlignPatch} patch 配置
+ * @returns {boolean}
+ */
+export function applyTableAlignSnapshot(
+	view: EditorView,
+	snapshot: Pick<TableMergeMenuSnapshot, 'tableFrom' | 'rect'>,
+	patch: TableAlignPatch,
+): boolean {
+	if (view.state.readOnly) {
+		return false;
+	}
+
+	persistEditingTableCellsAt(view, snapshot.tableFrom);
+	const tableNode = findTableNodeAt(view.state, snapshot.tableFrom);
+	if (!tableNode) {
+		return false;
+	}
+
+	const data    = extractTableData(view.state, tableNode);
+	const changes = buildAlignTableCellsChanges(data, snapshot.rect, patch);
+	if (!changes || changes.length === 0) {
+		return false;
+	}
+
+	view.dispatch({
+		changes  : collapseTableDocumentChanges(
+			view.state.doc.sliceString(data.tableFrom, data.tableTo),
+			data.tableFrom,
+			data.tableTo,
+			changes,
+		),
+		userEvent: 'input.table.align',
+	});
+	const tableFrom = findTableNodeAt(view.state, snapshot.tableFrom)?.from ?? snapshot.tableFrom;
+	syncRenderedTableAlignment(view, tableFrom);
+	return true;
+}
+
+/**
+ * セル単位の変更を表全体の1置換にする。
+ * 表ウィジェットは複数行 replace のため、内部だけの変更だと CodeMirror が
+ * 既存 DOM を continueWidget で残し、配置クラスが付いた新しい表が乗らない。
+ * 表の右側（同じソース行）をクリックすると行が組み直されて反映されるのはこのため。
+ * @param {string} tableText 表ソース
+ * @param {number} tableFrom 表開始
+ * @param {number} tableTo 表終了
+ * @param {TableDocumentChange[]} changes セル変更
+ * @returns {TableDocumentChange}
+ */
+export function collapseTableDocumentChanges(
+	tableText: string,
+	tableFrom: number,
+	tableTo: number,
+	changes: TableDocumentChange[],
+): TableDocumentChange {
+	let insert    = tableText;
+	const ordered = [...changes].sort((left, right) => right.from - left.from);
+	for (const change of ordered) {
+		const from = change.from - tableFrom;
+		const to   = change.to - tableFrom;
+		insert     = insert.slice(0, from) + change.insert + insert.slice(to);
+	}
+
+	return { from: tableFrom, to: tableTo, insert };
+}
+
+/**
+ * いま描画されている表へ、文書上の配置クラスを付け直す。
+ * ウィジェット再利用では `eq` が同じだと `updateDOM` が呼ばれず、プレビューだけ古いまま残る。
+ * @param {EditorView} view エディタ
+ * @param {number} tableFrom 表開始位置
+ * @returns {void}
+ */
+export function syncRenderedTableAlignment(view: EditorView, tableFrom: number): void {
+	const wrap = findRenderedTableWrap(view, tableFrom);
+	if (!wrap) {
+		return;
+	}
+
+	const tableNode = findTableNodeAt(view.state, tableFrom);
+	if (!tableNode) {
+		return;
+	}
+
+	applyTableAlignmentClassesToWrap(wrap, extractTableData(view.state, tableNode));
+}
+
+/**
+ * 描画中の表ラッパーを返す。位置がずれたあとも表を拾う。
+ * @param {EditorView} view エディタ
+ * @param {number} tableFrom 表開始位置
+ * @returns {HTMLElement | null}
+ */
+function findRenderedTableWrap(view: EditorView, tableFrom: number): HTMLElement | null {
+	const roots = [view.contentDOM, view.dom].filter((node): node is HTMLElement => Boolean(node));
+	for (const root of roots) {
+		const exact = typeof root.querySelector === 'function'
+			? root.querySelector<HTMLElement>(`.cm-md-table-wrap[data-table-from="${tableFrom}"]`)
+			: null;
+		if (exact) {
+			return exact;
+		}
+
+		const wraps = typeof root.querySelectorAll === 'function'
+			? [...root.querySelectorAll<HTMLElement>('.cm-md-table-wrap')]
+			: [];
+		const found = wraps.find((candidate) => {
+			const from = Number(candidate.dataset.tableFrom);
+			const to   = Number(candidate.dataset.tableTo);
+			return from === tableFrom
+				|| (Number.isInteger(from) && Number.isInteger(to) && from <= tableFrom && tableFrom < to);
+		});
+		if (found) {
+			return found;
+		}
+
+		if (wraps.length === 1) {
+			return wraps[0]!;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * 表ラッパー内のセルへ配置クラスを付ける。
+ * @param {HTMLElement} wrap 表ラッパー
+ * @param {TableData} data 表
+ * @returns {void}
+ */
+function applyTableAlignmentClassesToWrap(wrap: HTMLElement, data: TableData): void {
+	wrap.dataset.tableFrom = String(data.tableFrom);
+	wrap.dataset.tableTo   = String(data.tableTo);
+	for (const cell of wrap.querySelectorAll<HTMLElement>('[data-table-row][data-table-column]')) {
+		const position = {
+			row   : Number(cell.dataset.tableRow),
+			column: Number(cell.dataset.tableColumn),
+		};
+		const source   = getTableCellSource(data, position);
+		if (!source || !Number.isInteger(position.row) || !Number.isInteger(position.column)) {
+			continue;
+		}
+
+		cell.dataset.source       = source.text;
+		cell.dataset.editableText = source.editableText;
+		applyCellAlignmentClasses(cell, source.text);
+	}
+}
+
+/**
  * セル配置を文書へ書く。
  * @param {EditorView} view エディタ
  * @param {MouseEvent} event マウス
@@ -3333,36 +3522,12 @@ export function applyTableAlignAction(
 	event: MouseEvent,
 	patch: TableAlignPatch,
 ): boolean {
-	if (view.state.readOnly) {
+	const snapshot = snapshotTableMergeActionFromEvent(view, event);
+	if (!snapshot) {
 		return false;
 	}
 
-	const parts = readTableMergeEventParts(event);
-	if (!parts) {
-		return false;
-	}
-
-	persistEditingTableCellsAt(view, parts.tableFrom);
-	const resolved = resolveTableMergeTargetFromParts(
-		view.state,
-		parts.tableFrom,
-		parts.selected,
-		parts.clicked,
-	);
-	if (!resolved) {
-		return false;
-	}
-
-	const changes = buildAlignTableCellsChanges(resolved.data, resolved.state.rect, patch);
-	if (!changes || changes.length === 0) {
-		return false;
-	}
-
-	view.dispatch({
-		changes  : changes.map((change) => ({ from: change.from, to: change.to, insert: change.insert })),
-		userEvent: 'input.table.align',
-	});
-	return true;
+	return applyTableAlignSnapshot(view, snapshot, patch);
 }
 
 /**
@@ -3472,6 +3637,57 @@ function persistEditingTableCellsAt(view: EditorView, tableFrom: number): void {
 }
 
 /**
+ * セルソースの配置クラスを正規化する。
+ * @param {string} sourceText セルソース
+ * @returns {string}
+ */
+function tableAlignmentClassKey(sourceText: string): string {
+	return cellAlignmentClassNames(parseCellSpan(sourceText))
+		.split(/\s+/)
+		.filter(Boolean)
+		.sort()
+		.join(' ');
+}
+
+/**
+ * セル DOM に付いている配置クラスを正規化する。
+ * @param {HTMLElement} cell セル
+ * @returns {string}
+ */
+function readCellAlignmentClassKey(cell: HTMLElement): string {
+	return [...cell.classList]
+		.filter((name) => name.startsWith('cm-md-table-align-') || name.startsWith('cm-md-table-valign-'))
+		.sort()
+		.join(' ');
+}
+
+/**
+ * 既存 DOM の配置クラスが文書と一致するか。違うときは作り直す。
+ * クラスだけ付け替えても WebView では描画が更新されない。
+ * @param {HTMLElement} dom 表ラッパー
+ * @param {TableData} data 表
+ * @returns {boolean}
+ */
+function tableDomMatchesAlignment(dom: HTMLElement, data: TableData): boolean {
+	for (const cell of dom.querySelectorAll<HTMLElement>('[data-table-row][data-table-column]')) {
+		const position = {
+			row   : Number(cell.dataset.tableRow),
+			column: Number(cell.dataset.tableColumn),
+		};
+		const source   = getTableCellSource(data, position);
+		if (!source || !Number.isInteger(position.row) || !Number.isInteger(position.column)) {
+			continue;
+		}
+
+		if (readCellAlignmentClassKey(cell) !== tableAlignmentClassKey(source.text)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/**
  * 既存 DOM のセル数が占有グリッドと一致するか。結合の増減では作り直す。
  * @param {HTMLElement} dom 表ラッパー
  * @param {ReturnType<typeof buildTableOccupancy>} occupancy 占有
@@ -3512,8 +3728,10 @@ function tableDomMatchesOccupancy(
 			return false;
 		}
 
-		const colSpan = cell instanceof HTMLTableCellElement ? cell.colSpan : 1;
-		const rowSpan = cell instanceof HTMLTableCellElement ? cell.rowSpan : 1;
+		const isTableCell = typeof HTMLTableCellElement !== 'undefined'
+			&& cell instanceof HTMLTableCellElement;
+		const colSpan     = isTableCell ? cell.colSpan : 1;
+		const rowSpan     = isTableCell ? cell.rowSpan : 1;
 		return colSpan === item.colspan && rowSpan === item.rowspan;
 	});
 }
@@ -3556,37 +3774,44 @@ export class TableWidget extends WidgetType {
 	 * @returns {boolean}
 	 */
 	updateDOM(dom: HTMLElement, view: EditorView): boolean {
-		if (!(dom instanceof HTMLElement) || !dom.classList.contains('cm-md-table-wrap')) {
+		if (!dom?.classList?.contains('cm-md-table-wrap')) {
 			return false;
 		}
 
-		if (!tableDomMatchesOccupancy(dom, buildTableOccupancy(this.data))) {
+		const tableNode = findTableNodeAt(view.state, this.data.tableFrom);
+		const data      = tableNode ? extractTableData(view.state, tableNode) : this.data;
+		if (!tableDomMatchesOccupancy(dom, buildTableOccupancy(data))) {
 			return false;
 		}
 
-		dom.dataset.tableFrom = String(this.data.tableFrom);
-		dom.dataset.tableTo   = String(this.data.tableTo);
+		if (!tableDomMatchesAlignment(dom, data)) {
+			return false;
+		}
+
+		dom.dataset.tableFrom = String(data.tableFrom);
+		dom.dataset.tableTo   = String(data.tableTo);
 		for (const cell of dom.querySelectorAll<HTMLElement>('[data-table-row][data-table-column]')) {
 			const position = {
 				row   : Number(cell.dataset.tableRow),
 				column: Number(cell.dataset.tableColumn),
 			};
-			const source   = getTableCellSource(this.data, position);
+			const source   = getTableCellSource(data, position);
 			if (!source || !Number.isInteger(position.row) || !Number.isInteger(position.column)) {
 				continue;
 			}
 
 			const changed             = cell.dataset.source !== source.text;
+			cell.dataset.inlineRanges = JSON.stringify(source.inlineRanges);
+			applyCellAlignmentClasses(cell, source.text);
 			cell.dataset.source       = source.text;
 			cell.dataset.editableText = source.editableText;
-			cell.dataset.inlineRanges = JSON.stringify(source.inlineRanges);
 			if (!changed || cell.dataset.editing === 'true') {
 				continue;
 			}
 
 			const nodes = position.row === 0
-				? this.data.headers[position.column]
-				: this.data.rows[position.row - 1]?.[position.column];
+				? data.headers[position.column]
+				: data.rows[position.row - 1]?.[position.column];
 			if (!nodes) {
 				continue;
 			}
@@ -3742,8 +3967,12 @@ export class TableWidget extends WidgetType {
 					return false;
 				}
 
-				const tableNode  = findTableNodeAt(view.state, this.data.tableFrom);
-				const data       = tableNode ? extractTableData(view.state, tableNode) : this.data;
+				const tableNode = findTableNodeAt(view.state, this.data.tableFrom);
+				if (!tableNode) {
+					return false;
+				}
+
+				const data       = extractTableData(view.state, tableNode);
 				const liveSource = getTableCellSource(data, position);
 				const value      = readTableCellEditableValue(cell);
 				const change     = buildTableCellChange(data, position, value);

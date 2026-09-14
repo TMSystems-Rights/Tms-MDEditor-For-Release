@@ -213,6 +213,110 @@ describe('blockWidgets', () => {
 		expect(mergedWidget.eq(plainWidget)).toBe(false);
 	});
 
+	it('配置だけ違う同じ位置の表は identity が違い、ウィジェットを再利用しない', () => {
+		const plain         = createState('|   |\n|---|\n|100|\n');
+		const aligned       = createState('|   |\n|---|\n|100{align=right valign=middle}|\n');
+		const centered      = createState('|   |\n|---|\n|100{align=center}|\n');
+		const plainWidget   = new TableWidget(extractTableData(plain, findNode(plain, 'Table')!));
+		const alignedWidget = new TableWidget(extractTableData(aligned, findNode(aligned, 'Table')!));
+		const centerWidget  = new TableWidget(extractTableData(centered, findNode(centered, 'Table')!));
+		expect(getTableDataIdentity(plainWidget.data)).not.toBe(getTableDataIdentity(alignedWidget.data));
+		expect(getTableDataIdentity(alignedWidget.data)).not.toBe(getTableDataIdentity(centerWidget.data));
+		expect(plainWidget.eq(alignedWidget)).toBe(false);
+		expect(alignedWidget.eq(centerWidget)).toBe(false);
+	});
+
+	it('配置が違う既存表の updateDOM は false を返し DOM を作り直す', () => {
+		const aligned = createState('|   |\n|---|\n|100{align=right}|\n');
+		const widget  = new TableWidget(extractTableData(aligned, findNode(aligned, 'Table')!));
+		const names   = new Set<string>(['cm-md-table-wrap']);
+		const cells   = [
+			{ dataset: { tableRow: '0', tableColumn: '0', source: '' }, classList: { /**
+			 *
+			 */
+				[Symbol.iterator]: () => [][Symbol.iterator]() } },
+			{ dataset: { tableRow: '1', tableColumn: '0', source: '100' }, classList: { /**
+			 *
+			 */
+				[Symbol.iterator]: () => [][Symbol.iterator]() } },
+		];
+		const dom     = {
+			classList: {
+				/**
+				 * @param {string} name クラス
+				 * @returns {boolean}
+				 */
+				contains(name: string) {
+					return names.has(name);
+				},
+			},
+			dataset: {},
+			/**
+			 * @returns {typeof cells} セル
+			 */
+			querySelectorAll() {
+				return cells;
+			},
+		};
+		expect(widget.updateDOM(dom as never, { state: aligned } as never)).toBe(false);
+	});
+
+	it('配置が同じ既存表の updateDOM は DOM を再利用する', () => {
+		const aligned = createState('|   |\n|---|\n|100{align=right}|\n');
+		const widget  = new TableWidget(extractTableData(aligned, findNode(aligned, 'Table')!));
+		const header  = new Set<string>();
+		const data    = new Set<string>(['cm-md-table-align-right']);
+		const cells   = [
+			{
+				dataset  : { tableRow: '0', tableColumn: '0', source: '', editableText: '' },
+				classList: { /**
+				 *
+				 */
+					[Symbol.iterator]: () => header.values(), /**
+				 *
+				 */
+					add() {}, /**
+				 *
+				 */
+					remove() {} },
+				style    : { textAlign: '', verticalAlign: '' },
+			},
+			{
+				dataset  : { tableRow: '1', tableColumn: '0', source: '100{align=right}', editableText: '100' },
+				classList: { /**
+				 *
+				 */
+					[Symbol.iterator]: () => data.values(), /**
+				 *
+				 */
+					add() {}, /**
+				 *
+				 */
+					remove() {} },
+				style    : { textAlign: '', verticalAlign: '' },
+			},
+		];
+		const dom     = {
+			classList: {
+				/**
+				 * @param {string} name クラス
+				 * @returns {boolean}
+				 */
+				contains(name: string) {
+					return name === 'cm-md-table-wrap';
+				},
+			},
+			dataset: {},
+			/**
+			 * @returns {typeof cells} セル
+			 */
+			querySelectorAll() {
+				return cells;
+			},
+		};
+		expect(widget.updateDOM(dom as never, { state: aligned } as never)).toBe(true);
+	});
+
 	it('表と表の隙間では次の表を拾わない', () => {
 		const block                                        = '| a | b |\n|---|---|\n| 1 | 2 |';
 		const state                                        = createState(`${block}\n\n${block}\n`);
