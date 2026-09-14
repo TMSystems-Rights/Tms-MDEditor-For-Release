@@ -86,7 +86,12 @@ function Add-ZipFileEntry {
 }
 
 function Test-NativeAotLinker {
-	$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+	$programFilesX86 = (Get-Item -LiteralPath 'Env:ProgramFiles(x86)' -ErrorAction SilentlyContinue)?.Value
+	if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
+		return $false
+	}
+
+	$vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
 	if (-not (Test-Path -LiteralPath $vswhere)) {
 		return $false
 	}
@@ -98,10 +103,16 @@ function Test-NativeAotLinker {
 function Get-SevenZipPath {
 	$candidates = @(
 		(Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
-		'D:\Program Files\7-Zip\7z.exe',
-		(Join-Path ${env:ProgramFiles} '7-Zip\7z.exe'),
-		(Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe')
+		'D:\Program Files\7-Zip\7z.exe'
 	)
+	foreach ($sevenZipRoot in @(
+			(Get-Item -LiteralPath Env:ProgramFiles -ErrorAction SilentlyContinue)?.Value,
+			(Get-Item -LiteralPath 'Env:ProgramFiles(x86)' -ErrorAction SilentlyContinue)?.Value
+		)) {
+		if (-not [string]::IsNullOrWhiteSpace($sevenZipRoot)) {
+			$candidates += Join-Path $sevenZipRoot '7-Zip\7z.exe'
+		}
+	}
 
 	return @($candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1)
 }
