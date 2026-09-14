@@ -42,12 +42,23 @@ if (Test-Path -LiteralPath $launcherPublishPath) {
 	throw "起動用発行先が既に存在します: $launcherPublishPath`n既存の配布成果物を保護するため、自動削除は行いません。別の -LauncherPublishDir を指定してください。"
 }
 
-$isccCandidates = @(@(
-	(Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
-	(Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-	(Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
-	(Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+$isccRoots = @(
+	(Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
+)
+foreach ($isccRoot in @(
+		(Get-Item -LiteralPath Env:ProgramFiles -ErrorAction SilentlyContinue)?.Value,
+		(Get-Item -LiteralPath 'Env:ProgramFiles(x86)' -ErrorAction SilentlyContinue)?.Value,
+		(Get-Item -LiteralPath Env:LOCALAPPDATA -ErrorAction SilentlyContinue)?.Value
+	)) {
+	if ([string]::IsNullOrWhiteSpace($isccRoot)) {
+		continue
+	}
+
+	$isccRoots += Join-Path $isccRoot 'Inno Setup 6\ISCC.exe'
+	$isccRoots += Join-Path $isccRoot 'Programs\Inno Setup 6\ISCC.exe'
+}
+
+$isccCandidates = @($isccRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
 if ($isccCandidates.Count -eq 0) { throw 'Inno Setup 6 の ISCC.exe が見つかりません。Inno Setup 6 をインストールするか PATH を設定してください。' }
 
 Push-Location $repoRoot
