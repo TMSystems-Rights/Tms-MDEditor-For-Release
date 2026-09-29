@@ -4,7 +4,12 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.7.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.2)
+最新リリース: [v1.7.3](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.3)
+
+## v1.7.3 の主な変更
+
+- CSS スニペットによる見出しなどの縦 margin を行位置計測へ反映し、行番号・クリック位置・キャレット移動のずれを修正
+- 箇条書きを入力途中の単独 `-` / `- ` が前行を Setext 見出しとして表示し、キャレット位置が乱れる不具合を修正
 
 ## v1.7.2 の主な変更
 
