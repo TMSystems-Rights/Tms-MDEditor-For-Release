@@ -68,6 +68,14 @@
 	color: var(--tms-mde-color-heading);
 }
 
+/*
+ * CSS スニペットが `.cm-line` に指定する縦 margin をこの要素内へ収める。
+ * CodeMirror はこのラッパーの実高さを計測するため、行番号・クリック位置と本文表示を同期できる。
+ */
+.tms-mde-editor-host .tms-mde-cm-line-wrapper {
+	display: flow-root;
+}
+
 /* ライブプレビュー時のみ見出しラベル用の左余白（padding だと選択背景に巻き込まれるため margin） */
 .tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-content {
 	margin-left: 2em;

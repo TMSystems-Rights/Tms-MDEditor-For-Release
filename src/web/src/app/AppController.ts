@@ -756,6 +756,7 @@ export class AppController {
 				onCssSnippetsApplied: (response) => {
 					this.cssSnippets = response;
 					applyCssSnippets(response);
+					this.requestEditorMeasure();
 				}
 			});
 			modal.open();
@@ -849,6 +850,7 @@ export class AppController {
 		try {
 			this.cssSnippets = await invokeBridge<CssSnippetsResponse>('cssSnippets:list');
 			applyCssSnippets(this.cssSnippets);
+			this.requestEditorMeasure();
 			if (notify) {
 				const status = getCssSnippetsReloadStatus(this.cssSnippets);
 				if (status.isError) {
@@ -862,6 +864,16 @@ export class AppController {
 				showErrorMessage(this.formatError(error));
 			}
 		}
+	}
+
+	/**
+	 * CSS変更後、全ペインのCodeMirror高さ情報を次フレームで再計測する。
+	 * @returns {void}
+	 */
+	private requestEditorMeasure(): void {
+		window.requestAnimationFrame(() => {
+			this.editorViews.forEach((view) => view.requestMeasure());
+		});
 	}
 
 	/**

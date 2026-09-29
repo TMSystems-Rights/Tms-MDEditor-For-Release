@@ -30,6 +30,7 @@ import {
 } from './verticalMotion';
 import { createCaretBlinkExtension } from './caretBlink';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
+import { createLineWrapperExtensions } from './lineWrappers';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
 
@@ -132,6 +133,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		createTmsMarkdownSupport({ addKeymap: false }),
 		...createInlineCodeHighlightExtensions(),
 		EditorState.tabSize.of(options.settings.tabSize),
+		...createLineWrapperExtensions(),
 		...createVerticalMotionExtensions(),
 		...createSearchExtensions(options.settings.search),
 		createOutlineScrollExtension(),
