@@ -4,7 +4,12 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.7.3](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.3)
+最新リリース: [v1.7.4](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.4)
+
+## v1.7.4 の主な変更
+
+- ライブプレビューの空行の行頭で、日本語IMEの未確定文字が重複・誤確定する不具合を修正
+- 見出しなどを含む文書で、空行が2行分の高さに見える不具合を修正
 
 ## v1.7.3 の主な変更
 
