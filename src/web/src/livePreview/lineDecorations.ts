@@ -169,6 +169,19 @@ function decorateSetextHeading(
 ): void {
 	const startLine = state.doc.lineAt(node.from).number;
 	const endLine   = state.doc.lineAt(node.to).number;
+	const underline = state.doc.line(endLine);
+
+	/*
+	 * `aaa` の直後へ箇条書き入力を始めた時点の `-` / `- ` は、
+	 * Markdown パーサ上は SetextHeading2 と解釈されることがある。
+	 * ただし編集途中の単独ハイフンを見出しとして装飾すると、前行が h2
+	 * へ伸縮し、続く本文入力・Backspace 時にキャレット座標が揺れる。
+	 * 2 個以上の `-` は通常どおり Setext 見出しとして扱う。
+	 */
+	if (/^\s*-\s*$/.test(underline.text)) {
+		pushLineClassAlways(entries, state, startLine, 'cm-md-pending-list-source');
+		return;
+	}
 
 	for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
 		const line = state.doc.line(lineNumber);

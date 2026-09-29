@@ -69,6 +69,15 @@
 }
 
 /*
+ * 単独ハイフンの入力途中は Markdown パーサが Setext 見出しとしてタグ付けする。
+ * 箇条書きを入力中の前行には構文ハイライトの見出し太字を適用しない。
+ */
+.tms-mde-editor-host .cm-line.cm-md-pending-list-source,
+.tms-mde-editor-host .cm-line.cm-md-pending-list-source * {
+	font-weight: 400 !important;
+}
+
+/*
  * CSS スニペットが `.cm-line` に指定する縦 margin をこの要素内へ収める。
  * CodeMirror はこのラッパーの実高さを計測するため、行番号・クリック位置と本文表示を同期できる。
  */

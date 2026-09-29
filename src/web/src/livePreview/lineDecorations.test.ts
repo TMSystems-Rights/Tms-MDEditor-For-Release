@@ -73,6 +73,59 @@ describe('lineDecorations', () => {
 		expect(hidden.length).toBe(0);
 	});
 
+	it('箇条書き入力途中の単独ハイフンで前行を Setext 見出し表示にしない', () => {
+		const state             = EditorState.create({
+			doc       : 'aaa\n- ',
+			selection : { anchor: 5, head: 5 },
+			extensions: [createTmsMarkdownSupport()],
+		});
+		const entries           = collectLineDecorationEntries(state);
+		const firstLine         = state.doc.line(1);
+		const heading           = entries.filter((entry) => (
+			entry.from === firstLine.from
+			&& entry.decoration.spec.class?.includes('cm-md-h2')
+		));
+		const pendingListSource = entries.filter((entry) => (
+			entry.from === firstLine.from
+			&& entry.decoration.spec.class?.includes('cm-md-pending-list-source')
+		));
+
+		expect(heading).toEqual([]);
+		expect(pendingListSource.length).toBe(1);
+	});
+
+	it('空白なしの単独ハイフンでも前行の見出し太字を打ち消すクラスを付与する', () => {
+		const state             = EditorState.create({
+			doc       : 'aaa\n-',
+			selection : { anchor: 5, head: 5 },
+			extensions: [createTmsMarkdownSupport()],
+		});
+		const entries           = collectLineDecorationEntries(state);
+		const firstLine         = state.doc.line(1);
+		const pendingListSource = entries.filter((entry) => (
+			entry.from === firstLine.from
+			&& entry.decoration.spec.class?.includes('cm-md-pending-list-source')
+		));
+
+		expect(pendingListSource.length).toBe(1);
+	});
+
+	it('複数ハイフンの Setext 見出しは従来どおり h2 として装飾する', () => {
+		const state     = EditorState.create({
+			doc       : 'aaa\n--',
+			selection : { anchor: 5, head: 5 },
+			extensions: [createTmsMarkdownSupport()],
+		});
+		const entries   = collectLineDecorationEntries(state);
+		const firstLine = state.doc.line(1);
+		const heading   = entries.filter((entry) => (
+			entry.from === firstLine.from
+			&& entry.decoration.spec.class?.includes('cm-md-h2')
+		));
+
+		expect(heading.length).toBe(1);
+	});
+
 	it('プレビュー行の箇条書きはマーカー文字のみ置換する', () => {
 		const state       = EditorState.create({
 			doc       : '- item\n- other',
