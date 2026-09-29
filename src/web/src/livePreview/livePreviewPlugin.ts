@@ -208,10 +208,28 @@ const livePreviewDecorationsField = StateField.define<DecorationSet>({
 });
 
 /**
+ * キャレット補正を実行してよい更新か判定する
+ * @param {boolean} docChanged 本文変更あり
+ * @param {boolean} selectionSet 選択変更あり
+ * @param {boolean} compositionStarted IME composition 開始中か
+ * @returns {boolean} 補正可能な場合 true
+ */
+export function shouldNormalizeCaretAfterUpdate(
+	docChanged: boolean,
+	selectionSet: boolean,
+	compositionStarted: boolean,
+): boolean {
+	return !docChanged && selectionSet && !compositionStarted;
+}
+
+/**
  * 行末はみ出しキャレットを正規化するリスナー
  */
 const caretNormalizeListener = EditorView.updateListener.of((update) => {
-	if (!update.selectionSet && !update.docChanged) {
+	// 文字入力直後は compositionstart より先に docChanged が届く場合がある。
+	// この時点で selection を再設定すると先頭のローマ字が確定・重複するため、
+	// 本文変更を含む更新では補正しない。
+	if (!shouldNormalizeCaretAfterUpdate(update.docChanged, update.selectionSet, update.view.compositionStarted)) {
 		return;
 	}
 
@@ -220,6 +238,7 @@ const caretNormalizeListener = EditorView.updateListener.of((update) => {
 		return;
 	}
 
+	// composition DOM の途中で選択を再設定すると、行頭の最初のローマ字が重複する
 	const normalized = normalizeCaretSelection(update.state);
 	if (!normalized) {
 		return;

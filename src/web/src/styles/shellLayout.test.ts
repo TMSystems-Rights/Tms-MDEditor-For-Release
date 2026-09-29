@@ -40,4 +40,11 @@ describe('ペインエディタのスクロールレイアウト', () => {
 	it('タブバー空白のダブルクリック用にテキスト選択を無効化する', () => {
 		expect(shellCss).toMatch(/\.tms-mde-pane-tab-bar-wrap\s*\{[^}]*user-select:\s*none;/s);
 	});
+
+	it('空行の行末記号をBRの次行へ流さない', () => {
+		const emptyEolLine = '.cm-eol-marker-line:has(> br:only-child)';
+		expect(shellCss).toContain(`${emptyEolLine} {`);
+		expect(shellCss).toContain(`${emptyEolLine}::after {`);
+		expect(shellCss).toMatch(/\.cm-eol-marker-line:has\(> br:only-child\)::after\s*\{[^}]*position:\s*absolute;[^}]*top:\s*50%;/s);
+	});
 });

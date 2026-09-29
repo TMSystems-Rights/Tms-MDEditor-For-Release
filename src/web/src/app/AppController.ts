@@ -3031,8 +3031,9 @@ export class AppController {
 			return;
 		}
 
-		tab.lineEols = syncLineEols(tab.lineEols, previousCm6, currentText, tab.eol);
-		tab.dirty    = currentText !== tab.savedText;
+		const previousLineEols = tab.lineEols;
+		tab.lineEols           = syncLineEols(previousLineEols, previousCm6, currentText, tab.eol);
+		tab.dirty              = currentText !== tab.savedText;
 		this.renderTabBar();
 		this.refreshStatusBar();
 		if (view === this.editorView) {
@@ -3040,7 +3041,9 @@ export class AppController {
 		}
 		void this.updateWindowTitle();
 
-		if (this.settings.showEolMarkers) {
+		// 本文だけの入力では装飾更新を dispatch しない。IME composition 中に
+		// 行末ウィジェットを差し替えると、先頭のローマ字が確定・重複するため。
+		if (this.settings.showEolMarkers && tab.lineEols !== previousLineEols) {
 			const lineEols = tab.lineEols;
 			const tabId    = tab.tabId;
 			queueMicrotask(() => {

@@ -6,6 +6,7 @@ import {
 	findMarkdownLinkElement,
 	findMarkdownLinkUrlAtPosition,
 	isSupportedExternalLinkUrl,
+	shouldNormalizeCaretAfterUpdate,
 } from './livePreviewPlugin';
 
 describe('livePreviewPlugin', () => {
@@ -15,6 +16,13 @@ describe('livePreviewPlugin', () => {
 		expect(isSupportedExternalLinkUrl('mailto:test@example.com')).toBe(false);
 		expect(isSupportedExternalLinkUrl('docs/readme.md')).toBe(false);
 		expect(isSupportedExternalLinkUrl('C:\\temp\\readme.md')).toBe(false);
+	});
+
+	it('本文変更またはIME composition中にはキャレット補正を行わない', () => {
+		expect(shouldNormalizeCaretAfterUpdate(true, true, false)).toBe(false);
+		expect(shouldNormalizeCaretAfterUpdate(false, true, true)).toBe(false);
+		expect(shouldNormalizeCaretAfterUpdate(false, false, false)).toBe(false);
+		expect(shouldNormalizeCaretAfterUpdate(false, true, false)).toBe(true);
 	});
 
 	it('findMarkdownLinkElement はテキストノード相当の target から親リンクを取得する', () => {

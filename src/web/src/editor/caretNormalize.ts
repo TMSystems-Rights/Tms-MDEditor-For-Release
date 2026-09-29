@@ -42,9 +42,17 @@ export function normalizeCaretRange(state: EditorState, range: SelectionRange): 
 /**
  * 選択全体を正規化する
  * @param {EditorState} state 状態
+ * @param {boolean} compositionStarted IME composition 開始中か
  * @returns {EditorSelection | null}
  */
-export function normalizeCaretSelection(state: EditorState): EditorSelection | null {
+export function normalizeCaretSelection(
+	state: EditorState,
+	compositionStarted = false,
+): EditorSelection | null {
+	if (compositionStarted) {
+		return null;
+	}
+
 	let changed  = false;
 	const ranges = state.selection.ranges.map((range) => {
 		const next = normalizeCaretRange(state, range);

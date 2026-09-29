@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	areLineEolsEqual,
 	createUniformLineEols,
 	reconstructWithLineEols,
 	splitPreservingEol,
@@ -8,6 +9,12 @@ import {
 } from './lineEol';
 
 describe('lineEol utils', () => {
+	it('行末マップの内容を比較する', () => {
+		expect(areLineEolsEqual(['crlf', null], ['crlf', null])).toBe(true);
+		expect(areLineEolsEqual(['crlf', null], ['lf', null])).toBe(false);
+		expect(areLineEolsEqual(['crlf'], ['crlf', null])).toBe(false);
+	});
+
 	it('roundtrips mixed eol with そのまま保存 semantics', () => {
 		const original = '# test\n\nあああ\nいいい\nううう\n\n\nああああ\r\n\r\na\r\n';
 		const split    = splitPreservingEol(original);
@@ -29,6 +36,14 @@ describe('lineEol utils', () => {
 		const restored  = reconstructWithLineEols(cm6After, synced, 'lf');
 
 		expect(restored).toBe('A\r\nb\nc\r\n');
+	});
+
+	it('改行が変わらない本文編集では既存の行末マップを再利用する', () => {
+		const previousEols = ['crlf', null] as const;
+		const synced       = syncLineEols([...previousEols], 'a\nb', 'ka\nb', 'lf');
+
+		expect(synced).toEqual(previousEols);
+		expect(syncLineEols(synced, 'ka\nb', 'か\nb', 'lf')).toBe(synced);
 	});
 
 	it('uses fallback eol for newly inserted lines', () => {

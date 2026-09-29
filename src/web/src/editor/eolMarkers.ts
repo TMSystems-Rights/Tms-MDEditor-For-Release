@@ -1,4 +1,4 @@
-import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
+import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
 import {
 	type EditorState,
 	type Extension,
@@ -42,68 +42,17 @@ export const lineEolsField = StateField.define<Array<EolKind | null>>({
 });
 
 /**
- * EOL 種別を表示用記号へ変換する
+ * EOL 種別を行装飾用 CSS クラスへ変換する
  * @param {EolKind} eol EOL 種別
  * @returns {string}
  */
-function eolToMarker(eol: EolKind): string {
-	switch (eol) {
-		case 'crlf':
-			return '↲';
-		case 'cr':
-			return '←';
-		case 'lf':
-		default:
-			return '↓';
-	}
+function eolToMarkerClass(eol: EolKind): string {
+	return `cm-eol-marker-line cm-eol-marker-${eol}`;
 }
 
 /**
- * 改行コード表示用ウィジェット
- */
-class EolMarkerWidget extends WidgetType {
-	private readonly marker: string;
-
-	/**
-	 * @param {EolKind} eol EOL 種別
-	 */
-	constructor(eol: EolKind) {
-		super();
-		this.marker = eolToMarker(eol);
-	}
-
-	/**
-	 * 同一ウィジェットか判定する
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
-	 */
-	eq(other: WidgetType): boolean {
-		return other instanceof EolMarkerWidget && other.marker === this.marker;
-	}
-
-	/**
-	 * DOM を生成する
-	 * @returns {HTMLElement}
-	 */
-	toDOM(): HTMLElement {
-		const span       = document.createElement('span');
-		span.className   = 'cm-eol-marker';
-		span.textContent = this.marker;
-		span.setAttribute('aria-hidden', 'true');
-		return span;
-	}
-
-	/**
-	 * イベントを無視する
-	 * @returns {boolean}
-	 */
-	ignoreEvent(): boolean {
-		return true;
-	}
-}
-
-/**
- * 行末に改行コードマーカー Decoration を構築する
+ * 行に改行コードマーカー Decoration を構築する
+ * 本文DOMへゼロ幅ウィジェットを置かず、CSS 疑似要素で記号を描画する。
  * @param {EditorState} state エディタ状態
  * @returns {DecorationSet}
  */
@@ -120,13 +69,9 @@ function buildEolDecorations(state: EditorState): DecorationSet {
 
 		const line = state.doc.line(lineNumber);
 		builder.add(
-			line.to,
-			line.to,
-			Decoration.widget({
-				widget: new EolMarkerWidget(eol),
-				side  : 1,
-				atomic: false,
-			}),
+			line.from,
+			line.from,
+			Decoration.line({ class: eolToMarkerClass(eol) }),
 		);
 	}
 
@@ -136,7 +81,7 @@ function buildEolDecorations(state: EditorState): DecorationSet {
 /**
  * 改行コード表示用 StateField
  */
-const eolMarkersField = StateField.define<DecorationSet>({
+export const eolMarkersField = StateField.define<DecorationSet>({
 	/**
 	 * 初期 Decoration を生成する
 	 * @param {EditorState} state エディタ状態
@@ -146,14 +91,14 @@ const eolMarkersField = StateField.define<DecorationSet>({
 		return buildEolDecorations(state);
 	},
 	/**
-	 * ドキュメントまたは EOL マップ更新時に再構築する
+	 * EOL マップ更新時だけ再構築し、通常編集では既存ウィジェットをマップする
 	 * @param {DecorationSet} value 現在値
 	 * @param {import('@codemirror/state').Transaction} transaction トランザクション
 	 * @returns {DecorationSet}
 	 */
 	update(value, transaction) {
 		const lineEolsChanged = transaction.effects.some((effect) => effect.is(setLineEolsEffect));
-		if (transaction.docChanged || lineEolsChanged) {
+		if (lineEolsChanged) {
 			return buildEolDecorations(transaction.state);
 		}
 

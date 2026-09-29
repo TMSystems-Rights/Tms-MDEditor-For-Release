@@ -578,7 +578,7 @@
 	pointer-events: none;
 }
 
-.tms-mde-editor-host .cm-eol-marker {
+.tms-mde-editor-host .cm-eol-marker-line::after {
 	display: inline-block;
 	margin-left: 1px;
 	color: var(--tms-mde-color-text-muted);
@@ -588,6 +588,34 @@
 	font-family: var(--tms-mde-font-mono);
 	font-size: 0.9em;
 	line-height: 1;
+}
+
+.tms-mde-editor-host .cm-eol-marker-lf::after {
+	content: '↓';
+}
+
+.tms-mde-editor-host .cm-eol-marker-crlf::after {
+	content: '↲';
+}
+
+.tms-mde-editor-host .cm-eol-marker-cr::after {
+	content: '←';
+}
+
+/*
+ * CodeMirror の空行はキャレット維持用の <br> だけを持つ。通常フローの ::after は
+ * その <br> の次の行へ回り、空行を二行分の高さにしてしまうため、記号だけを重ねる。
+ */
+.tms-mde-editor-host .cm-eol-marker-line:has(> br:only-child) {
+	position: relative;
+}
+
+.tms-mde-editor-host .cm-eol-marker-line:has(> br:only-child)::after {
+	position: absolute;
+	left: 1px;
+	top: 50%;
+	margin-left: 0;
+	transform: translateY(-50%);
 }
 
 .tms-mde-status-bar {

@@ -41,4 +41,14 @@ describe('caretNormalize', () => {
 		});
 		expect(normalizeCaretSelection(state)).toBeNull();
 	});
+
+	it('IME composition 中は行頭キャレットを正規化しない', () => {
+		const state = EditorState.create({
+			doc      : '',
+			selection: EditorSelection.cursor(0, -1),
+		});
+
+		expect(normalizeCaretSelection(state, true)).toBeNull();
+		expect(normalizeCaretSelection(state)?.main.assoc).toBe(1);
+	});
 });

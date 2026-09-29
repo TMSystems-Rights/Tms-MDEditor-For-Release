@@ -14,6 +14,16 @@ export type Cm6LineInfo = {
 };
 
 /**
+ * 行末マップの内容が同じか判定する
+ * @param {LineEol[]} left 比較元
+ * @param {LineEol[]} right 比較先
+ * @returns {boolean} 同じ場合 true
+ */
+export function areLineEolsEqual(left: LineEol[], right: LineEol[]): boolean {
+	return left.length === right.length && left.every((eol, index) => eol === right[index]);
+}
+
+/**
  * 改行文字へ変換する
  * @param {EolKind} eol 改行種別
  * @returns {string} 改行文字列
@@ -171,7 +181,10 @@ export function syncLineEols(
 			eols.push(fallback);
 		}
 
-		return finalizeTrailing(eols, next.endsWithNewline, fallback);
+		return reusePreviousLineEols(
+			previousEols,
+			finalizeTrailing(eols, next.endsWithNewline, fallback),
+		);
 	}
 
 	let prefix = 0;
@@ -207,7 +220,20 @@ export function syncLineEols(
 		result.push(previousEols[index] ?? fallback);
 	}
 
-	return finalizeTrailing(result, next.endsWithNewline, fallback);
+	return reusePreviousLineEols(
+		previousEols,
+		finalizeTrailing(result, next.endsWithNewline, fallback),
+	);
+}
+
+/**
+ * 内容が同じなら既存の配列を再利用する
+ * @param {LineEol[]} previousEols 編集前マップ
+ * @param {LineEol[]} nextEols 編集後マップ
+ * @returns {LineEol[]} 同一内容なら編集前マップ
+ */
+function reusePreviousLineEols(previousEols: LineEol[], nextEols: LineEol[]): LineEol[] {
+	return areLineEolsEqual(previousEols, nextEols) ? previousEols : nextEols;
 }
 
 /**
