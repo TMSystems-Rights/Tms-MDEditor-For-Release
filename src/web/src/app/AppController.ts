@@ -90,6 +90,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 	externalChangeBehavior: 'auto-reload',
 	instanceMode: 'single-instance',
 	outline: {
+		visible: true,
 		side: 'right'
 	},
 	export: {
@@ -624,6 +625,7 @@ export class AppController {
 			this.settings = this.mergeSettingsWithDefaults(payload.config.settings);
 		}
 
+		this.setOutlineVisible(this.settings.outline.visible);
 		this.applyOutlineSide();
 
 		this.dataDirInfo = {

@@ -9,7 +9,7 @@ namespace TmsMdEditor.Services;
 /// </summary>
 internal sealed class ConfigStore
 {
-	public const int CurrentSchemaVersion = 8;
+	public const int CurrentSchemaVersion = 9;
 
 	private const string ConfigBackupPrefix = "config";
 	private const string LegacyDefaultReplaceShortcut = "Ctrl+H";
@@ -41,6 +41,7 @@ internal sealed class ConfigStore
 		"instanceMode",
 		"restoreSessionOnStartup",
 		"closeAppWhenLastTabClosed",
+		"outline.visible",
 		"outline.side",
 		"export.style",
 		"export.outline.enabled",
@@ -743,6 +744,13 @@ internal sealed class ConfigStore
 			}
 		}
 
+		// v8 以前には起動時のアウトライン表示設定がなく、常に非表示だった。
+		// 既存ユーザーの表示状態は維持し、新規インストールだけ新しい既定値（表示）を使う。
+		if (config.SchemaVersion < 9)
+		{
+			settings.Outline.Visible = false;
+		}
+
 		return new AppConfigDocument
 		{
 			SchemaVersion     = CurrentSchemaVersion,
@@ -850,7 +858,8 @@ internal sealed class ConfigStore
 			CloseAppWhenLastTabClosed = settings.CloseAppWhenLastTabClosed,
 			Outline = new OutlineSettings
 			{
-				Side = outlineSide,
+				Visible = settings.Outline?.Visible ?? defaults.Outline.Visible,
+				Side    = outlineSide,
 			},
 			Export = new ExportSettings
 			{

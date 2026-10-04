@@ -264,6 +264,7 @@ export class SettingsModal {
 		this.addCheckbox(section, 'showLineNumbers', '行番号を表示する');
 		this.addCheckbox(section, 'showEolMarkers', '改行記号を表示する');
 		this.addCheckbox(section, 'wordWrap', '折り返し表示');
+		this.addCheckbox(section, 'outline.visible', '起動時にアウトラインを表示する');
 		this.addSelect(section, 'outline.side', 'アウトラインの位置', [
 			['left', '左'],
 			['right', '右'],

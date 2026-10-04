@@ -279,6 +279,11 @@ internal sealed class KeybindingsSettings
 /// </summary>
 internal sealed class OutlineSettings
 {
+	/// <summary>
+	/// ウィンドウ起動時にアウトラインを表示するか
+	/// </summary>
+	public bool Visible { get; set; } = true;
+
 	public string Side { get; set; } = "right";
 }
 

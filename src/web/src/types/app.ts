@@ -37,6 +37,7 @@ export type KeybindingsSettings = {
  * アプリ画面のアウトライン配置（config.json settings.outline）
  */
 export type OutlineSettings = {
+	visible: boolean;
 	side: OutlineSide;
 };
 

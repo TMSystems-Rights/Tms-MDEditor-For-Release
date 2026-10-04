@@ -293,19 +293,61 @@ public class ConfigStoreTests : IDisposable
 
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
-				"""{"outline":{"side":"left"},"export":{"outline":{"enabled":false,"side":"left"}}}"""
+				"""{"outline":{"visible":false,"side":"left"},"export":{"outline":{"enabled":false,"side":"left"}}}"""
 			).RootElement);
 
 		Assert.True(update.Success, update.Message);
+		Assert.False(update.Config?.Settings.Outline.Visible);
 		Assert.Equal("left", update.Config?.Settings.Outline.Side);
 		Assert.False(update.Config?.Settings.Export.Outline.Enabled);
 		Assert.Equal("left", update.Config?.Settings.Export.Outline.Side);
 
 		LoadConfigResult reload = _configStore.Load();
+		Assert.False(reload.Config.Settings.Outline.Visible);
 		Assert.Equal("left", reload.Config.Settings.Outline.Side);
 		Assert.False(reload.Config.Settings.Export.Outline.Enabled);
 		Assert.Equal("left", reload.Config.Settings.Export.Outline.Side);
 		Assert.Equal("live-preview", reload.Config.Settings.Export.Style);
+	}
+
+	[Fact]
+	public void CreateDefaultConfig_shows_outline_on_startup()
+	{
+		AppConfigDocument config = ConfigStore.CreateDefaultConfig();
+
+		Assert.True(config.Settings.Outline.Visible);
+	}
+
+	[Fact]
+	public void Load_migrates_existing_install_to_keep_outline_hidden()
+	{
+		Directory.CreateDirectory(AppPaths.DefaultDataDir);
+		File.WriteAllText(
+			AppPaths.GetConfigPath(AppPaths.DefaultDataDir),
+			"""{"schemaVersion":8,"settings":{"outline":{"side":"left"}}}""");
+
+		LoadConfigResult result = _configStore.Load();
+
+		Assert.True(result.Success, result.Message);
+		Assert.False(result.Config.Settings.Outline.Visible);
+		Assert.Equal("left", result.Config.Settings.Outline.Side);
+		Assert.Equal(ConfigStore.CurrentSchemaVersion, result.Config.SchemaVersion);
+
+		AppConfigDocument persisted = JsonFileHelper.Read<AppConfigDocument>(AppPaths.GetConfigPath(AppPaths.DefaultDataDir));
+		Assert.False(persisted.Settings.Outline.Visible);
+	}
+
+	[Fact]
+	public void ResetSettingItem_restores_outline_startup_visibility()
+	{
+		_configStore.Load();
+		_configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse("""{"outline":{"visible":false}}""").RootElement);
+
+		SaveConfigResult reset = _configStore.ResetSettingItem("outline.visible");
+
+		Assert.True(reset.Success, reset.Message);
+		Assert.True(reset.Config?.Settings.Outline.Visible);
 	}
 
 	[Fact]
