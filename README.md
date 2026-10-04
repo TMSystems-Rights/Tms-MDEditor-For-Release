@@ -4,7 +4,13 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.7.4](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.7.4)
+最新リリース: [v1.8.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.8.0)
+
+## v1.8.0 の主な変更
+
+- 文書末尾へのジャンプで、キャレットが意図した位置に残らない不具合を修正
+- アウトラインの起動時表示を設定で選べるようにする
+- ノートごとの表示位置を保持し、タブ復帰と再起動後も同じ画面とキャレットで開けるようにする
 
 ## v1.7.4 の主な変更
 
