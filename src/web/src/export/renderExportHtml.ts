@@ -33,6 +33,7 @@ import {
 } from '../livePreview/htmlSanitizer';
 import { classifyImageSource, type ImageSourceKind, type ImageSpec } from '../livePreview/imageWidget';
 import { splitImageAlt, splitWikiEmbedTarget } from '../livePreview/imageSize';
+import { splitWikiLinkAlias } from '../livePreview/wikiLink';
 import { findCalloutInfo } from '../livePreview/lineDecorations';
 import {
 	extractFencedCodeInfo,
@@ -1142,7 +1143,10 @@ async function renderInline(context: ExportContext, node: SyntaxNode): Promise<s
 				pageTo   = child.to;
 			}
 		});
-		return `<span class="cm-md-wikilink">${emitDecorated(context, pageFrom, pageTo)}</span>`;
+		const raw         = context.state.doc.sliceString(pageFrom, pageTo);
+		const split       = splitWikiLinkAlias(raw);
+		const visibleFrom = split.alias ? pageFrom + split.hideLength : pageFrom;
+		return `<span class="cm-md-wikilink">${emitDecorated(context, visibleFrom, pageTo)}</span>`;
 	}
 
 	if (node.name === 'Image' || node.name === 'WikiEmbed') {

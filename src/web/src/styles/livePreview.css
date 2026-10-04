@@ -412,8 +412,13 @@
 	background: color-mix(in srgb, var(--tms-mde-color-primary) 38%, transparent);
 }
 
+/*
+ * 列幅を保存したセルは、エディタの折り返しがオフでも列幅の中で折り返す。
+ * .cm-content は white-space: pre を継承し、overflow-wrap だけでは改行されない。
+ */
 .tms-mde-editor-host .cm-md-table.is-resized th,
 .tms-mde-editor-host .cm-md-table.is-resized td {
+	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	word-break: break-word;
 }

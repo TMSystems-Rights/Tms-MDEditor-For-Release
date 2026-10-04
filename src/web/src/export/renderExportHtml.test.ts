@@ -137,6 +137,18 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('<span class="cm-md-wikilink">内部</span>');
 	});
 
+	it('本文の Wiki リンクは | 右側のラベルだけ出す', async () => {
+		const html = await render('see [[docs/要望_009|要望_009]]\n');
+		expect(html).toContain('<span class="cm-md-wikilink">要望_009</span>');
+		expect(html).not.toContain('docs/要望_009');
+	});
+
+	it('表セルの Wiki リンクは \\| 右側のラベルだけ出す', async () => {
+		const html = await render('| [[docs/要望_009\\|要望_009]] |\n| --- |\n');
+		expect(html).toContain('<span class="cm-md-wikilink">要望_009</span>');
+		expect(html).not.toContain('docs/要望_009');
+	});
+
 	it('許可インライン HTML を残し script は出さない', async () => {
 		const html = await render('ここは <mark>印</mark> です。\n\n<script>alert(1)</script>\n');
 		expect(html).toContain('<mark');

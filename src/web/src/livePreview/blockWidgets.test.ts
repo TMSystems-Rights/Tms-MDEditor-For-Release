@@ -556,6 +556,22 @@ describe('blockWidgets', () => {
 		expect(isBreakHtmlTag('<span>')).toBe(false);
 	});
 
+	it('表セルの [[path\\|label]] はラベルだけを表示する', () => {
+		const doc   = '| [[docs/要望_009\\|要望_009]] |\n| --- |\n';
+		const state = createState(doc, 0);
+		const table = findNode(state, 'Table');
+		const data  = extractTableData(state, table!);
+		const wiki  = data.headerSources[0]?.inlineRanges.find((inlineRange) => inlineRange.kind === 'wikilink');
+		const hide  = 'docs/要望_009\\|';
+		const from  = data.headerSources[0]!.editableText.indexOf(hide);
+
+		expect(tableCellNodesToPlainText(data.headers[0]!)).toBe('要望_009');
+		expect(from).toBeGreaterThanOrEqual(0);
+		expect(wiki?.markRanges).toEqual(expect.arrayContaining([
+			{ from, to: from + hide.length },
+		]));
+	});
+
 	it('テーブルセル内の br を AST に含める', () => {
 		const state = createState('| a<br>b | c |\n| --- | --- |\n| 1 | 2 |', 0);
 		const table = findNode(state, 'Table');

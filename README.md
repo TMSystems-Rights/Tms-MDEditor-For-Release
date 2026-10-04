@@ -4,7 +4,12 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.8.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.8.1)
+最新リリース: [v1.8.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.8.2)
+
+## v1.8.2 の主な変更
+
+- 列幅を保存した表セルは、折り返し表示がオフでもその列幅の中で折り返す
+- `[[パス|ラベル]]` と、表セル内の `[[パス\|ラベル]]` はラベルだけを表示する
 
 ## v1.8.1 の主な変更
 

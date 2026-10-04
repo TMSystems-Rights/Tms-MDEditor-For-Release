@@ -87,4 +87,9 @@ describe('tableResize', () => {
 		expect(livePreviewCss).toMatch(/div\.cm-md-html-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s);
 		expect(livePreviewCss).not.toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
 	});
+
+	it('列幅を保存したセルはエディタの折り返しがオフでも列内で折り返す', () => {
+		expect(livePreviewCss).toMatch(/\.cm-md-table\.is-resized th,[\s\S]*?white-space:\s*pre-wrap;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table\.is-resized td\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
+	});
 });

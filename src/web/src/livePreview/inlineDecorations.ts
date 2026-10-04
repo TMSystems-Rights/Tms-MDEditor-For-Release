@@ -9,6 +9,7 @@ import {
 } from '../editor/codeLanguage';
 import { selectionIntersectsRange } from './cursorLine';
 import { pushHiddenReplace } from './hiddenContent';
+import { splitWikiLinkAlias } from './wikiLink';
 
 const MARK_NODE_NAMES = new Set([
 	'EmphasisMark',
@@ -233,27 +234,38 @@ function decorateLink(
 
 /**
  * WikiLink の装飾エントリを追加する（遷移なし・見た目のみ）
+ * `|` または表セル用の `\|` があるときは右側のラベルだけを出す。
  * @param {SyntaxNode} node WikiLink ノード
+ * @param {EditorState} state エディタ状態
  * @param {DecorationEntry[]} entries エントリ配列
  * @returns {void}
  */
-function decorateWikiLink(node: SyntaxNode, entries: DecorationEntry[]): void {
-	node.cursor().iterate((child) => {
+function decorateWikiLink(node: SyntaxNode, state: EditorState, entries: DecorationEntry[]): void {
+	for (let child = node.firstChild; child; child = child.nextSibling) {
 		if (child.name === 'WikiLinkMark') {
 			pushHiddenMark(entries, child.from, child.to);
-			return;
+			continue;
 		}
 
 		if (child.name !== 'WikiLinkPage' || child.from >= child.to) {
-			return;
+			continue;
 		}
 
-		entries.push({
-			from      : child.from,
-			to        : child.to,
-			decoration: Decoration.mark({ class: 'cm-md-wikilink' }),
-		});
-	});
+		const raw         = state.doc.sliceString(child.from, child.to);
+		const split       = splitWikiLinkAlias(raw);
+		const visibleFrom = split.alias ? child.from + split.hideLength : child.from;
+		if (visibleFrom > child.from) {
+			pushHiddenMark(entries, child.from, visibleFrom);
+		}
+
+		if (visibleFrom < child.to) {
+			entries.push({
+				from      : visibleFrom,
+				to        : child.to,
+				decoration: Decoration.mark({ class: 'cm-md-wikilink' }),
+			});
+		}
+	}
 }
 
 /**
@@ -323,7 +335,7 @@ export function collectInlineDecorationEntries(
 						return;
 					}
 
-					decorateWikiLink(ref.node, entries);
+					decorateWikiLink(ref.node, state, entries);
 					return false;
 				default:
 					return;

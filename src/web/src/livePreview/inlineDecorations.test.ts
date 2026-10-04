@@ -342,4 +342,43 @@ describe('inlineDecorations', () => {
 		expect(brackets.length).toBe(2);
 		expect(page).toBeDefined();
 	});
+
+	it('本文の [[path|label]] はラベルだけを表示する', () => {
+		const state       = EditorState.create({
+			doc       : 'x\nsee [[docs/要望_009|要望_009]] now',
+			selection : { anchor: 0, head: 0 },
+			extensions: [createTmsMarkdownSupport()],
+		});
+		const sourceLines = collectSourceLineNumbers(state);
+		const entries     = collectInlineDecorationEntries(state, sourceLines);
+		const visible     = entries.find((entry) => (
+			entry.decoration.spec.class === 'cm-md-wikilink'
+		));
+		const hiddenPath  = entries.find((entry) => (
+			state.doc.sliceString(entry.from, entry.to) === 'docs/要望_009|'
+		));
+
+		expect(visible).toBeDefined();
+		expect(state.doc.sliceString(visible!.from, visible!.to)).toBe('要望_009');
+		expect(hiddenPath).toBeDefined();
+	});
+
+	it('本文の [[path\\|label]] もラベルだけを表示する', () => {
+		const state       = EditorState.create({
+			doc       : 'x\nsee [[docs/要望_009\\|要望_009]] now',
+			selection : { anchor: 0, head: 0 },
+			extensions: [createTmsMarkdownSupport()],
+		});
+		const sourceLines = collectSourceLineNumbers(state);
+		const entries     = collectInlineDecorationEntries(state, sourceLines);
+		const visible     = entries.find((entry) => (
+			entry.decoration.spec.class === 'cm-md-wikilink'
+		));
+
+		expect(visible).toBeDefined();
+		expect(state.doc.sliceString(visible!.from, visible!.to)).toBe('要望_009');
+		expect(entries.some((entry) => (
+			state.doc.sliceString(entry.from, entry.to) === 'docs/要望_009\\|'
+		))).toBe(true);
+	});
 });

@@ -28,6 +28,7 @@ import {
 	type ImageSpec,
 } from './imageWidget';
 import { splitImageAlt, splitWikiEmbedTarget } from './imageSize';
+import { splitWikiLinkAlias } from './wikiLink';
 import type { DecorationEntry } from './inlineDecorations';
 import {
 	forgetCellImageWidth,
@@ -345,6 +346,50 @@ function collectOwnedInlineMarkRanges(node: SyntaxNode): TableCellRange[] {
 }
 
 /**
+ * WikiLink のパスと区切り（`|` / `\|`）を、編集中は記法として隠す範囲で返す。
+ * @param {EditorState} state エディタ状態
+ * @param {SyntaxNode} node WikiLink ノード
+ * @returns {TableCellRange | null}
+ */
+function wikiLinkAliasHideRange(state: EditorState, node: SyntaxNode): TableCellRange | null {
+	for (let child = node.firstChild; child; child = child.nextSibling) {
+		if (child.name !== 'WikiLinkPage' || child.from >= child.to) {
+			continue;
+		}
+
+		const split = splitWikiLinkAlias(state.doc.sliceString(child.from, child.to));
+		if (!split.alias || split.hideLength <= 0) {
+			return null;
+		}
+
+		return { from: child.from, to: child.from + split.hideLength };
+	}
+
+	return null;
+}
+
+/**
+ * WikiLink の表示ノードを返す。エイリアスがあればラベルだけにする。
+ * @param {EditorState} state エディタ状態
+ * @param {SyntaxNode} node WikiLink ノード
+ * @returns {TableCellNode[]}
+ */
+function wikiLinkDisplayNodes(state: EditorState, node: SyntaxNode): TableCellNode[] {
+	for (let child = node.firstChild; child; child = child.nextSibling) {
+		if (child.name !== 'WikiLinkPage' || child.from >= child.to) {
+			continue;
+		}
+
+		const raw   = state.doc.sliceString(child.from, child.to);
+		const split = splitWikiLinkAlias(raw);
+		const text  = split.alias ?? raw;
+		return text ? [{ kind: 'text', text }] : [];
+	}
+
+	return [];
+}
+
+/**
  * InlineCode の `{java}` 接頭辞（直後の空白含む）を、既知言語なら隠し対象として返す
  * @param {EditorState} state エディタ状態
  * @param {SyntaxNode} node InlineCode ノード
@@ -424,6 +469,13 @@ function extractEditableCellData(
 		}
 
 		const markRanges = collectOwnedInlineMarkRanges(ref.node);
+		if (kind === 'wikilink') {
+			const aliasHide = wikiLinkAliasHideRange(state, ref.node);
+			if (aliasHide) {
+				markRanges.push(aliasHide);
+			}
+		}
+
 		let codeLanguage: string | undefined;
 		if (kind === 'code') {
 			const languagePrefix = extractInlineCodeLanguagePrefixRange(state, ref.node);
@@ -692,7 +744,7 @@ function extractInlineNodes(state: EditorState, node: SyntaxNode): TableCellNode
 		}
 
 		if (name === 'WikiLink') {
-			current.push({ kind: 'wikilink', children: extractInlineNodes(state, child) });
+			current.push({ kind: 'wikilink', children: wikiLinkDisplayNodes(state, child) });
 			cursor = child.to;
 			continue;
 		}
