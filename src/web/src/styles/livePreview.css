@@ -340,20 +340,24 @@
 	background-color: var(--tms-mde-color-selection-bg-focused);
 }
 
-.tms-mde-editor-host .cm-md-table-wrap {
+.tms-mde-editor-host .cm-md-table-wrap,
+.tms-mde-editor-host .cm-md-html-table-wrap {
 	display: block;
 	position: relative;
 	width: max-content;
-	max-width: none;
 	margin: 0.35em 0;
 }
 
 /*
- * overflow-x:visible と overflow-y:auto は両方 auto になる。
- * 横は hidden、縦だけ auto。スニペットの overflow:auto より詳細度を上げる。
+ * 最大幅は表示中の編集領域（--tms-mde-table-max-width）。
+ * パーセント幅だと親が表の内容幅まで伸び、横スクロールが出ない。
+ * overflow-x と overflow-y は両方指定する。片方だけ visible だと auto に引き込まれる。
+ * スニペットの overflow より詳細度を上げる。
  */
-.tms-mde-editor-host div.cm-md-table-wrap {
-	overflow-x: hidden;
+.tms-mde-editor-host div.cm-md-table-wrap,
+.tms-mde-editor-host div.cm-md-html-table-wrap {
+	max-width: var(--tms-mde-table-max-width, 100%);
+	overflow-x: auto;
 	overflow-y: auto;
 }
 
@@ -446,13 +450,6 @@
 .tms-mde-editor-host .cm-md-table th[contenteditable="plaintext-only"],
 .tms-mde-editor-host .cm-md-table td[contenteditable="plaintext-only"] {
 	cursor: text;
-}
-
-.tms-mde-editor-host .cm-md-html-table-wrap {
-	display: block;
-	width: max-content;
-	max-width: none;
-	margin: 0.35em 0;
 }
 
 .tms-mde-editor-host .cm-md-html-table-wrap .cm-md-html-table {

@@ -33,6 +33,7 @@ import { createCaretBlinkExtension } from './caretBlink';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
 import { cursorStableDocEnd, selectStableDocEnd } from './documentBoundary';
 import { createLineWrapperExtensions } from './lineWrappers';
+import { createTableMaxWidthExtension } from './tableMaxWidth';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
 
@@ -144,6 +145,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		...createInlineCodeHighlightExtensions(),
 		EditorState.tabSize.of(options.settings.tabSize),
 		...createLineWrapperExtensions(),
+		createTableMaxWidthExtension(),
 		...createVerticalMotionExtensions(),
 		...createSearchExtensions(options.settings.search),
 		createOutlineScrollExtension(),

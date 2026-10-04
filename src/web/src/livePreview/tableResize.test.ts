@@ -82,8 +82,9 @@ describe('tableResize', () => {
 		expect(livePreviewCss).toMatch(/\.cm-md-table-row-resizer\s*\{[^}]*height:\s*14px;/s);
 	});
 
-	it('表ラッパーに横スクロールを付けない', () => {
-		expect(livePreviewCss).not.toMatch(/\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s);
-		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
+	it('長い表は表示中の編集領域幅で横スクロールする', () => {
+		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap,[\s\S]*?max-width:\s*var\(--tms-mde-table-max-width,\s*100%\);/);
+		expect(livePreviewCss).toMatch(/div\.cm-md-html-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s);
+		expect(livePreviewCss).not.toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
 	});
 });
