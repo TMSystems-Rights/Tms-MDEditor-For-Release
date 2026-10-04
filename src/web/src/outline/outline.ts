@@ -2,6 +2,7 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, Transaction, type EditorState, type TransactionSpec } from '@codemirror/state';
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import type { Tree } from '@lezer/common';
+import { createCaretRedrawSpec } from '../editor/caretRedraw';
 
 export type OutlineItem = {
 	level: number;
@@ -43,7 +44,6 @@ type OutlineScrollCorrectionMeasure = {
 
 const HEADING_NODE_PATTERN              = /^(?:ATXHeading|SetextHeading)([1-6])$/;
 const OUTLINE_JUMP_USER_EVENT           = 'select.outline';
-const OUTLINE_CARET_REDRAW_USER_EVENT   = 'select.caret';
 const outlineInitialScrollKey           = {};
 const outlineScrollCorrectionKey        = {};
 const OUTLINE_SCROLL_MARGIN_PX          = 12;
@@ -216,10 +216,7 @@ export function planOutlineScrollCorrection(
  * @returns {TransactionSpec} 再描画用スペック
  */
 export function createOutlineCaretRedrawSpec(from: number): TransactionSpec {
-	return {
-		selection: EditorSelection.cursor(from, 1),
-		userEvent: OUTLINE_CARET_REDRAW_USER_EVENT,
-	};
+	return createCaretRedrawSpec(EditorSelection.create([EditorSelection.cursor(from, 1)]));
 }
 
 /**

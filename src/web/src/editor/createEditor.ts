@@ -30,6 +30,7 @@ import {
 } from './verticalMotion';
 import { createCaretBlinkExtension } from './caretBlink';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
+import { cursorStableDocEnd, selectStableDocEnd } from './documentBoundary';
 import { createLineWrapperExtensions } from './lineWrappers';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
@@ -225,6 +226,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		keymap.of([
 			{ key: 'Tab', run: indentListItem, shift: dedentListItem },
 			{ key: 'Enter', run: continueListMarkup },
+			{ key: 'Mod-End', run: cursorStableDocEnd, shift: selectStableDocEnd, preventDefault: true },
 			{ key: options.settings.keybindings.toggleCheckbox.replaceAll('+', '-'), run: toggleCheckboxCommand },
 			{ key: 'ArrowUp', run: cursorStableLineUp, shift: selectStableLineUp },
 			{ key: 'ArrowDown', run: cursorStableLineDown, shift: selectStableLineDown },
