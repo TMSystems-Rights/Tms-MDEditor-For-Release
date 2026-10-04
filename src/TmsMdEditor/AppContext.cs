@@ -13,14 +13,15 @@ internal sealed class AppContext : IDisposable
 	/// </summary>
 	public AppContext()
 	{
-		Logger               = new Logger();
-		BootstrapConfigStore = new BootstrapConfigStore(Logger);
-		ConfigStore          = new ConfigStore(Logger, BootstrapConfigStore);
-		SessionStore         = new SessionStore(Logger, ConfigStore);
-		FileService          = new FileService(Logger);
-		FileWatcherService   = new FileWatcherService(Logger);
-		UpdateService        = new UpdateService(Logger);
-		RecentFilesService   = new RecentFilesService();
+		Logger                = new Logger();
+		BootstrapConfigStore  = new BootstrapConfigStore(Logger);
+		ConfigStore           = new ConfigStore(Logger, BootstrapConfigStore);
+		SessionStore          = new SessionStore(Logger, ConfigStore);
+		NoteViewPositionStore = new NoteViewPositionStore(Logger, ConfigStore);
+		FileService           = new FileService(Logger);
+		FileWatcherService    = new FileWatcherService(Logger);
+		UpdateService         = new UpdateService(Logger);
+		RecentFilesService    = new RecentFilesService();
 	}
 
 	/// <summary>
@@ -42,6 +43,11 @@ internal sealed class AppContext : IDisposable
 	/// セッションストア
 	/// </summary>
 	public SessionStore SessionStore { get; }
+
+	/// <summary>
+	/// ノートごとの表示位置ストア
+	/// </summary>
+	public NoteViewPositionStore NoteViewPositionStore { get; }
 
 	/// <summary>
 	/// ファイルサービス

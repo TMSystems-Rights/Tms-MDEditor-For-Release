@@ -638,6 +638,7 @@ internal sealed class MainForm : Form
 		SessionLoadResult sessionLoad = _isSessionOwner && _appContext.Config.Settings.RestoreSessionOnStartup
 			? _appContext.SessionStore.Load()
 			: new SessionLoadResult { Success = true };
+		NoteViewPositionLoadResult noteViewPositions = _appContext.NoteViewPositionStore.Load();
 
 		_webView.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
 		{
@@ -652,6 +653,7 @@ internal sealed class MainForm : Form
 				isSessionOwner = _isSessionOwner,
 				session = sessionLoad.Session,
 				sessionLoadMessage = sessionLoad.Message,
+				noteViewPositions = noteViewPositions.Document,
 				config  = new
 				{
 					dataDir             = dataDirInfo.DataDir,

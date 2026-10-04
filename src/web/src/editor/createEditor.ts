@@ -14,6 +14,7 @@ import {
 	createLivePreviewExtensions,
 	type CompiledCustomDecorationRule,
 } from '../livePreview/livePreviewPlugin';
+import { clampNoteViewOffset } from './noteViewPosition';
 import { createEolMarkerExtensions } from './eolMarkers';
 import { toggleCheckboxCommand } from './checkboxToggle';
 import { continueListMarkup } from './listContinuation';
@@ -43,6 +44,7 @@ type CreateEditorOptions = {
 	lineEols?: Array<EolKind | null>;
 	customDecorations?: CompiledCustomDecorationRule[];
 	readOnly?: boolean;
+	selection?: { anchor: number; head: number };
 	onDocChange: (view: EditorView) => void;
 	onSelectionChange: (view: EditorView) => void;
 	onPaste?: (event: ClipboardEvent, view: EditorView) => boolean;
@@ -54,8 +56,15 @@ type CreateEditorOptions = {
  * @returns {EditorState} エディタ状態
  */
 export function createEditorState(options: CreateEditorOptions): EditorState {
+	const docLength = options.text.length;
 	return EditorState.create({
 		doc       : options.text,
+		selection : options.selection
+			? {
+				anchor: clampNoteViewOffset(options.selection.anchor, docLength),
+				head  : clampNoteViewOffset(options.selection.head, docLength),
+			}
+			: undefined,
 		extensions: createEditorExtensions(options),
 	});
 }

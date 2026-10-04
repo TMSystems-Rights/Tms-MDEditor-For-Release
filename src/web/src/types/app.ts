@@ -248,6 +248,7 @@ export type AppReadyPayload = {
 	isSessionOwner?: boolean;
 	session?: unknown;
 	sessionLoadMessage?: string;
+	noteViewPositions?: unknown;
 	config?: {
 		dataDir?: string;
 		defaultDataDir?: string;

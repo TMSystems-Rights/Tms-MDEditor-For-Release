@@ -102,6 +102,7 @@ internal sealed class BridgeRouter
 				"shell:openExternal" => _shellApi.OpenExternal(paramsElement),
 				"app:reportCloseReady" => _appApi.ReportCloseReady(paramsElement),
 				"session:save"          => _sessionApi.Save(paramsElement),
+				"noteViewPositions:save" => _appContext.NoteViewPositionStore.Save(paramsElement),
 				"ui:dismissMenus"      => _appApi.DismissMenus(),
 				"clipboard:readText"   => _clipboardApi.ReadText(),
 				"clipboard:writeText"  => _clipboardApi.WriteText(paramsElement),

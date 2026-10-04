@@ -546,6 +546,9 @@ public class ConfigStoreTests : IDisposable
 		File.WriteAllText(
 			AppPaths.GetSessionPath(AppPaths.DefaultDataDir),
 			"""{"schemaVersion":1,"tabs":[{"tabId":"tab-1","filePath":"C:\\docs\\one.md"}]}""");
+		File.WriteAllText(
+			AppPaths.GetNoteViewPositionsPath(AppPaths.DefaultDataDir),
+			"""{"schemaVersion":1,"entries":[{"filePath":"C:\\docs\\one.md","anchor":10}]}""");
 
 		string newDataDir = Path.Combine(_tempRoot, "custom-data");
 		MigrateDataDirResult migrateResult = _configStore.MigrateDataDir(newDataDir);
@@ -555,6 +558,8 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(File.Exists(AppPaths.GetConfigPath(newDataDir)));
 		Assert.True(File.Exists(AppPaths.GetSessionPath(newDataDir)));
 		Assert.Contains("tab-1", File.ReadAllText(AppPaths.GetSessionPath(newDataDir)));
+		Assert.True(File.Exists(AppPaths.GetNoteViewPositionsPath(newDataDir)));
+		Assert.Contains("one.md", File.ReadAllText(AppPaths.GetNoteViewPositionsPath(newDataDir)));
 
 		BootstrapConfigDocument bootstrap = _bootstrapConfigStore.Load();
 		Assert.Equal(newDataDir, bootstrap.DataDir);

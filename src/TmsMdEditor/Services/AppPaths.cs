@@ -152,6 +152,13 @@ internal static class AppPaths
 	public static string GetSessionPath(string dataDir) => Path.Combine(dataDir, "session.json");
 
 	/// <summary>
+	/// dataDir 内 note-view-positions.json のパス
+	/// </summary>
+	/// <param name="dataDir">dataDir</param>
+	/// <returns>note-view-positions.json パス</returns>
+	public static string GetNoteViewPositionsPath(string dataDir) => Path.Combine(dataDir, "note-view-positions.json");
+
+	/// <summary>
 	/// dataDir 内 backups フォルダのパス
 	/// </summary>
 	/// <param name="dataDir">dataDir</param>

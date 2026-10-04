@@ -598,6 +598,7 @@ internal sealed class ConfigStore
 	{
 		CopyFileIfMissing(AppPaths.GetConfigPath(oldDir), AppPaths.GetConfigPath(newDir));
 		CopyFileIfMissing(AppPaths.GetSessionPath(oldDir), AppPaths.GetSessionPath(newDir));
+		CopyFileIfMissing(AppPaths.GetNoteViewPositionsPath(oldDir), AppPaths.GetNoteViewPositionsPath(newDir));
 		CopyDirectoryIfMissing(AppPaths.GetSnippetsDirectory(oldDir), AppPaths.GetSnippetsDirectory(newDir));
 		CopyDirectoryIfMissing(AppPaths.GetBackupDirectory(oldDir), AppPaths.GetBackupDirectory(newDir));
 	}

@@ -36,6 +36,8 @@ import { SettingsModal } from '../settings/SettingsModal';
 import { applyCssSnippets, getCssSnippetsReloadStatus } from '../settings/cssSnippets';
 import { CONTEXT_MENU_ITEM_LABELS, createDefaultContextMenuSettings, isContextMenuSeparator, normalizeContextMenuSettings } from '../settings/contextMenuSettings';
 import { createSessionSnapshot, isEmptySessionSnapshot, normalizeSessionSnapshot, prunePaneLayout, SESSION_SCHEMA_VERSION, type SessionSnapshot } from '../session/sessionState';
+import { createCaretRedrawSpec } from '../editor/caretRedraw';
+import { captureNoteViewPosition, normalizeNoteViewPositionDocument, NoteViewPositionMemory, restoreNoteViewScroll, selectionFromNoteViewPosition, type NoteViewPosition } from '../editor/noteViewPosition';
 import {
 	buildOutlineTree,
 	collectFoldableOutlineFroms,
@@ -147,6 +149,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 export class AppController {
 	private static readonly INITIAL_PANE_ID = 'pane-initial';
 
+	private static readonly NOTE_VIEW_POSITION_SAVE_DELAY_MS = 400;
+
 	private settings: AppSettings = DEFAULT_SETTINGS;
 
 	private customDecorationRules: CompiledCustomDecorationRule[] = [];
@@ -196,6 +200,20 @@ export class AppController {
 	private tabDragSourcePaneId: PaneId | null = null;
 
 	private isSessionOwner = false;
+
+	private readonly noteViewPositions = new NoteViewPositionMemory();
+
+	private readonly untitledNoteViewPositions = new Map<string, NoteViewPosition>();
+
+	private readonly noteViewCaptureReady = new WeakSet<EditorView>();
+
+	private readonly noteViewRememberScheduled = new WeakSet<EditorView>();
+
+	private noteViewSaveTimer: number | null = null;
+
+	private noteViewSaveChain: Promise<void> = Promise.resolve();
+
+	private lastNoteViewPositionJson = '';
 
 	private readonly editorHostElement: HTMLElement;
 
@@ -644,6 +662,7 @@ export class AppController {
 		applyTheme(payload.config?.theme ?? this.settings.theme);
 		applyCodeFontFamily(this.settings.codeFontFamily);
 		applyImageBorder(this.settings.imageBorder);
+		this.loadNoteViewPositions(payload.noteViewPositions);
 		await this.refreshCssSnippets(false);
 
 		if (payload.config?.loadMessage) {
@@ -775,14 +794,6 @@ export class AppController {
 	private applySettings(settings: AppSettings): void {
 		this.persistActiveEditorState();
 
-		const scrollPositions = new Map<PaneId, { left: number; top: number }>();
-		this.editorViews.forEach((view, paneId) => {
-			scrollPositions.set(paneId, {
-				left: view.scrollDOM.scrollLeft,
-				top: view.scrollDOM.scrollTop
-			});
-		});
-
 		this.settings = this.mergeSettingsWithDefaults(settings);
 		applyTheme(this.settings.theme);
 		applyCodeFontFamily(this.settings.codeFontFamily);
@@ -798,15 +809,6 @@ export class AppController {
 
 		if (this.getActiveTab()) {
 			this.mountActiveEditor();
-			window.requestAnimationFrame(() => {
-				scrollPositions.forEach((position, paneId) => {
-					const view = this.editorViews.get(paneId);
-					if (view) {
-						view.scrollDOM.scrollLeft = position.left;
-						view.scrollDOM.scrollTop  = position.top;
-					}
-				});
-			});
 		}
 
 		this.applyOutlineSide();
@@ -1144,6 +1146,7 @@ export class AppController {
 		const alreadyActive = pane.activeTabId === tabId && this.activePaneId === paneId;
 
 		this.persistActiveEditorState();
+		void this.flushNoteViewPositions();
 		if (!pane.tabIds.includes(tabId)) this.addTabToPane(nextTab, paneId);
 		pane.activeTabId  = tabId;
 		this.activePaneId = paneId;
@@ -1189,11 +1192,15 @@ export class AppController {
 		pane.tabIds = pane.tabIds.filter((entry) => entry !== tabId);
 		pane.editorStates.delete(tabId);
 		pane.viewModes.delete(tabId);
-		if (occurrenceCount === 1) this.tabs = this.tabs.filter((entry) => entry.tabId !== tabId);
+		if (occurrenceCount === 1) {
+			this.tabs = this.tabs.filter((entry) => entry.tabId !== tabId);
+			this.untitledNoteViewPositions.delete(tabId);
+		}
 
 		if (this.tabs.length === 0) {
 			if (this.settings.closeAppWhenLastTabClosed) {
 				await this.persistSession();
+				await this.flushNoteViewPositions();
 				await invokeBridge('app:reportCloseReady', { allowClose: true });
 				return true;
 			}
@@ -1558,6 +1565,7 @@ export class AppController {
 		}
 
 		await this.persistSession();
+		await this.flushNoteViewPositions();
 		await invokeBridge('app:reportCloseReady', { allowClose: true });
 	}
 
@@ -2753,6 +2761,7 @@ export class AppController {
 		this.editorViews.set(paneId, view);
 		this.applyDocumentContextToEditor(view, tab.filePath);
 		view.dom.addEventListener('focusin', () => this.activatePane(paneId));
+		this.bindNoteViewPosition(view);
 	}
 
 	/**
@@ -2937,6 +2946,248 @@ export class AppController {
 			const tab = this.tabs.find((entry) => entry.tabId === tabId);
 			if (tab) tab.editorState = view.state;
 		});
+		this.captureMountedNoteViews();
+	}
+
+	/**
+	 * 起動時に受け取った表示位置をメモリへ載せる。
+	 * @param {unknown} value 保存ドキュメント
+	 * @returns {void}
+	 */
+	private loadNoteViewPositions(value: unknown): void {
+		this.noteViewPositions.replace(normalizeNoteViewPositionDocument(value));
+		this.lastNoteViewPositionJson = JSON.stringify(this.noteViewPositions.toDocument());
+	}
+
+	/**
+	 * マウント済みビューの表示位置を、準備ができたものだけ記録する。
+	 * アクティブペインを最後に書き、同じノートの位置はそちらを優先する。
+	 * @returns {void}
+	 */
+	private captureMountedNoteViews(): void {
+		this.editorViews.forEach((view, paneId) => {
+			if (paneId === this.activePaneId) return;
+			this.rememberNoteView(view);
+		});
+		const activeView = this.editorViews.get(this.activePaneId);
+		if (activeView) this.rememberNoteView(activeView);
+	}
+
+	/**
+	 * 表示位置の復元が終わるまで、先頭へのスクロールを保存しない。
+	 * @param {EditorView} view エディタ
+	 * @returns {void}
+	 */
+	private bindNoteViewPosition(view: EditorView): void {
+		const position = this.noteViewPositionForView(view);
+		/**
+		 * スクロールのたびに表示位置を記録する
+		 * @returns {void}
+		 */
+		const rememberOnScroll = (): void => {
+			this.scheduleRememberNoteView(view);
+		};
+		view.scrollDOM.addEventListener('scroll', rememberOnScroll, { passive: true });
+
+		if (!position) {
+			this.noteViewCaptureReady.add(view);
+			this.scheduleCaretSync(view, false);
+			return;
+		}
+
+		/**
+		 * 目標位置へ届いたら、選択位置のキャレットを描いて入力を受け付ける
+		 * @returns {void}
+		 */
+		const showCaret = (): void => {
+			this.syncMountedCaret(view);
+		};
+		/**
+		 * 復元を終えたらキャレットを描き直し、反映できた位置だけ記録する
+		 * @param {boolean} applied 行高が揃った位置まで戻せたら true
+		 * @returns {void}
+		 */
+		const finishRestore = (applied: boolean): void => {
+			/**
+			 * 計測の外でキャレットを描き直し、戻せた位置だけ記録する
+			 * @returns {void}
+			 */
+			const finishAfterFrame = (): void => {
+				if (!view.dom.isConnected) return;
+				if (!applied) this.revealSelectionLine(view);
+				this.syncMountedCaret(view);
+				this.noteViewCaptureReady.add(view);
+				if (applied) this.rememberNoteView(view);
+			};
+			window.requestAnimationFrame(finishAfterFrame);
+		};
+		restoreNoteViewScroll(view, position, finishRestore, showCaret);
+	}
+
+	/**
+	 * 描画後にキャレットを選択位置へ合わせ、アクティブペインなら入力できるようフォーカスする。
+	 * 行高が揃う前にフォーカスすると、DOM 選択が編集できない隙間に入り、キー入力が捨てられる。
+	 * @param {EditorView} view エディタ
+	 * @param {boolean} bringSelectionIntoView 表示位置へ戻せなかったとき、選択行を画面内へ入れる
+	 * @returns {void}
+	 */
+	private scheduleCaretSync(view: EditorView, bringSelectionIntoView: boolean): void {
+		/**
+		 * 計測の外でキャレットとフォーカスを合わせる
+		 * @returns {void}
+		 */
+		const syncAfterFrame = (): void => {
+			if (!view.dom.isConnected) return;
+			if (bringSelectionIntoView) this.revealSelectionLine(view);
+			this.syncMountedCaret(view);
+		};
+		window.requestAnimationFrame(syncAfterFrame);
+	}
+
+	/**
+	 * 描画キャレットを選択位置へ合わせ、アクティブペインならフォーカスする。
+	 * @param {EditorView} view エディタ
+	 * @returns {void}
+	 */
+	private syncMountedCaret(view: EditorView): void {
+		if (!view.dom.isConnected) return;
+		view.dispatch(createCaretRedrawSpec(view.state.selection));
+		if (this.editorViews.get(this.activePaneId) === view) view.focus();
+	}
+
+	/**
+	 * 選択行が画面外なら、その行の上端までスクロールする。
+	 * @param {EditorView} view エディタ
+	 * @returns {void}
+	 */
+	private revealSelectionLine(view: EditorView): void {
+		const scroller = view.scrollDOM;
+		if (!scroller.isConnected || scroller.clientHeight <= 0) return;
+		const block     = view.lineBlockAt(view.state.selection.main.head);
+		const top       = scroller.scrollTop;
+		const bottom    = top + scroller.clientHeight;
+		const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+		if (block.bottom >= top + 1 && block.top <= bottom - 1) return;
+		scroller.scrollTop = Math.min(maxScroll, Math.max(0, block.top));
+	}
+
+	/**
+	 * ビューに対応する保存済み表示位置を返す。
+	 * @param {EditorView} view エディタ
+	 * @returns {NoteViewPosition | null} 無ければ null
+	 */
+	private noteViewPositionForView(view: EditorView): NoteViewPosition | null {
+		const tab = this.tabForView(view);
+		if (!tab) return null;
+		if (tab.filePath) return this.noteViewPositions.get(tab.filePath);
+		return this.untitledNoteViewPositions.get(tab.tabId) ?? null;
+	}
+
+	/**
+	 * スクロールや選択の直後は、次のフレームで表示位置を記録する。
+	 * 同じターンで行位置を読むと、Ctrl+End の末尾補正より先に計測が走り、見積もり高さで止まってしまう。
+	 * @param {EditorView} view エディタ
+	 * @returns {void}
+	 */
+	private scheduleRememberNoteView(view: EditorView): void {
+		if (!this.noteViewCaptureReady.has(view)) return;
+		if (this.noteViewRememberScheduled.has(view)) return;
+		this.noteViewRememberScheduled.add(view);
+		/**
+		 * 描画後のビューポートから表示位置を記録する
+		 * @returns {void}
+		 */
+		const rememberAfterFrame = (): void => {
+			this.noteViewRememberScheduled.delete(view);
+			this.rememberNoteView(view);
+		};
+		window.requestAnimationFrame(rememberAfterFrame);
+	}
+
+	/**
+	 * ビューの現在位置をノートへ記録する。復元中は無視する。
+	 * @param {EditorView} view エディタ
+	 * @returns {void}
+	 */
+	private rememberNoteView(view: EditorView): void {
+		if (!this.noteViewCaptureReady.has(view)) return;
+		const tab      = this.tabForView(view);
+		const position = tab ? captureNoteViewPosition(view) : null;
+		if (!tab || !position) return;
+		if (tab.filePath) {
+			this.noteViewPositions.remember(tab.filePath, position);
+			this.untitledNoteViewPositions.delete(tab.tabId);
+			this.scheduleNoteViewPositionSave();
+			return;
+		}
+		this.untitledNoteViewPositions.set(tab.tabId, position);
+	}
+
+	/**
+	 * ビューが表示しているタブを返す。
+	 * @param {EditorView} view エディタ
+	 * @returns {TabRuntime | null} タブ
+	 */
+	private tabForView(view: EditorView): TabRuntime | null {
+		const paneId = this.findPaneId(view);
+		const pane   = paneId ? this.panes.get(paneId) : null;
+		if (!pane?.activeTabId) return null;
+		return this.tabs.find((tab) => tab.tabId === pane.activeTabId) ?? null;
+	}
+
+	/**
+	 * 表示位置のディスク保存を少し遅らせる。
+	 * @returns {void}
+	 */
+	private scheduleNoteViewPositionSave(): void {
+		if (this.noteViewSaveTimer !== null) window.clearTimeout(this.noteViewSaveTimer);
+		/**
+		 * 遅延後に表示位置を保存する
+		 * @returns {void}
+		 */
+		const saveLater = (): void => {
+			this.noteViewSaveTimer = null;
+			void this.flushNoteViewPositions();
+		};
+		this.noteViewSaveTimer = window.setTimeout(saveLater, AppController.NOTE_VIEW_POSITION_SAVE_DELAY_MS);
+	}
+
+	/**
+	 * 未保存の表示位置をディスクへ書く。
+	 * @returns {Promise<void>}
+	 */
+	private flushNoteViewPositions(): Promise<void> {
+		if (this.noteViewSaveTimer !== null) {
+			window.clearTimeout(this.noteViewSaveTimer);
+			this.noteViewSaveTimer = null;
+		}
+		/**
+		 * 直前の保存の後に最新の表示位置を書く
+		 * @returns {Promise<void>}
+		 */
+		const saveAfterCurrent = (): Promise<void> => this.saveNoteViewPositions();
+		this.noteViewSaveChain = this.noteViewSaveChain.then(saveAfterCurrent);
+		return this.noteViewSaveChain;
+	}
+
+	/**
+	 * メモリ上の表示位置を保存する。内容が同じなら書き込まない。
+	 * @returns {Promise<void>}
+	 */
+	private async saveNoteViewPositions(): Promise<void> {
+		const document = this.noteViewPositions.toDocument();
+		const json     = JSON.stringify(document);
+		if (json === this.lastNoteViewPositionJson) return;
+		try {
+			const result = await invokeBridge<{ success: boolean; message?: string }>('noteViewPositions:save', document as unknown as Record<string, unknown>);
+			if (!result.success) {
+				void writeLog('WARN', result.message ?? 'Note view position save failed.');
+				return;
+			}
+			this.lastNoteViewPositionJson = json;
+		} catch (error) {
+			void writeLog('WARN', `Note view position save failed: ${this.formatError(error)}`);
+		}
 	}
 
 	/**
@@ -3089,6 +3340,7 @@ export class AppController {
 
 		pane.editorStates.set(tab.tabId, view.state);
 		tab.editorState = view.state;
+		this.scheduleRememberNoteView(view);
 		if (view === this.editorView) {
 			this.refreshStatusBar();
 			this.updateOutlineActiveItem();
@@ -3246,6 +3498,7 @@ export class AppController {
 	 * @returns {EditorState} エディタ状態
 	 */
 	private createPaneEditorState(tab: TabRuntime, text: string, viewMode: ViewMode): EditorState {
+		const selection = tab.editorState.selection.main;
 		return createEditorState({
 			text,
 			settings: this.settings,
@@ -3253,6 +3506,7 @@ export class AppController {
 			filePath: tab.filePath,
 			lineEols: tab.lineEols,
 			customDecorations: this.customDecorationRules,
+			selection: { anchor: selection.anchor, head: selection.head },
 			/** 本文変更を処理する */
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
@@ -3293,6 +3547,7 @@ export class AppController {
 	 */
 	private createTabRuntime(options: { filePath: string | null; text: string; encoding: EncodingKind; eol: EolKind; eolMixed: boolean; largeFile: boolean; viewMode: ViewMode; lineEols: Array<EolKind | null> }): TabRuntime {
 		const tabId       = crypto.randomUUID();
+		const savedView   = options.filePath ? this.noteViewPositions.get(options.filePath) : null;
 		const editorState = createEditorState({
 			text: options.text,
 			settings: this.settings,
@@ -3300,6 +3555,7 @@ export class AppController {
 			filePath: options.filePath,
 			lineEols: options.lineEols,
 			customDecorations: this.customDecorationRules,
+			selection: savedView ? selectionFromNoteViewPosition(savedView, options.text.length) : undefined,
 			/**
 			 * ドキュメント変更時
 			 * @returns {void}
