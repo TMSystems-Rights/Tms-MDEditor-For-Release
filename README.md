@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.8.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.8.2)
+最新リリース: [v1.8.3](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.8.3)
+
+## v1.8.3 の主な変更
+
+- タブ復帰時とアプリ再起動時に、キャレット位置だけでなく画面上端の表示位置も正しく復元する
 
 ## v1.8.2 の主な変更
 
