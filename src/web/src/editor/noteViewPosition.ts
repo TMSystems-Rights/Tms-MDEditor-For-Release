@@ -6,6 +6,7 @@ export const NOTE_VIEW_POSITION_SCHEMA_VERSION = 1;
 export const NOTE_VIEW_POSITION_LIMIT = 200;
 
 const RESTORE_LIMIT_MS      = 4000;
+const RESTORE_MIN_TRACK_MS  = 1500;
 const RESTORE_STABLE_FRAMES = 8;
 
 const noteViewScrollMeasureKey = {};
@@ -479,7 +480,8 @@ export function restoreNoteViewScroll(
 						});
 					}
 				}
-				if (stableFrames >= RESTORE_STABLE_FRAMES) {
+				const trackedLongEnough = Date.now() - startedAt >= RESTORE_MIN_TRACK_MS;
+				if (trackedLongEnough && stableFrames >= RESTORE_STABLE_FRAMES) {
 					settle();
 					return;
 				}

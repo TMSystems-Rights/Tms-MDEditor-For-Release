@@ -1145,7 +1145,8 @@ export class AppController {
 
 		const alreadyActive = pane.activeTabId === tabId && this.activePaneId === paneId;
 
-		this.persistActiveEditorState();
+		// タブを離れる操作は、復元追従中でも現在画面の実測位置を残す意思表示になる。
+		this.persistActiveEditorState(true);
 		void this.flushNoteViewPositions();
 		if (!pane.tabIds.includes(tabId)) this.addTabToPane(nextTab, paneId);
 		pane.activeTabId  = tabId;
@@ -2106,6 +2107,8 @@ export class AppController {
 		close.textContent = '×';
 		button.appendChild(close);
 
+		// click より先にエディタが blur すると、ブラウザがキャレット行へスクロールして保存位置を上書きする。
+		button.addEventListener('mousedown', preserveEditorFocusOnOutlineMouseDown);
 		button.addEventListener('click', (event) => {
 			const target = event.target as HTMLElement;
 			if (target.classList.contains('tms-mde-tab-close')) {
@@ -2659,9 +2662,6 @@ export class AppController {
 		this.activatePane(this.activePaneId);
 		this.renderOutline();
 		this.applyEditorZoom();
-		if (!document.querySelector('.tms-mde-dialog-backdrop')) {
-			this.editorViews.get(this.activePaneId)?.focus();
-		}
 	}
 
 	/** 分割ツリーをDOMへ変換する */
@@ -2937,7 +2937,7 @@ export class AppController {
 	 * アクティブエディタ状態をタブへ反映する
 	 * @returns {void}
 	 */
-	private persistActiveEditorState(): void {
+	private persistActiveEditorState(forceNoteViewCapture = false): void {
 		this.editorViews.forEach((view, paneId) => {
 			const pane  = this.panes.get(paneId);
 			const tabId = pane?.activeTabId;
@@ -2946,7 +2946,7 @@ export class AppController {
 			const tab = this.tabs.find((entry) => entry.tabId === tabId);
 			if (tab) tab.editorState = view.state;
 		});
-		this.captureMountedNoteViews();
+		this.captureMountedNoteViews(forceNoteViewCapture);
 	}
 
 	/**
@@ -2964,13 +2964,13 @@ export class AppController {
 	 * アクティブペインを最後に書き、同じノートの位置はそちらを優先する。
 	 * @returns {void}
 	 */
-	private captureMountedNoteViews(): void {
+	private captureMountedNoteViews(force = false): void {
 		this.editorViews.forEach((view, paneId) => {
 			if (paneId === this.activePaneId) return;
-			this.rememberNoteView(view);
+			this.rememberNoteView(view, force);
 		});
 		const activeView = this.editorViews.get(this.activePaneId);
-		if (activeView) this.rememberNoteView(activeView);
+		if (activeView) this.rememberNoteView(activeView, force);
 	}
 
 	/**
@@ -2996,20 +2996,13 @@ export class AppController {
 		}
 
 		/**
-		 * 目標位置へ届いたら、選択位置のキャレットを描いて入力を受け付ける
-		 * @returns {void}
-		 */
-		const showCaret = (): void => {
-			this.syncMountedCaret(view);
-		};
-		/**
-		 * 復元を終えたらキャレットを描き直し、反映できた位置だけ記録する
+		 * 復元を終えたらキャレットを描き直して、以後のユーザー操作を記録できるようにする。
 		 * @param {boolean} applied 行高が揃った位置まで戻せたら true
 		 * @returns {void}
 		 */
 		const finishRestore = (applied: boolean): void => {
 			/**
-			 * 計測の外でキャレットを描き直し、戻せた位置だけ記録する
+			 * 計測の外でキャレットを描き直す。
 			 * @returns {void}
 			 */
 			const finishAfterFrame = (): void => {
@@ -3017,11 +3010,15 @@ export class AppController {
 				if (!applied) this.revealSelectionLine(view);
 				this.syncMountedCaret(view);
 				this.noteViewCaptureReady.add(view);
-				if (applied) this.rememberNoteView(view);
 			};
 			window.requestAnimationFrame(finishAfterFrame);
 		};
-		restoreNoteViewScroll(view, position, finishRestore, showCaret);
+		// ペインDOMはこのメソッドの呼出し後にレイアウトへ接続される。
+		// 接続前に復元を始めると scrollDOM.isConnected が false になり、キャレット行表示へフォールバックしてしまう。
+		window.requestAnimationFrame(() => {
+			if (!view.dom.isConnected) return;
+			restoreNoteViewScroll(view, position, finishRestore);
+		});
 	}
 
 	/**
@@ -3109,8 +3106,8 @@ export class AppController {
 	 * @param {EditorView} view エディタ
 	 * @returns {void}
 	 */
-	private rememberNoteView(view: EditorView): void {
-		if (!this.noteViewCaptureReady.has(view)) return;
+	private rememberNoteView(view: EditorView, force = false): void {
+		if (!force && !this.noteViewCaptureReady.has(view)) return;
 		const tab      = this.tabForView(view);
 		const position = tab ? captureNoteViewPosition(view) : null;
 		if (!tab || !position) return;
