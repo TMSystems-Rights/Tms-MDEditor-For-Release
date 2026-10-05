@@ -519,6 +519,26 @@
 	pointer-events: none;
 }
 
+/* データ行が見出しの裏に入っているあいだだけ、見出しの下に線と影を出す */
+.tms-mde-editor-host .cm-md-table-pin-cell::after {
+	content: '';
+	position: absolute;
+	z-index: 2;
+	left: -1px;
+	right: -1px;
+	top: 100%;
+	height: 22px;
+	pointer-events: none;
+	opacity: 0;
+	background:
+		linear-gradient(#7dcec8, #7dcec8) top / 100% 2px no-repeat,
+		linear-gradient(rgb(0 0 0 / 62%), rgb(0 0 0 / 0%));
+}
+
+.tms-mde-editor-host .cm-md-table-pin-cell.cm-md-table-pin-covering::after {
+	opacity: 1;
+}
+
 .tms-mde-editor-host .cm-md-table .cm-md-table-sel-n {
 	--tms-mde-table-sel-n: 3px;
 }

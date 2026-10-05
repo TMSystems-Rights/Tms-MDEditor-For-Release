@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
 	buildTableHeaderPinFrames,
+	isTableHeaderCovering,
 	resolveTableHeaderPinSpan,
 	type TableHeaderPinFrame,
 } from './tableHeaderPin';
@@ -55,6 +56,12 @@ describe('表見出しの固定', () => {
 		expect(translateAt(frames, 600, maxScroll)).toBeCloseTo(80);
 	});
 
+	it('データ行が見出しの裏に入ったときだけ仕切りを出す', () => {
+		expect(isTableHeaderCovering(100, 200, 0)).toBe(false);
+		expect(isTableHeaderCovering(201, 200, 0)).toBe(true);
+		expect(isTableHeaderCovering(100, 200, 8)).toBe(true);
+	});
+
 	it('文書先頭の表は最初からスクロール量だけ下げ、最大量で止める', () => {
 		const frames = buildTableHeaderPinFrames(0, 40, 500);
 		expect(translateAt(frames, 0, 500)).toBe(0);
@@ -93,5 +100,8 @@ describe('表見出しの固定', () => {
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell\s*\{[^}]*position:\s*sticky;/);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell\s*\{[^}]*z-index:\s*2;/);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell::before\s*\{[^}]*top:\s*-3px;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell::after\s*\{[^}]*height:\s*22px;/);
+		expect(livePreviewCss).toMatch(/#7dcec8/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-covering::after\s*\{[^}]*opacity:\s*1;/);
 	});
 });

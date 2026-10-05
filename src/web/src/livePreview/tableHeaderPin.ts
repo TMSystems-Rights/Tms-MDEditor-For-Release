@@ -50,6 +50,9 @@ export function resolveTableHeaderPinSpan(
 	};
 }
 
+/** データ行が見出しの裏に入っているあいだ、仕切りを出すセル */
+const TABLE_HEADER_COVERING_CLASS = 'cm-md-table-pin-covering';
+
 /** スクロール位置に対する見出しのずらし */
 export type TableHeaderPinFrame = {
 	/** エディタスクロール全体に対する位置（0〜1） */
@@ -63,9 +66,22 @@ type TableHeaderPinUpdate = {
 	cells: HTMLElement[];
 	stale: HTMLElement[];
 	frames: TableHeaderPinFrame[];
+	headerDocTop: number;
 	signature: string;
 	skip: boolean;
 };
+
+/**
+ * データ行が見出しの裏に入っているかを返す。
+ * @param {number} scrollTop エディタのスクロール量
+ * @param {number} headerDocTop 見出しの基準位置
+ * @param {number} wrapScrollTop 表の枠自身のスクロール量
+ * @returns {boolean} 隠れているなら true
+ */
+export function isTableHeaderCovering(scrollTop: number, headerDocTop: number, wrapScrollTop: number): boolean {
+	const documentCovering = Number.isFinite(headerDocTop) && scrollTop > headerDocTop + 0.5;
+	return documentCovering || wrapScrollTop > 1;
+}
 
 /**
  * エディタのスクロール範囲に対する見出しのずらしキーフレームを返す。
@@ -142,6 +158,7 @@ class TableHeaderPinController {
 		});
 		this.observer.observe(this.view.scrollDOM);
 		this.observer.observe(this.view.contentDOM);
+		this.view.scrollDOM.addEventListener('scroll', this.onWrapScroll, { capture: true, passive: true });
 		this.schedule();
 	}
 
@@ -163,11 +180,36 @@ class TableHeaderPinController {
 	 */
 	public destroy(): void {
 		this.destroyed = true;
+		this.view.scrollDOM.removeEventListener('scroll', this.onWrapScroll, { capture: true });
 		this.observer.disconnect();
 		this.view.dom.querySelectorAll<HTMLElement>(`.${TABLE_HEADER_PIN_CLASS}`).forEach((cell) => {
 			clearTableHeaderPin(cell);
 		});
 	}
+
+	/**
+	 * 仕切りは、隠れ始めた瞬間と戻った瞬間だけ切り替える。
+	 * 見出しの移動そのものはスクロール連動アニメーションに任せる。
+	 * @param {Event} event スクロールイベント
+	 * @returns {void}
+	 */
+	private readonly onWrapScroll = (event: Event): void => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+		if (target === this.view.scrollDOM) {
+			target.querySelectorAll<HTMLElement>('.cm-md-table-wrap, .cm-md-html-table-wrap').forEach((wrap) => {
+				syncTableHeaderCovering(wrap, target.scrollTop);
+			});
+			return;
+		}
+		if (!target.classList.contains('cm-md-table-wrap') && !target.classList.contains('cm-md-html-table-wrap')) {
+			return;
+		}
+
+		syncTableHeaderCovering(target, this.view.scrollDOM.scrollTop);
+	};
 
 	/**
 	 * 見出し位置の計測を次のレイアウトへ予約する。
@@ -224,6 +266,7 @@ function readTableHeaderPinUpdate(wrap: HTMLElement, scroller: HTMLElement): Tab
 			cells,
 			stale: stale.concat(cells),
 			frames: [],
+			headerDocTop: Number.NaN,
 			signature: '',
 			skip: false,
 		};
@@ -236,6 +279,7 @@ function readTableHeaderPinUpdate(wrap: HTMLElement, scroller: HTMLElement): Tab
 			cells,
 			stale: stale.concat(cells),
 			frames: [],
+			headerDocTop: Number.NaN,
 			signature: '',
 			skip: false,
 		};
@@ -273,6 +317,7 @@ function readTableHeaderPinUpdate(wrap: HTMLElement, scroller: HTMLElement): Tab
 		cells,
 		stale,
 		frames,
+		headerDocTop,
 		signature,
 		skip: bound && wrap.dataset.tmsMdeHeaderPin === signature,
 	};
@@ -295,13 +340,16 @@ function applyTableHeaderPinUpdates(updates: TableHeaderPinUpdate[], scroller: H
 
 		update.wrap.dataset.tmsMdeHeaderPin = update.signature;
 		if (update.frames.length === 0) {
+			delete update.wrap.dataset.tmsMdeHeaderPinTop;
 			update.cells.forEach((cell) => {
 				clearTableHeaderPin(cell);
 			});
 			return;
 		}
 
+		update.wrap.dataset.tmsMdeHeaderPinTop = String(update.headerDocTop);
 		bindTableHeaderPin(update.cells, update.frames, scroller);
+		syncTableHeaderCovering(update.wrap, scroller.scrollTop);
 	});
 }
 
@@ -346,7 +394,22 @@ function clearTableHeaderPin(cell: HTMLElement): void {
 		}
 	});
 	cell.style.transform = '';
-	cell.classList.remove(TABLE_HEADER_PIN_CLASS);
+	cell.classList.remove(TABLE_HEADER_PIN_CLASS, TABLE_HEADER_COVERING_CLASS);
+}
+
+/**
+ * 表の枠内スクロールでデータ行が隠れているあいだ、仕切りを出す。
+ * @param {HTMLElement} wrap 表ラッパー
+ * @returns {void}
+ */
+function syncTableHeaderCovering(wrap: HTMLElement, scrollTop: number): void {
+	const headerDocTop = Number(wrap.dataset.tmsMdeHeaderPinTop);
+	const covering     = isTableHeaderCovering(scrollTop, headerDocTop, wrap.scrollTop);
+	wrap.querySelectorAll<HTMLElement>(`.${TABLE_HEADER_PIN_CLASS}`).forEach((cell) => {
+		if (cell.classList.contains(TABLE_HEADER_COVERING_CLASS) !== covering) {
+			cell.classList.toggle(TABLE_HEADER_COVERING_CLASS, covering);
+		}
+	});
 }
 
 /**
