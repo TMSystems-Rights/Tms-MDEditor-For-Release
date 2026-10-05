@@ -4,7 +4,11 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.8.3](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.8.3)
+最新リリース: [v1.9.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.9.0)
+
+## v1.9.0 の主な変更
+
+- ライブプレビューの表で、縦スクロール中も見出し行を表示領域の上端に残す
 
 ## v1.8.3 の主な変更
 

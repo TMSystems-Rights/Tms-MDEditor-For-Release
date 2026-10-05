@@ -34,6 +34,7 @@ import { createTmsMarkdownSupport } from './createTmsMarkdown';
 import { cursorStableDocEnd, selectStableDocEnd } from './documentBoundary';
 import { createLineWrapperExtensions } from './lineWrappers';
 import { createTableMaxWidthExtension } from './tableMaxWidth';
+import { createTableHeaderPinExtension } from '../livePreview/tableHeaderPin';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
 
@@ -146,6 +147,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		EditorState.tabSize.of(options.settings.tabSize),
 		...createLineWrapperExtensions(),
 		createTableMaxWidthExtension(),
+		createTableHeaderPinExtension(),
 		...createVerticalMotionExtensions(),
 		...createSearchExtensions(options.settings.search),
 		createOutlineScrollExtension(),

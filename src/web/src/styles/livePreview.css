@@ -471,7 +471,7 @@
 
 .tms-mde-editor-host .cm-md-table th {
 	color: #a3c8c9;
-	background: #253c45ed;
+	background: #253c45;
 	font-weight: 600;
 }
 
@@ -494,6 +494,29 @@
 		inset calc(var(--tms-mde-table-sel-e) * -1) 0 0 0 var(--tms-mde-color-selection),
 		inset var(--tms-mde-table-sel-w) 0 0 0 var(--tms-mde-color-selection),
 		inset 0 0 0 999px color-mix(in srgb, var(--tms-mde-color-selection) 46%, transparent);
+}
+
+/*
+ * 固定中の見出しは選択セル（z-index: 1）より後に置き、同じ詳細度で手前に描く。
+ * 表の内部スクロールでは sticky、文書スクロールではスクロール連動の translate が足される。
+ * 上にはみ出す帯は、サブピクセルで背面が1〜2px見える隙間を塞ぐ。通常位置では表ラッパーの overflow に隠れる。
+ */
+.tms-mde-editor-host .cm-md-table th.cm-md-table-pin-cell,
+.tms-mde-editor-host .cm-md-table td.cm-md-table-pin-cell {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+}
+
+.tms-mde-editor-host .cm-md-table-pin-cell::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: -3px;
+	height: 3px;
+	background: inherit;
+	pointer-events: none;
 }
 
 .tms-mde-editor-host .cm-md-table .cm-md-table-sel-n {
