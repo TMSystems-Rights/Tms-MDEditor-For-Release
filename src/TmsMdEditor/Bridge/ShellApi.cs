@@ -27,7 +27,7 @@ internal sealed class ShellApi
 	/// <returns>実行結果</returns>
 	public object ShowInFolder(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 
@@ -107,7 +107,7 @@ internal sealed class ShellApi
 	/// <returns>実行結果</returns>
 	public object OpenExternal(JsonElement paramsElement)
 	{
-		string url = paramsElement.TryGetProperty("url", out JsonElement urlElement)
+		string url = paramsElement.TryGetProperty(BridgeProperty.Url, out JsonElement urlElement)
 			? urlElement.GetString() ?? string.Empty
 			: string.Empty;
 

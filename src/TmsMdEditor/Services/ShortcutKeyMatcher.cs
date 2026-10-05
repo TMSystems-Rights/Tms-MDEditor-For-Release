@@ -25,6 +25,7 @@ internal static class ShortcutKeyMatcher
 		bool needsShift   = parts.Any(part => part.Equals("Shift", StringComparison.OrdinalIgnoreCase));
 		bool needsAlt     = parts.Any(part => part.Equals("Alt", StringComparison.OrdinalIgnoreCase));
 
+		// 必須修飾キーだけでなく余分な修飾キーも不一致にし、近い別操作の誤発火を防ぐ。
 		if (e.Control != needsControl || e.Shift != needsShift || e.Alt != needsAlt)
 		{
 			return false;
@@ -44,11 +45,13 @@ internal static class ShortcutKeyMatcher
 
 		if (key.Length == 1 && char.IsDigit(key[0]))
 		{
+			// 設定上の数字は上段キーとテンキーのどちらでも同じ操作として受け付ける。
 			int offset = key[0] - '0';
 			return keyCode == (Keys)((int)Keys.D0 + offset)
 				|| keyCode == (Keys)((int)Keys.NumPad0 + offset);
 		}
 
+		// 記号キーはキーボード由来の複数Keys値を、設定上の1表記へ対応付ける。
 		return key.ToLowerInvariant() switch
 		{
 			"-"     => keyCode is Keys.OemMinus or Keys.Subtract,

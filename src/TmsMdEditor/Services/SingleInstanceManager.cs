@@ -120,9 +120,9 @@ internal sealed class SingleInstanceManager : IDisposable
 			{
 				if (attempt == ConnectRetryCount - 1)
 				{
-					_logger.Warn("instance", "既存インスタンスへの起動要求転送に失敗しました", new Dictionary<string, object?>
+					_logger.Warn(LogCategory.Instance, "既存インスタンスへの起動要求転送に失敗しました", new Dictionary<string, object?>
 					{
-						["error"] = ex.Message,
+						[LogProperty.Error] = ex.Message,
 					});
 					return false;
 				}
@@ -193,9 +193,9 @@ internal sealed class SingleInstanceManager : IDisposable
 			}
 			catch (Exception ex)
 			{
-				_logger.Warn("instance", "単一インスタンスの Named Pipe 待受でエラーが発生しました", new Dictionary<string, object?>
+				_logger.Warn(LogCategory.Instance, "単一インスタンスの Named Pipe 待受でエラーが発生しました", new Dictionary<string, object?>
 				{
-					["error"] = ex.Message,
+					[LogProperty.Error] = ex.Message,
 				});
 			}
 		}

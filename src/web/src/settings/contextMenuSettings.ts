@@ -146,9 +146,7 @@ export function isContextMenuSeparator(itemId: string): boolean {
 	return itemId.includes('Separator');
 }
 
-/**
- *
- */
+/** 保存済み順序から未知・重複項目を除き、新規項目を既定位置へ補う。 */
 function normalizeOrder(source: string[] | undefined, defaults: string[]): string[] {
 	const allowed          = new Set(defaults);
 	const seen             = new Set<string>();
@@ -295,9 +293,7 @@ function placeContextMenuItemAfter(
 	return next;
 }
 
-/**
- *
- */
+/** 非表示設定を現在利用可能な項目だけへ絞り、重複を除去する。 */
 function normalizeHidden(source: string[] | undefined, defaults: string[]): string[] {
 	const allowed = new Set(defaults);
 	return [...new Set((source ?? []).filter((itemId) => allowed.has(itemId)))];

@@ -16,6 +16,90 @@ type PendingRequest = {
 
 type BridgeEventHandler = (payload: unknown) => void;
 
+/** Web 層から呼び出せるブリッジメソッド名。C# 側の BridgeMethod と同じ値を定義する。 */
+export const BRIDGE_METHOD = {
+	ping                  : 'ping',
+	logWrite              : 'log:write',
+	configGet             : 'config:get',
+	configUpdate          : 'config:update',
+	configResetItem       : 'config:resetItem',
+	configResetAll        : 'config:resetAll',
+	configGetDataDir      : 'config:getDataDir',
+	configChangeDataDir   : 'config:changeDataDir',
+	cssSnippetsList       : 'cssSnippets:list',
+	cssSnippetsOpenFolder : 'cssSnippets:openFolder',
+	fileOpen              : 'file:open',
+	fileOpenWithEncoding  : 'file:openWithEncoding',
+	fileOpenDialog        : 'file:openDialog',
+	fileSave              : 'file:save',
+	fileSaveAsDialog      : 'file:saveAsDialog',
+	fileExportDialog      : 'file:exportDialog',
+	fileWriteUtf8         : 'file:writeUtf8',
+	fileReadImageAsDataUrl: 'file:readImageAsDataUrl',
+	fileDrop              : 'file:drop',
+	exportPrintToPdf      : 'export:printToPdf',
+	exportShowPrintUi     : 'export:showPrintUI',
+	recentList            : 'recent:list',
+	recentAdd             : 'recent:add',
+	recentRemove          : 'recent:remove',
+	windowSetTitle        : 'window:setTitle',
+	windowDetachTab       : 'window:detachTab',
+	shellShowInFolder     : 'shell:showInFolder',
+	shellOpenExternal     : 'shell:openExternal',
+	shellPickFolder       : 'shell:pickFolder',
+	appReportCloseReady   : 'app:reportCloseReady',
+	sessionSave           : 'session:save',
+	noteViewPositionsSave : 'noteViewPositions:save',
+	uiDismissMenus        : 'ui:dismissMenus',
+	clipboardReadText     : 'clipboard:readText',
+	clipboardWriteText    : 'clipboard:writeText',
+	clipboardPasteForEditor: 'clipboard:pasteForEditor',
+	updateCheck           : 'update:check',
+	updateDownload        : 'update:download',
+	updateCancelDownload  : 'update:cancelDownload',
+	updateSkipVersion     : 'update:skipVersion',
+	updateApplyNow        : 'update:applyNow',
+	updateOpenOfficialPage: 'update:openOfficialPage',
+} as const;
+
+/** C# 層から Web 層へ通知されるブリッジイベント名。C# 側の BridgeEventName と同じ値を定義する。 */
+export const BRIDGE_EVENT = {
+	appReady              : 'app:ready',
+	appOpenFiles          : 'app:openFiles',
+	appQueryClose         : 'app:queryClose',
+	appExternalFileChanged: 'app:externalFileChanged',
+	appReceiveDetachedTab : 'app:receiveDetachedTab',
+	uiDismissContextMenus : 'ui:dismissContextMenus',
+	menuNewFile           : 'menu:newFile',
+	menuOpenFile          : 'menu:openFile',
+	menuSave              : 'menu:save',
+	menuSaveAs            : 'menu:saveAs',
+	menuExportHtml        : 'menu:exportHtml',
+	menuExportPdf         : 'menu:exportPdf',
+	menuPrint             : 'menu:print',
+	menuReloadWithEncoding: 'menu:reloadWithEncoding',
+	menuFind              : 'menu:find',
+	menuReplace           : 'menu:replace',
+	menuFindNext          : 'menu:findNext',
+	menuFindPrevious      : 'menu:findPrevious',
+	menuToggleViewMode    : 'menu:toggleViewMode',
+	menuToggleOutline     : 'menu:toggleOutline',
+	menuSplitHorizontal   : 'menu:splitHorizontal',
+	menuSplitVertical     : 'menu:splitVertical',
+	menuUnsplit           : 'menu:unsplit',
+	menuOpenSettings      : 'menu:openSettings',
+	menuReloadCssSnippets : 'menu:reloadCssSnippets',
+	menuOpenSnippetsFolder: 'menu:openSnippetsFolder',
+	menuCheckForUpdates   : 'menu:checkForUpdates',
+	updateAvailable       : 'update:available',
+	updateDownloadProgress: 'update:downloadProgress',
+	updateDownloadCompleted: 'update:downloadCompleted',
+	updateError           : 'update:error',
+} as const;
+
+export type BridgeMethodName = typeof BRIDGE_METHOD[keyof typeof BRIDGE_METHOD];
+export type BridgeEventName = typeof BRIDGE_EVENT[keyof typeof BRIDGE_EVENT];
+
 const pendingRequests     = new Map<string, PendingRequest>();
 const bridgeEventHandlers = new Map<string, BridgeEventHandler[]>();
 
@@ -62,7 +146,7 @@ function initializeBridgeListener(): void {
  * @param {BridgeEventHandler} handler ハンドラ
  * @returns {void}
  */
-export function onBridgeEvent(eventName: string, handler: BridgeEventHandler): void {
+export function onBridgeEvent(eventName: BridgeEventName, handler: BridgeEventHandler): void {
 	const handlers = bridgeEventHandlers.get(eventName) ?? [];
 	handlers.push(handler);
 	bridgeEventHandlers.set(eventName, handlers);
@@ -74,7 +158,7 @@ export function onBridgeEvent(eventName: string, handler: BridgeEventHandler): v
  * @returns {void}
  */
 function handleBridgeEvent(eventData: BridgeEvent): void {
-	if (eventData.event === 'app:ready') {
+	if (eventData.event === BRIDGE_EVENT.appReady) {
 		document.dispatchEvent(new CustomEvent('tms-mde-app-ready', { detail: eventData.payload }));
 	}
 
@@ -89,7 +173,7 @@ function handleBridgeEvent(eventData: BridgeEvent): void {
  * @param {Record<string, unknown>} [params] パラメータ
  * @returns {Promise<T>} 応答
  */
-export async function invokeBridge<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+export async function invokeBridge<T>(method: BridgeMethodName, params?: Record<string, unknown>): Promise<T> {
 	if (!window.chrome?.webview) {
 		throw new Error('WebView2 bridge is not available.');
 	}
@@ -98,9 +182,7 @@ export async function invokeBridge<T>(method: string, params?: Record<string, un
 
 	return new Promise<T>((resolve, reject) => {
 		pendingRequests.set(id, {
-			/**
-			 *
-			 */
+			/** 応答ペイロードを呼び出し元が期待する型へ戻して完了させる。 */
 			resolve: (value) => resolve(value as T),
 			reject,
 		});
@@ -119,7 +201,7 @@ export async function invokeBridge<T>(method: string, params?: Record<string, un
  * @returns {Promise<void>}
  */
 export async function writeLog(level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string): Promise<void> {
-	await invokeBridge('log:write', {
+	await invokeBridge(BRIDGE_METHOD.logWrite, {
 		level,
 		source : 'web',
 		message,
@@ -143,7 +225,7 @@ export function postDroppedFiles(files: FileList | File[]): void {
 	}
 
 	window.chrome.webview.postMessageWithAdditionalObjects(
-		{ method: 'file:drop' },
+		{ method: BRIDGE_METHOD.fileDrop },
 		fileArray,
 	);
 }

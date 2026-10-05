@@ -88,16 +88,16 @@ internal sealed class AppContext : IDisposable
 
 		if (result.RecoveredFromBackup)
 		{
-			Logger.Warn("shell", result.Message ?? "設定をバックアップから復旧しました");
+			Logger.Warn(LogCategory.Shell, result.Message ?? "設定をバックアップから復旧しました");
 		}
 		else if (!result.Success && !string.IsNullOrWhiteSpace(result.Message))
 		{
-			Logger.Warn("shell", result.Message);
+			Logger.Warn(LogCategory.Shell, result.Message);
 		}
 
-		Logger.Info("shell", "設定を読み込みました", new Dictionary<string, object?>
+		Logger.Info(LogCategory.Shell, "設定を読み込みました", new Dictionary<string, object?>
 		{
-			["dataDir"] = ConfigStore.CachedDataDir ?? BootstrapConfigStore.Load().DataDir,
+			[LogProperty.DataDir] = ConfigStore.CachedDataDir ?? BootstrapConfigStore.Load().DataDir,
 		});
 
 		return result;

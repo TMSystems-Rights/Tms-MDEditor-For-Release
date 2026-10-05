@@ -130,9 +130,7 @@ export function isKnownWindowsReservedShortcut(shortcut: string): boolean {
 	return normalizeShortcut(shortcut) === normalizeShortcut('Ctrl+Shift+0');
 }
 
-/**
- *
- */
+/** 物理キーコードを優先し、キーボード配列に左右されない設定名へ変換する。 */
 function normalizeEventKey(event: KeyboardEvent): string | null {
 	if (/^Key[A-Z]$/.test(event.code)) {
 		return event.code.slice(3);

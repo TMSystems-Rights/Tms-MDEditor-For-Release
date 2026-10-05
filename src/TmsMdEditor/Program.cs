@@ -75,10 +75,10 @@ internal static class Program
 	{
 		try
 		{
-			logger.Error("unhandled", "未処理例外を検出しました", new Dictionary<string, object?>
+			logger.Error(LogCategory.Unhandled, "未処理例外を検出しました", new Dictionary<string, object?>
 			{
-				["source"]    = source,
-				["exception"] = exception.ToString(),
+				[LogProperty.Source]    = source,
+				[LogProperty.Exception] = exception.ToString(),
 			});
 		}
 		catch

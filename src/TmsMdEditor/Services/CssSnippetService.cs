@@ -81,10 +81,10 @@ internal sealed class CssSnippetService
 		}
 		catch (Exception ex)
 		{
-			_logger.Warn("css-snippets", "CSS スニペットの読み込みに失敗しました", new Dictionary<string, object?>
+			_logger.Warn(LogCategory.CssSnippets, "CSS スニペットの読み込みに失敗しました", new Dictionary<string, object?>
 			{
-				["file"]  = path,
-				["error"] = ex.Message,
+				[LogProperty.File]  = path,
+				[LogProperty.Error] = ex.Message,
 			});
 
 			return new CssSnippetInfo

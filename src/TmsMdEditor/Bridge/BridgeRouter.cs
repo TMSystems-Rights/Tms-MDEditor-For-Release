@@ -52,9 +52,9 @@ internal sealed class BridgeRouter
 	/// <returns>応答 JSON。通知のみの場合は null</returns>
 	public async Task<string?> HandleRequestAsync(JsonElement request)
 	{
-		string? id   = request.TryGetProperty("id", out JsonElement idElement) ? idElement.GetString() : null;
-		string method  = request.GetProperty("method").GetString() ?? string.Empty;
-		JsonElement paramsElement = request.TryGetProperty("params", out JsonElement rawParams)
+		string? id   = request.TryGetProperty(BridgeProperty.Id, out JsonElement idElement) ? idElement.GetString() : null;
+		string method  = request.GetProperty(BridgeProperty.Method).GetString() ?? string.Empty;
+		JsonElement paramsElement = request.TryGetProperty(BridgeProperty.Params, out JsonElement rawParams)
 			? rawParams
 			: default;
 
@@ -62,58 +62,58 @@ internal sealed class BridgeRouter
 		{
 			object? result = method switch
 			{
-				"ping"              => HandlePing(paramsElement),
-				"log:write"         => HandleLogWrite(paramsElement),
-				"config:get"        => _configApi.GetConfig(),
-				"config:update"     => _configApi.Update(paramsElement),
-				"config:resetItem"  => _configApi.ResetItem(paramsElement),
-				"config:resetAll"   => _configApi.ResetAll(),
-				"config:getDataDir" => _configApi.GetDataDir(),
-				"config:changeDataDir" => paramsElement.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+				BridgeMethod.Ping              => HandlePing(paramsElement),
+				BridgeMethod.LogWrite          => HandleLogWrite(paramsElement),
+				BridgeMethod.ConfigGet         => _configApi.GetConfig(),
+				BridgeMethod.ConfigUpdate      => _configApi.Update(paramsElement),
+				BridgeMethod.ConfigResetItem   => _configApi.ResetItem(paramsElement),
+				BridgeMethod.ConfigResetAll    => _configApi.ResetAll(),
+				BridgeMethod.ConfigGetDataDir  => _configApi.GetDataDir(),
+				BridgeMethod.ConfigChangeDataDir => paramsElement.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
 					? _configApi.ChangeDataDirWithDialog()
 					: _configApi.ChangeDataDir(paramsElement),
-				"cssSnippets:list" => _cssSnippetService.List(),
-				"cssSnippets:openFolder" => _shellApi.OpenFolder(_cssSnippetService.GetDirectoryPath()),
-				"file:open"       => _fileApi.Open(paramsElement),
-				"file:openWithEncoding" => _fileApi.OpenWithEncoding(paramsElement),
-				"file:openDialog" => _fileApi.OpenDialog(),
-				"file:save"       => _fileApi.Save(paramsElement),
-				"file:saveAsDialog" => paramsElement.ValueKind == JsonValueKind.Undefined
+				BridgeMethod.CssSnippetsList       => _cssSnippetService.List(),
+				BridgeMethod.CssSnippetsOpenFolder => _shellApi.OpenFolder(_cssSnippetService.GetDirectoryPath()),
+				BridgeMethod.FileOpen              => _fileApi.Open(paramsElement),
+				BridgeMethod.FileOpenWithEncoding  => _fileApi.OpenWithEncoding(paramsElement),
+				BridgeMethod.FileOpenDialog        => _fileApi.OpenDialog(),
+				BridgeMethod.FileSave              => _fileApi.Save(paramsElement),
+				BridgeMethod.FileSaveAsDialog      => paramsElement.ValueKind == JsonValueKind.Undefined
 					? _fileApi.SaveAsDialog(default)
 					: _fileApi.SaveAsDialog(paramsElement),
-				"file:exportDialog" => _fileApi.ExportDialog(paramsElement),
-				"file:writeUtf8" => _fileApi.WriteUtf8(paramsElement),
-				"export:printToPdf" => await _printExportService.PrintToPdfAsync(
-					paramsElement.GetProperty("html").GetString() ?? string.Empty,
-					paramsElement.TryGetProperty("filePath", out JsonElement pdfPath) ? pdfPath.GetString() ?? string.Empty : string.Empty)
+				BridgeMethod.FileExportDialog      => _fileApi.ExportDialog(paramsElement),
+				BridgeMethod.FileWriteUtf8         => _fileApi.WriteUtf8(paramsElement),
+				BridgeMethod.ExportPrintToPdf      => await _printExportService.PrintToPdfAsync(
+					paramsElement.GetProperty(BridgeProperty.Html).GetString() ?? string.Empty,
+					paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement pdfPath) ? pdfPath.GetString() ?? string.Empty : string.Empty)
 					.ConfigureAwait(true),
-				"export:showPrintUI" => await _printExportService.ShowPrintUiAsync(
-					paramsElement.GetProperty("html").GetString() ?? string.Empty)
+				BridgeMethod.ExportShowPrintUi => await _printExportService.ShowPrintUiAsync(
+					paramsElement.GetProperty(BridgeProperty.Html).GetString() ?? string.Empty)
 					.ConfigureAwait(true),
-				"file:readImageAsDataUrl" => paramsElement.ValueKind == JsonValueKind.Undefined
+				BridgeMethod.FileReadImageAsDataUrl => paramsElement.ValueKind == JsonValueKind.Undefined
 					? _fileApi.ReadImageAsDataUrl(default)
 					: _fileApi.ReadImageAsDataUrl(paramsElement),
-				"recent:list"     => _recentApi.List(),
-				"recent:add"      => _recentApi.Add(paramsElement),
-				"recent:remove"   => _recentApi.Remove(paramsElement),
-				"window:setTitle" => _windowApi.SetTitle(paramsElement),
-				"window:detachTab" => _windowApi.DetachTab(paramsElement),
-				"shell:showInFolder" => _shellApi.ShowInFolder(paramsElement),
-				"shell:openExternal" => _shellApi.OpenExternal(paramsElement),
-				"app:reportCloseReady" => _appApi.ReportCloseReady(paramsElement),
-				"session:save"          => _sessionApi.Save(paramsElement),
-				"noteViewPositions:save" => _appContext.NoteViewPositionStore.Save(paramsElement),
-				"ui:dismissMenus"      => _appApi.DismissMenus(),
-				"clipboard:readText"   => _clipboardApi.ReadText(),
-				"clipboard:writeText"  => _clipboardApi.WriteText(paramsElement),
-				"clipboard:pasteForEditor" => _clipboardApi.PasteForEditor(paramsElement),
-				"shell:pickFolder"     => _shellApi.PickFolder(),
-				"update:check"         => await _updateApi.CheckAsync().ConfigureAwait(false),
-				"update:download"      => await _updateApi.DownloadAsync().ConfigureAwait(false),
-				"update:cancelDownload" => _updateApi.CancelDownload(),
-				"update:skipVersion"   => _updateApi.SkipVersion(paramsElement),
-				"update:applyNow"      => _updateApi.ApplyNow(),
-				"update:openOfficialPage" => _updateApi.OpenOfficialPage(),
+				BridgeMethod.RecentList              => _recentApi.List(),
+				BridgeMethod.RecentAdd               => _recentApi.Add(paramsElement),
+				BridgeMethod.RecentRemove            => _recentApi.Remove(paramsElement),
+				BridgeMethod.WindowSetTitle          => _windowApi.SetTitle(paramsElement),
+				BridgeMethod.WindowDetachTab         => _windowApi.DetachTab(paramsElement),
+				BridgeMethod.ShellShowInFolder       => _shellApi.ShowInFolder(paramsElement),
+				BridgeMethod.ShellOpenExternal       => _shellApi.OpenExternal(paramsElement),
+				BridgeMethod.AppReportCloseReady     => _appApi.ReportCloseReady(paramsElement),
+				BridgeMethod.SessionSave             => _sessionApi.Save(paramsElement),
+				BridgeMethod.NoteViewPositionsSave   => _appContext.NoteViewPositionStore.Save(paramsElement),
+				BridgeMethod.UiDismissMenus          => _appApi.DismissMenus(),
+				BridgeMethod.ClipboardReadText       => _clipboardApi.ReadText(),
+				BridgeMethod.ClipboardWriteText      => _clipboardApi.WriteText(paramsElement),
+				BridgeMethod.ClipboardPasteForEditor => _clipboardApi.PasteForEditor(paramsElement),
+				BridgeMethod.ShellPickFolder         => _shellApi.PickFolder(),
+				BridgeMethod.UpdateCheck             => await _updateApi.CheckAsync().ConfigureAwait(false),
+				BridgeMethod.UpdateDownload          => await _updateApi.DownloadAsync().ConfigureAwait(false),
+				BridgeMethod.UpdateCancelDownload    => _updateApi.CancelDownload(),
+				BridgeMethod.UpdateSkipVersion       => _updateApi.SkipVersion(paramsElement),
+				BridgeMethod.UpdateApplyNow          => _updateApi.ApplyNow(),
+				BridgeMethod.UpdateOpenOfficialPage  => _updateApi.OpenOfficialPage(),
 				_ => throw new InvalidOperationException($"未対応のメソッドです: {method}"),
 			};
 
@@ -132,10 +132,10 @@ internal sealed class BridgeRouter
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Error("bridge", "ブリッジ要求の処理に失敗しました", new Dictionary<string, object?>
+			_appContext.Logger.Error(LogCategory.Bridge, "ブリッジ要求の処理に失敗しました", new Dictionary<string, object?>
 			{
-				["method"] = method,
-				["error"]  = ex.Message,
+				[LogProperty.Method] = method,
+				[LogProperty.Error]  = ex.Message,
 			});
 
 			if (id is null)
@@ -166,7 +166,7 @@ internal sealed class BridgeRouter
 		string message = "pong";
 
 		if (paramsElement.ValueKind != JsonValueKind.Undefined
-			&& paramsElement.TryGetProperty("message", out JsonElement messageElement))
+			&& paramsElement.TryGetProperty(BridgeProperty.Message, out JsonElement messageElement))
 		{
 			message = messageElement.GetString() ?? message;
 		}
@@ -190,9 +190,9 @@ internal sealed class BridgeRouter
 			return new { ok = true };
 		}
 
-		string level   = paramsElement.TryGetProperty("level", out JsonElement levelElement) ? levelElement.GetString() ?? "INFO" : "INFO";
-		string source  = paramsElement.TryGetProperty("source", out JsonElement sourceElement) ? sourceElement.GetString() ?? "web" : "web";
-		string message = paramsElement.TryGetProperty("message", out JsonElement messageElement) ? messageElement.GetString() ?? string.Empty : string.Empty;
+		string level   = paramsElement.TryGetProperty(BridgeProperty.Level, out JsonElement levelElement) ? levelElement.GetString() ?? "INFO" : "INFO";
+		string source  = paramsElement.TryGetProperty(BridgeProperty.Source, out JsonElement sourceElement) ? sourceElement.GetString() ?? "web" : "web";
+		string message = paramsElement.TryGetProperty(BridgeProperty.Message, out JsonElement messageElement) ? messageElement.GetString() ?? string.Empty : string.Empty;
 
 		switch (level.ToUpperInvariant())
 		{

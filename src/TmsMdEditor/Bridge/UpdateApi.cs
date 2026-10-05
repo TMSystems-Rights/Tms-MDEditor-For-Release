@@ -53,7 +53,7 @@ internal sealed class UpdateApi
 			UpdateCheckResult result = await CheckAsync().ConfigureAwait(false);
 			if (result.Status == "available" && result.Release is { } release && !string.Equals(_appContext.Config.Settings.Update.SkippedVersion, release.Version, StringComparison.OrdinalIgnoreCase))
 			{
-				_mainForm.PostBridgeEvent("update:available", new { release, mode = result.Mode });
+				_mainForm.PostBridgeEvent(BridgeEventName.UpdateAvailable, new { release, mode = result.Mode });
 			}
 		});
 	}
@@ -71,16 +71,16 @@ internal sealed class UpdateApi
 
 		if (_availableRelease is null) return new UpdateDownloadResult { Message = "先に更新を確認してください。" };
 
-		var progress = new Progress<UpdateDownloadProgress>(value => _mainForm.PostBridgeEvent("update:downloadProgress", value));
+		var progress = new Progress<UpdateDownloadProgress>(value => _mainForm.PostBridgeEvent(BridgeEventName.UpdateDownloadProgress, value));
 		UpdateDownloadResult result = await _appContext.UpdateService.DownloadAsync(_availableRelease, progress).ConfigureAwait(false);
 		if (result.Success && result.InstallerPath is { } installerPath)
 		{
 			_downloadedInstallerPath = installerPath;
-			_mainForm.PostBridgeEvent("update:downloadCompleted", new { version = _availableRelease.Version });
+			_mainForm.PostBridgeEvent(BridgeEventName.UpdateDownloadCompleted, new { version = _availableRelease.Version });
 		}
 		else if (!result.Cancelled && !string.IsNullOrWhiteSpace(result.Message))
 		{
-			_mainForm.PostBridgeEvent("update:error", new { message = result.Message });
+			_mainForm.PostBridgeEvent(BridgeEventName.UpdateError, new { message = result.Message });
 		}
 
 		return result;
@@ -100,7 +100,7 @@ internal sealed class UpdateApi
 	/// <returns>保存結果</returns>
 	public SaveConfigResult SkipVersion(JsonElement paramsElement)
 	{
-		string version = paramsElement.TryGetProperty("version", out JsonElement versionElement) ? versionElement.GetString() ?? string.Empty : string.Empty;
+		string version = paramsElement.TryGetProperty(BridgeProperty.Version, out JsonElement versionElement) ? versionElement.GetString() ?? string.Empty : string.Empty;
 		if (_availableRelease is null || !string.Equals(version, _availableRelease.Version, StringComparison.OrdinalIgnoreCase))
 		{
 			return new SaveConfigResult { Success = false, Message = "スキップ対象の更新が見つかりません。" };

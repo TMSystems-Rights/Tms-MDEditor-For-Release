@@ -55,17 +55,17 @@ internal sealed class PrintExportService : IDisposable
 				return new ExportActionResult { Success = false, Message = "PDF の出力に失敗しました。" };
 			}
 
-			_logger.Info("export", "PDF を出力しました", new Dictionary<string, object?>
+			_logger.Info(LogCategory.Export, "PDF を出力しました", new Dictionary<string, object?>
 			{
-				["filePath"] = fullPath,
+				[LogProperty.FilePath] = fullPath,
 			});
 			return new ExportActionResult { Success = true };
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("export", "PDF 出力に失敗しました", new Dictionary<string, object?>
+			_logger.Error(LogCategory.Export, "PDF 出力に失敗しました", new Dictionary<string, object?>
 			{
-				["error"] = ex.Message,
+				[LogProperty.Error] = ex.Message,
 			});
 			return new ExportActionResult { Success = false, Message = ex.Message };
 		}
@@ -87,9 +87,9 @@ internal sealed class PrintExportService : IDisposable
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("export", "印刷ダイアログの表示に失敗しました", new Dictionary<string, object?>
+			_logger.Error(LogCategory.Export, "印刷ダイアログの表示に失敗しました", new Dictionary<string, object?>
 			{
-				["error"] = ex.Message,
+				[LogProperty.Error] = ex.Message,
 			});
 			return new ExportActionResult { Success = false, Message = ex.Message };
 		}

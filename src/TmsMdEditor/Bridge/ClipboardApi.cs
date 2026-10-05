@@ -48,7 +48,7 @@ internal sealed class ClipboardApi
 	/// <returns>処理結果</returns>
 	public object WriteText(JsonElement paramsElement)
 	{
-		string text = paramsElement.TryGetProperty("text", out JsonElement textElement)
+		string text = paramsElement.TryGetProperty(BridgeProperty.Text, out JsonElement textElement)
 			? textElement.GetString() ?? string.Empty
 			: string.Empty;
 
@@ -74,16 +74,18 @@ internal sealed class ClipboardApi
 		try
 		{
 			bool plain = paramsElement.ValueKind == JsonValueKind.Object
-				&& paramsElement.TryGetProperty("mode", out JsonElement modeElement)
+				&& paramsElement.TryGetProperty(BridgeProperty.Mode, out JsonElement modeElement)
 				&& string.Equals(modeElement.GetString(), "plain", StringComparison.OrdinalIgnoreCase);
 
 			if (plain)
 			{
+				// プレーン貼り付けではHTML・画像の解釈を一切行わず、Unicodeテキストを優先する。
 				return TextResult(ReadText(), "text");
 			}
 
 			string html        = ReadHtml();
 			bool spreadsheet   = IsSpreadsheetClipboard(html);
+			// Excelは画像形式も同時に載せるため、表と判定した場合はファイル貼り付けを先取りしない。
 			if (!spreadsheet && TryPasteImageFiles(out PasteForEditorResult fileResult))
 			{
 				return fileResult;
@@ -91,6 +93,7 @@ internal sealed class ClipboardApi
 
 			if (ClipboardHtmlTableConverter.ContainsTable(html))
 			{
+				// 表内画像は先に添付先へ保存し、セル内容をローカルWiki埋め込みへ置き換える。
 				string? imageError = null;
 				string markdown    = ClipboardHtmlTableConverter.ToMarkdown(html, src =>
 				{
@@ -120,9 +123,11 @@ internal sealed class ClipboardApi
 
 			if (spreadsheet && TryPasteSpreadsheetFallback(out PasteForEditorResult sheetResult))
 			{
+				// HTML表を取得できないExcelデータは、TSVまたは画像から可能な限り表を復元する。
 				return sheetResult;
 			}
 
+			// 特殊形式を処理できなかった場合は、一般テキストを最も安全なフォールバックにする。
 			string text = ReadText();
 			if (!string.IsNullOrWhiteSpace(text))
 			{
@@ -136,6 +141,7 @@ internal sealed class ClipboardApi
 
 			if (TryReadClipboardImage(out byte[] imageBytes))
 			{
+				// 生画像は添付ファイルとして保存し、本文には実体を埋め込まず参照だけを挿入する。
 				if (imageBytes.LongLength > FileService.MaxImageBytes)
 				{
 					return Fail($"画像サイズが上限（{FileService.MaxImageBytes / (1024 * 1024)}MB）を超えています。");
@@ -152,9 +158,9 @@ internal sealed class ClipboardApi
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Warn("clipboard", "クリップボード貼り付けに失敗しました", new Dictionary<string, object?>
+			_appContext.Logger.Warn(LogCategory.Clipboard, "クリップボード貼り付けに失敗しました", new Dictionary<string, object?>
 			{
-				["error"] = ex.Message,
+				[LogProperty.Error] = ex.Message,
 			});
 			return Fail(ex.Message);
 		}
@@ -165,6 +171,7 @@ internal sealed class ClipboardApi
 		IDataObject? data = Clipboard.GetDataObject();
 		if (data is not null)
 		{
+			// Officeやブラウザで形式名が異なるため、自動変換させず既知のHTML形式を順に試す。
 			foreach (string format in new[] { DataFormats.Html, "HTML Format", "text/html" })
 			{
 				if (!data.GetDataPresent(format, autoConvert: false))
@@ -210,6 +217,7 @@ internal sealed class ClipboardApi
 			offset = 3;
 		}
 
+		// 一部アプリはHTMLをUTF-16LEストリームで渡すため、先頭文字のゼロ交互配置で判定する。
 		if (offset + 3 < bytes.Length
 			&& bytes[offset] == (byte)'V'
 			&& bytes[offset + 1] == 0
@@ -253,6 +261,7 @@ internal sealed class ClipboardApi
 	private bool TryPasteSpreadsheetFallback(out PasteForEditorResult result)
 	{
 		result = new PasteForEditorResult { Ok = true, Kind = "empty" };
+		// まずセル構造を保持しやすいタブ区切りテキストを使う。
 		string text = ReadText();
 		if (!string.IsNullOrWhiteSpace(text))
 		{
@@ -264,6 +273,7 @@ internal sealed class ClipboardApi
 			}
 		}
 
+		// テキストがない場合だけ、Excelが提供する表の画像表現を1セル表として残す。
 		if (!TryReadClipboardImage(out byte[] imageBytes))
 		{
 			return false;
@@ -312,6 +322,7 @@ internal sealed class ClipboardApi
 		List<string> embeds    = [];
 		foreach (string? filePath in files)
 		{
+			// 複数ファイル中の非画像は無視し、貼り付け可能な画像だけをまとめて処理する。
 			if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath) || !FileService.IsSupportedImagePath(filePath))
 			{
 				continue;
@@ -348,6 +359,7 @@ internal sealed class ClipboardApi
 		IDataObject? data = Clipboard.GetDataObject();
 		if (data is not null)
 		{
+			// GetImageは透過情報を落とすことがあるため、PNGストリームがあれば先にそのまま取得する。
 			foreach (string format in new[] { "PNG", "image/png" })
 			{
 				if (!data.GetDataPresent(format, autoConvert: false))
@@ -365,6 +377,7 @@ internal sealed class ClipboardApi
 			}
 		}
 
+		// PNG形式がないアプリ向けに、GDI+画像をPNGへ再エンコードしてフォールバックする。
 		if (!Clipboard.ContainsImage())
 		{
 			return false;
@@ -429,6 +442,7 @@ internal sealed class ClipboardApi
 
 		try
 		{
+			// 自己完結data URL、ローカルファイル、リモートURLの順に実体を添付フォルダへ取り込む。
 			if (TryReadDataUrlImage(source, out byte[] dataBytes, out string dataName))
 			{
 				string savedData = _appContext.FileService.SaveImageCopy(folder, dataBytes, dataName);
@@ -470,12 +484,13 @@ internal sealed class ClipboardApi
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Warn("clipboard", "表内画像の保存に失敗しました", new Dictionary<string, object?>
+			_appContext.Logger.Warn(LogCategory.Clipboard, "表内画像の保存に失敗しました", new Dictionary<string, object?>
 			{
-				["error"] = ex.Message,
+				[LogProperty.Error] = ex.Message,
 			});
 			if (source.StartsWith("http", StringComparison.OrdinalIgnoreCase))
 			{
+				// リモート画像だけは取得失敗時も元URL参照を残し、表全体の貼り付けを継続する。
 				markup = $"![]({source})";
 				return true;
 			}
@@ -562,6 +577,7 @@ internal sealed class ClipboardApi
 
 	private static string ExtensionFromImageSource(Uri uri, HttpResponseMessage response)
 	{
+		// URL拡張子を優先し、動的URLの場合だけContent-Typeから安全な既知拡張子を選ぶ。
 		string fromPath = Path.GetExtension(uri.AbsolutePath);
 		if (FileService.IsSupportedImagePath("x" + fromPath))
 		{

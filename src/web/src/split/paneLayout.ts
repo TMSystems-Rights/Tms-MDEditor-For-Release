@@ -35,6 +35,7 @@ export function splitPane(
 	newPanePosition: NewPanePosition = 'second',
 ): PaneLayoutNode {
 	if (node.kind === 'pane') {
+		// 対象以外の葉は同じ参照で返し、対象葉だけを新しい分割ノードへ置き換える。
 		if (node.paneId !== targetPaneId) return node;
 		const newPane = createPaneLayout(newPaneId);
 		return {
@@ -47,6 +48,7 @@ export function splitPane(
 		};
 	}
 
+	// 入れ子分割のどの深さでも対象を探せるよう、左右の部分木を不変更新する。
 	return {
 		...node,
 		first: splitPane(node.first, targetPaneId, newPaneId, splitId, direction, newPanePosition),
@@ -58,6 +60,7 @@ export function splitPane(
 export function removePane(node: PaneLayoutNode, paneId: PaneId): PaneLayoutNode | null {
 	if (node.kind === 'pane') return node.paneId === paneId ? null : node;
 
+	// 子が消えた分割は残せないため、残った兄弟を親位置へ昇格して木を正規化する。
 	const first  = removePane(node.first, paneId);
 	const second = removePane(node.second, paneId);
 	if (!first) return second;
@@ -69,6 +72,7 @@ export function removePane(node: PaneLayoutNode, paneId: PaneId): PaneLayoutNode
 export function updateSplitRatio(node: PaneLayoutNode, splitId: string, ratio: number): PaneLayoutNode {
 	if (node.kind === 'pane') return node;
 	if (node.splitId === splitId) {
+		// calculateSplitRatioでUIと同じ20%〜80%制約へ収め、狭すぎるペインを作らない。
 		return { ...node, ratio: calculateSplitRatio(ratio, 0, 1) };
 	}
 	return {
@@ -90,5 +94,6 @@ export function findAdjacentPaneId(node: PaneLayoutNode, paneId: PaneId): PaneId
 	const paneIds = listPaneIds(node);
 	const index   = paneIds.indexOf(paneId);
 	if (index < 0) return null;
+	// 閉じた位置の視線移動を抑えるため、前のペインを優先し、先頭だけ次を選ぶ。
 	return paneIds[index - 1] ?? paneIds[index + 1] ?? null;
 }

@@ -28,7 +28,7 @@ internal sealed class WindowApi
 	/// <returns>更新結果</returns>
 	public WindowTitleResult SetTitle(JsonElement paramsElement)
 	{
-		string title = paramsElement.TryGetProperty("title", out JsonElement titleElement)
+		string title = paramsElement.TryGetProperty(BridgeProperty.Title, out JsonElement titleElement)
 			? titleElement.GetString() ?? "TMS-MDEditor"
 			: "TMS-MDEditor";
 
@@ -48,7 +48,7 @@ internal sealed class WindowApi
 		{
 			return new { detached = false };
 		}
-		if (!paramsElement.TryGetProperty("tab", out JsonElement tabElement) || tabElement.ValueKind != JsonValueKind.Object)
+		if (!paramsElement.TryGetProperty(BridgeProperty.Tab, out JsonElement tabElement) || tabElement.ValueKind != JsonValueKind.Object)
 		{
 			throw new InvalidOperationException("切り離すタブ状態が指定されていません。");
 		}

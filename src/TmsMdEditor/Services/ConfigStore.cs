@@ -121,10 +121,10 @@ internal sealed class ConfigStore
 				string portableDataDir = AppPaths.DefaultDataDir;
 				if (!Path.GetFullPath(dataDir).Equals(Path.GetFullPath(portableDataDir), StringComparison.OrdinalIgnoreCase))
 				{
-					_logger.Warn("config", "ポータブル版のため dataDir を exe 隣の data に固定しました", new Dictionary<string, object?>
+					_logger.Warn(LogCategory.Config, "ポータブル版のため dataDir を exe 隣の data に固定しました", new Dictionary<string, object?>
 					{
-						["ignored"] = dataDir,
-						["dataDir"] = portableDataDir,
+						[LogProperty.Ignored] = dataDir,
+						[LogProperty.DataDir] = portableDataDir,
 					});
 					dataDir = portableDataDir;
 					_bootstrapConfigStore.Save(new BootstrapConfigDocument
@@ -187,7 +187,7 @@ internal sealed class ConfigStore
 			}
 			catch (Exception ex)
 			{
-				_logger.Warn("config", "config.json の解析に失敗しました。バックアップ復旧を試行します", new Dictionary<string, object?> { ["error"] = ex.Message });
+				_logger.Warn(LogCategory.Config, "config.json の解析に失敗しました。バックアップ復旧を試行します", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 
 				AppConfigDocument? restored = JsonFileHelper.TryRestoreLatestBackup<AppConfigDocument>(
 					AppPaths.GetBackupDirectory(dataDir),
@@ -225,7 +225,7 @@ internal sealed class ConfigStore
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("config", "設定の読み込みに失敗しました", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Error(LogCategory.Config, "設定の読み込みに失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			AppConfigDocument fallback = CreateDefaultConfig();
 			_cachedConfig = fallback;
 
@@ -270,7 +270,7 @@ internal sealed class ConfigStore
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("config", "設定の保存に失敗しました", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Error(LogCategory.Config, "設定の保存に失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 
 			return new SaveConfigResult
 			{
@@ -443,10 +443,10 @@ internal sealed class ConfigStore
 
 			LoadConfigResult reload = Load();
 
-			_logger.Info("config", "dataDir を移行しました", new Dictionary<string, object?>
+			_logger.Info(LogCategory.Config, "dataDir を移行しました", new Dictionary<string, object?>
 			{
-				["from"] = oldDir,
-				["to"]   = normalized,
+				[LogProperty.From] = oldDir,
+				[LogProperty.To]   = normalized,
 			});
 
 			return new MigrateDataDirResult
@@ -469,14 +469,14 @@ internal sealed class ConfigStore
 				}
 				catch (Exception rollbackEx)
 				{
-					_logger.Error("config", "dataDir 移行のロールバックに失敗しました", new Dictionary<string, object?> { ["error"] = rollbackEx.Message });
+					_logger.Error(LogCategory.Config, "dataDir 移行のロールバックに失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = rollbackEx.Message });
 				}
 			}
 
-			_logger.Error("config", "dataDir の移行に失敗しました", new Dictionary<string, object?>
+			_logger.Error(LogCategory.Config, "dataDir の移行に失敗しました", new Dictionary<string, object?>
 			{
-				["error"]  = ex.Message,
-				["newDir"] = normalized,
+				[LogProperty.Error]  = ex.Message,
+				[LogProperty.NewDir] = normalized,
 			});
 
 			return new MigrateDataDirResult
@@ -629,10 +629,10 @@ internal sealed class ConfigStore
 		bootstrap.PendingMigrationSourceDir = string.Empty;
 		_bootstrapConfigStore.Save(bootstrap);
 
-		_logger.Info("config", "インストーラ予約のdataDir移行を適用しました", new Dictionary<string, object?>
+		_logger.Info(LogCategory.Config, "インストーラ予約のdataDir移行を適用しました", new Dictionary<string, object?>
 		{
-			["from"] = sourceDir,
-			["to"]   = targetDir,
+			[LogProperty.From] = sourceDir,
+			[LogProperty.To]   = targetDir,
 		});
 	}
 

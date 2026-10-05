@@ -38,12 +38,14 @@ internal static class ClipboardHtmlTableConverter
 			return string.Empty;
 		}
 
+		// CF_HTMLのオフセットはUTF-8バイト基準なので、文字インデックスより先に正規手順で切り出す。
 		if (TrySliceUtf8Range(clipboardHtml, "StartFragment", "EndFragment", out string fragment)
 			&& fragment.Length > 0)
 		{
 			return fragment;
 		}
 
+		// オフセット不正な生成元向けに、仕様上のコメントマーカーへフォールバックする。
 		int markerStart = clipboardHtml.IndexOf("<!--StartFragment-->", StringComparison.OrdinalIgnoreCase);
 		int markerEnd   = clipboardHtml.IndexOf("<!--EndFragment-->", StringComparison.OrdinalIgnoreCase);
 		if (markerStart >= 0 && markerEnd > markerStart)
@@ -84,6 +86,7 @@ internal static class ClipboardHtmlTableConverter
 	{
 		string document = ExtractHtmlDocument(clipboardHtml);
 		string fragment = ExtractFragment(clipboardHtml);
+		// ExcelはFragment外にtable開始タグを置くことがあるため、文書全体から優先して探す。
 		foreach (string candidate in new[] { document, fragment, clipboardHtml })
 		{
 			if (IndexOfOpenTag(candidate, "table", 0) >= 0)
@@ -185,6 +188,7 @@ internal static class ClipboardHtmlTableConverter
 			return string.Empty;
 		}
 
+		// 表の前後にある説明文も捨てず、変換済み表と同じ出力順で連結する。
 		List<string> parts = [];
 		int cursor         = 0;
 		while (cursor < source.Length)
@@ -238,6 +242,7 @@ internal static class ClipboardHtmlTableConverter
 			return string.Empty;
 		}
 
+		// rowspan/colspanで先に占有される座標を扱えるよう、可変の二次元グリッドへ展開する。
 		List<List<string?>> grid = [];
 		int rowIndex = 0;
 		foreach (string rowHtml in FindElementsOutsideNestedTables(inner, "tr"))
@@ -288,6 +293,7 @@ internal static class ClipboardHtmlTableConverter
 			inner = cellHtml;
 		}
 
+		// セル中の文字列と画像を出現順に走査し、画像だけを添付用Markdownへ差し替える。
 		List<string> pieces = [];
 		int cursor          = 0;
 		while (cursor < inner.Length)
@@ -296,6 +302,7 @@ internal static class ClipboardHtmlTableConverter
 			int nestedStart = IndexOfOpenTag(inner, "table", cursor);
 			if (nestedStart >= 0 && (imageStart < 0 || nestedStart < imageStart))
 			{
+				// 入れ子表を親セルの本文へ二重展開しないよう、その要素全体を読み飛ばす。
 				AppendCellText(pieces, inner[cursor..nestedStart]);
 				if (TryReadElement(inner, nestedStart, "table", out _, out int nestedEnd))
 				{
@@ -380,6 +387,7 @@ internal static class ClipboardHtmlTableConverter
 		string cellHtml,
 		IReadOnlyDictionary<string, CellAlignment> classAlignments)
 	{
+		// セル直指定を優先し、不足分だけstyle、CSSクラスの順で補完する。
 		string? align = NormalizeAlign(ReadAttribute(cellHtml, "align"));
 		string? valign = NormalizeValign(ReadAttribute(cellHtml, "valign"));
 		string? style = ReadAttribute(cellHtml, "style");
@@ -540,6 +548,7 @@ internal static class ClipboardHtmlTableConverter
 		int colspan,
 		int rowspan)
 	{
+		// 起点だけに内容を置き、結合範囲の残りは空文字で予約して後続セルをずらす。
 		for (int rowOffset = 0; rowOffset < rowspan; rowOffset++)
 		{
 			EnsureGridRow(grid, row + rowOffset);
@@ -568,6 +577,7 @@ internal static class ClipboardHtmlTableConverter
 			return string.Empty;
 		}
 
+		// GFMは全行の列数が揃う必要があるため、最大列数まで空セルで埋める。
 		foreach (List<string> row in rows)
 		{
 			while (row.Count < columns)
@@ -605,6 +615,7 @@ internal static class ClipboardHtmlTableConverter
 			char character = normalized[index];
 			if (character == '|')
 			{
+				// 既に奇数本のバックスラッシュでエスケープ済みなら、重ねて追加しない。
 				int slashes = 0;
 				for (int cursor = index - 1; cursor >= 0 && normalized[cursor] == '\\'; cursor--)
 				{
@@ -690,6 +701,7 @@ internal static class ClipboardHtmlTableConverter
 	{
 		List<string> found = [];
 		int cursor         = 0;
+		// 親表の行・セルだけを返すため、入れ子table内では対象タグを収集しない。
 		int nestedTables   = 0;
 		while (cursor < html.Length)
 		{
@@ -789,6 +801,7 @@ internal static class ClipboardHtmlTableConverter
 			return true;
 		}
 
+		// 同名要素の入れ子を深さで追跡し、対応する閉じタグまでを1要素として返す。
 		int depth  = 1;
 		int cursor = openEnd + 1;
 		while (cursor < html.Length)
@@ -946,6 +959,7 @@ internal static class ClipboardHtmlTableConverter
 			return string.Empty;
 		}
 
+		// HTMLパーサーを使わず、表示に不要なstyle/scriptを除外しつつ改行相当タグだけ保存する。
 		StringBuilder builder = new(html.Length);
 		int cursor            = 0;
 		while (cursor < html.Length)
@@ -1030,6 +1044,7 @@ internal static class ClipboardHtmlTableConverter
 			return false;
 		}
 
+		// 仕様どおりのUTF-8バイト位置を優先し、非準拠アプリの文字位置指定も救済する。
 		byte[] bytes = Encoding.UTF8.GetBytes(clipboardHtml);
 		if (end <= bytes.Length)
 		{

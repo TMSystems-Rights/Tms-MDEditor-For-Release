@@ -56,7 +56,7 @@ internal sealed class MainForm : Form
 			AllowExternalDrop = true,
 		};
 		_menuStrip    = BuildMenuStrip(out _recentFilesMenuItem);
-		_menuStrip.MenuActivate += (_, _) => PostBridgeEvent("ui:dismissContextMenus");
+		_menuStrip.MenuActivate += (_, _) => PostBridgeEvent(BridgeEventName.UiDismissContextMenus);
 		RefreshSettingsMenuShortcutDisplays();
 
 		ApplyWindowStateFromConfig();
@@ -93,6 +93,7 @@ internal sealed class MainForm : Form
 	/// <inheritdoc />
 	protected override void WndProc(ref Message message)
 	{
+		// タブ転送のWM_COPYDATAだけを先に処理し、それ以外はWinForms既定処理へ返す。
 		if (WindowInterop.TryReadDetachedTab(message, out DetachedTabTransferRequest? request) && request is not null)
 		{
 			message.Result = ReceiveDetachedTab(request) ? new IntPtr(1) : IntPtr.Zero;
@@ -149,6 +150,7 @@ internal sealed class MainForm : Form
 			return;
 		}
 
+		// 2回目のFormClosingで再度Web層へ問い合わせないよう、判断結果を先に記録する。
 		_allowCloseAfterDecision = allowClose;
 		_closeDecisionPending    = false;
 
@@ -171,6 +173,7 @@ internal sealed class MainForm : Form
 			return;
 		}
 
+		// 初期化前の通知は受信側が存在しないため送らず、必要なものは呼び出し側でキューイングする。
 		if (!_webReady || _webView.CoreWebView2 is null)
 		{
 			return;
@@ -298,7 +301,7 @@ internal sealed class MainForm : Form
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Error("shell", "WebView2 の初期化に失敗しました", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_appContext.Logger.Error(LogCategory.Shell, "WebView2 の初期化に失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			MessageBox.Show(
 				$"WebView2 Runtime の初期化に失敗しました。\n\n{ex.Message}",
 				"TMS-MDEditor",
@@ -312,6 +315,7 @@ internal sealed class MainForm : Form
 	{
 		if (!_activateAfterShown) return;
 		_activateAfterShown = false;
+		// Shown処理完了後へ遅延し、別プロセスから転送された起動要求のウィンドウを確実に前面化する。
 		BeginInvoke(() =>
 		{
 			Show();
@@ -323,6 +327,7 @@ internal sealed class MainForm : Form
 
 	private void OnFormClosing(object? sender, FormClosingEventArgs e)
 	{
+		// Web層の確認中に再度閉じる操作が来ても、問い合わせを重複させない。
 		if (_closeDecisionPending)
 		{
 			e.Cancel = true;
@@ -331,6 +336,7 @@ internal sealed class MainForm : Form
 
 		if (_allowCloseAfterDecision)
 		{
+			// 最大化中はRestoreBoundsを保存し、次回の通常表示サイズが最大化領域にならないようにする。
 			Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
 			_appContext.PersistWindowState(bounds.Width, bounds.Height, WindowState == FormWindowState.Maximized);
 			return;
@@ -341,9 +347,10 @@ internal sealed class MainForm : Form
 			return;
 		}
 
+		// 未保存タブの有無はWeb層が管理しているため、同期的に閉じず非同期確認へ委譲する。
 		e.Cancel               = true;
 		_closeDecisionPending  = true;
-		PostBridgeEvent("app:queryClose");
+		PostBridgeEvent(BridgeEventName.AppQueryClose);
 	}
 
 	/// <inheritdoc />
@@ -365,6 +372,7 @@ internal sealed class MainForm : Form
 		CoreWebView2 core = _webView.CoreWebView2
 			?? throw new InvalidOperationException("CoreWebView2 が初期化されていません。");
 
+		// ブラウザ既定UIを無効化し、アプリ側メニュー・ショートカットへ操作体系を統一する。
 		core.Settings.AreBrowserAcceleratorKeysEnabled = false;
 		core.Settings.AreDefaultContextMenusEnabled     = false;
 		core.Settings.IsStatusBarEnabled              = false;
@@ -379,6 +387,7 @@ internal sealed class MainForm : Form
 			throw new DirectoryNotFoundException($"Web 資産が見つかりません: {webDistPath}");
 		}
 
+		// file://制約を避けつつローカル資産だけを配信するため、固定仮想ホストへ割り当てる。
 		string virtualHost = AppPaths.WebViewVirtualHost;
 		core.SetVirtualHostNameToFolderMapping(
 			virtualHost,
@@ -389,10 +398,10 @@ internal sealed class MainForm : Form
 		core.NavigationCompleted += OnNavigationCompleted;
 
 		core.Navigate($"https://{virtualHost}/index.html");
-		_appContext.Logger.Info("shell", "WebView2 を初期化しました", new Dictionary<string, object?>
+		_appContext.Logger.Info(LogCategory.Shell, "WebView2 を初期化しました", new Dictionary<string, object?>
 		{
-			["webDistPath"]  = webDistPath,
-			["virtualHost"]  = virtualHost,
+			[LogProperty.WebDistPath] = webDistPath,
+			[LogProperty.VirtualHost] = virtualHost,
 		});
 	}
 
@@ -404,7 +413,7 @@ internal sealed class MainForm : Form
 			BeginInvoke(() => OnExternalFileChanged(change));
 			return;
 		}
-		PostBridgeEvent("app:externalFileChanged", new
+		PostBridgeEvent(BridgeEventName.AppExternalFileChanged, new
 		{
 			filePath = change.FilePath,
 			kind     = change.Kind.ToString().ToLowerInvariant(),
@@ -466,13 +475,13 @@ internal sealed class MainForm : Form
 	{
 		KeybindingsSettings keybindings = _appContext.Config.Settings.Keybindings;
 		return ShortcutKeyMatcher.Matches(e, keybindings.SplitHorizontal)
-			? "menu:splitHorizontal"
-			: ShortcutKeyMatcher.Matches(e, keybindings.SplitVertical)
-				? "menu:splitVertical"
-				: ShortcutKeyMatcher.Matches(e, keybindings.Unsplit)
-					? "menu:unsplit"
-					: ShortcutKeyMatcher.Matches(e, keybindings.ToggleOutline)
-						? "menu:toggleOutline"
+				? BridgeEventName.MenuSplitHorizontal
+				: ShortcutKeyMatcher.Matches(e, keybindings.SplitVertical)
+					? BridgeEventName.MenuSplitVertical
+					: ShortcutKeyMatcher.Matches(e, keybindings.Unsplit)
+						? BridgeEventName.MenuUnsplit
+						: ShortcutKeyMatcher.Matches(e, keybindings.ToggleOutline)
+							? BridgeEventName.MenuToggleOutline
 						: null;
 	}
 
@@ -566,28 +575,30 @@ internal sealed class MainForm : Form
 	{
 		try
 		{
+			// WebView2の追加オブジェクトはJSON本文より先に処理し、実ファイルパスを失わないようにする。
 			string[] droppedPaths = ExtractDroppedFilePaths(e);
 			if (droppedPaths.Length > 0)
 			{
-				PostBridgeEvent("app:openFiles", new { files = droppedPaths });
+				PostBridgeEvent(BridgeEventName.AppOpenFiles, new { files = droppedPaths });
 				return;
 			}
 
 			using JsonDocument document = JsonDocument.Parse(e.WebMessageAsJson);
 			JsonElement root = document.RootElement;
 
-			if (!root.TryGetProperty("method", out JsonElement methodElement))
+			if (!root.TryGetProperty(BridgeProperty.Method, out JsonElement methodElement))
 			{
 				return;
 			}
 
 			string? method = methodElement.GetString();
-			if (string.Equals(method, "file:drop", StringComparison.Ordinal))
+			if (string.Equals(method, BridgeMethod.FileDrop, StringComparison.Ordinal))
 			{
-				_appContext.Logger.Warn("shell", "ドロップファイルのパスを取得できませんでした");
+				_appContext.Logger.Warn(LogCategory.Shell, "ドロップファイルのパスを取得できませんでした");
 				return;
 			}
 
+			// method付きJSONだけをBridgeへルーティングし、要求IDを含む応答を同じWebViewへ返す。
 			string? responseJson = await _bridgeRouter.HandleRequestAsync(root);
 			if (responseJson is not null)
 			{
@@ -596,7 +607,7 @@ internal sealed class MainForm : Form
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Error("shell", "WebMessage の処理に失敗しました", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_appContext.Logger.Error(LogCategory.Shell, "WebMessage の処理に失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 		}
 	}
 
@@ -625,10 +636,11 @@ internal sealed class MainForm : Form
 	{
 		if (!e.IsSuccess)
 		{
-			_appContext.Logger.Error("shell", "Web 層の読み込みに失敗しました", new Dictionary<string, object?> { ["webErrorStatus"] = e.WebErrorStatus.ToString() });
+			_appContext.Logger.Error(LogCategory.Shell, "Web 層の読み込みに失敗しました", new Dictionary<string, object?> { [LogProperty.WebErrorStatus] = e.WebErrorStatus.ToString() });
 			return;
 		}
 
+		// Web層が最初の描画を一度で組み立てられるよう、起動情報・設定・復元状態をまとめて渡す。
 		DataDirInfo dataDirInfo = _appContext.ConfigStore.GetDataDirInfo();
 		string[] startupFiles   = StartupArguments.ResolveFilePaths(_startupArgs)
 			.Concat(DrainPendingExternalOpenRequests())
@@ -642,7 +654,7 @@ internal sealed class MainForm : Form
 
 		_webView.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
 		{
-			@event  = "app:ready",
+			@event  = BridgeEventName.AppReady,
 			payload = new
 			{
 				version = GetDisplayVersion(),
@@ -667,6 +679,7 @@ internal sealed class MainForm : Form
 			},
 		}, BridgeJson.Options));
 
+		// ready通知後に到着済みのタブ転送を順番に配信し、初期化前の要求を失わないようにする。
 		_webReady = true;
 		foreach (PendingDetachedTab pending in _pendingDetachedTabs)
 		{
@@ -674,7 +687,7 @@ internal sealed class MainForm : Form
 		}
 		_pendingDetachedTabs.Clear();
 		RefreshRecentFilesMenu();
-		_appContext.Logger.Info("shell", "Web 層の読み込みが完了しました");
+		_appContext.Logger.Info(LogCategory.Shell, "Web 層の読み込みが完了しました");
 		_bridgeRouter.StartStartupUpdateCheck();
 	}
 
@@ -688,7 +701,7 @@ internal sealed class MainForm : Form
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Error("update", "インストーラーを起動できませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_appContext.Logger.Error(LogCategory.Update, "インストーラーを起動できませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 		}
 	}
 
@@ -697,18 +710,18 @@ internal sealed class MainForm : Form
 		var menuStrip = new MenuStrip { Dock = DockStyle.Top };
 
 		var fileMenu = new ToolStripMenuItem("ファイル(&F)");
-		var newFileItem = new ToolStripMenuItem("新規作成(&N)", null, (_, _) => PostBridgeEvent("menu:newFile"));
-		var openFileItem = new ToolStripMenuItem("開く(&O)...", null, (_, _) => PostBridgeEvent("menu:openFile"));
+		var newFileItem = new ToolStripMenuItem("新規作成(&N)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuNewFile));
+		var openFileItem = new ToolStripMenuItem("開く(&O)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuOpenFile));
 		fileMenu.DropDownItems.Add(newFileItem);
 		fileMenu.DropDownItems.Add(openFileItem);
 		recentFilesMenuItem = new ToolStripMenuItem("最近使ったファイル");
 		fileMenu.DropDownItems.Add(recentFilesMenuItem);
 		fileMenu.DropDownItems.Add(new ToolStripSeparator());
-		var saveItem = new ToolStripMenuItem("上書き保存(&S)", null, (_, _) => PostBridgeEvent("menu:save"));
-		var saveAsItem = new ToolStripMenuItem("名前を付けて保存(&A)...", null, (_, _) => PostBridgeEvent("menu:saveAs"));
-		var exportHtmlItem = new ToolStripMenuItem("HTMLとしてエクスポート(&H)...", null, (_, _) => PostBridgeEvent("menu:exportHtml"));
-		var exportPdfItem = new ToolStripMenuItem("PDFとしてエクスポート(&P)...", null, (_, _) => PostBridgeEvent("menu:exportPdf"));
-		var printItem = new ToolStripMenuItem("印刷(&I)...", null, (_, _) => PostBridgeEvent("menu:print"));
+		var saveItem = new ToolStripMenuItem("上書き保存(&S)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuSave));
+		var saveAsItem = new ToolStripMenuItem("名前を付けて保存(&A)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuSaveAs));
+		var exportHtmlItem = new ToolStripMenuItem("HTMLとしてエクスポート(&H)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuExportHtml));
+		var exportPdfItem = new ToolStripMenuItem("PDFとしてエクスポート(&P)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuExportPdf));
+		var printItem = new ToolStripMenuItem("印刷(&I)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuPrint));
 		fileMenu.DropDownItems.Add(saveItem);
 		fileMenu.DropDownItems.Add(saveAsItem);
 		fileMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -716,7 +729,7 @@ internal sealed class MainForm : Form
 		fileMenu.DropDownItems.Add(exportPdfItem);
 		fileMenu.DropDownItems.Add(printItem);
 		fileMenu.DropDownItems.Add(new ToolStripSeparator());
-		fileMenu.DropDownItems.Add("文字コードを指定して再読込(&R)...", null, (_, _) => PostBridgeEvent("menu:reloadWithEncoding"));
+		fileMenu.DropDownItems.Add("文字コードを指定して再読込(&R)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuReloadWithEncoding));
 		fileMenu.DropDownItems.Add(new ToolStripSeparator());
 		fileMenu.DropDownItems.Add("終了(&X)", null, (_, _) => Close());
 
@@ -724,28 +737,28 @@ internal sealed class MainForm : Form
 		var findItem = new ToolStripMenuItem(
 			"検索(&F)...",
 			null,
-			(_, _) => PostBridgeEvent("menu:find"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuFind))
 		{
 			ShortcutKeyDisplayString = "Ctrl+F",
 		};
 		var replaceItem = new ToolStripMenuItem(
 			"置換(&R)...",
 			null,
-			(_, _) => PostBridgeEvent("menu:replace"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuReplace))
 		{
 			ShortcutKeyDisplayString = "Ctrl+R",
 		};
 		var findNextItem = new ToolStripMenuItem(
 			"次を検索(&N)",
 			null,
-			(_, _) => PostBridgeEvent("menu:findNext"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuFindNext))
 		{
 			ShortcutKeyDisplayString = "F3",
 		};
 		var findPreviousItem = new ToolStripMenuItem(
 			"前を検索(&P)",
 			null,
-			(_, _) => PostBridgeEvent("menu:findPrevious"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuFindPrevious))
 		{
 			ShortcutKeyDisplayString = "Shift+F3",
 		};
@@ -759,14 +772,14 @@ internal sealed class MainForm : Form
 		var toggleViewModeItem = new ToolStripMenuItem(
 			"ソース / ライブプレビュー切替(&E)",
 			null,
-			(_, _) => PostBridgeEvent("menu:toggleViewMode"));
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuToggleViewMode));
 		// ショートカット本体は Web 層（config keybindings）が処理する。表示のみ付与する。
 		toggleViewModeItem.ShortcutKeyDisplayString = "Ctrl+E";
 		viewMenu.DropDownItems.Add(toggleViewModeItem);
 		var toggleOutlineItem = new ToolStripMenuItem(
 			"アウトラインを表示 / 非表示(&O)",
 			null,
-			(_, _) => PostBridgeEvent("menu:toggleOutline"));
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuToggleOutline));
 		toggleOutlineItem.ShortcutKeyDisplayString = "Ctrl+Shift+O";
 		viewMenu.DropDownItems.Add(toggleOutlineItem);
 		viewMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -774,21 +787,21 @@ internal sealed class MainForm : Form
 		var splitHorizontalItem = new ToolStripMenuItem(
 			"上下に分割(&H)",
 			null,
-			(_, _) => PostBridgeEvent("menu:splitHorizontal"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuSplitHorizontal))
 		{
 			ShortcutKeyDisplayString = "Ctrl+Shift+-",
 		};
 		var splitVerticalItem = new ToolStripMenuItem(
 			"左右に分割(&V)",
 			null,
-			(_, _) => PostBridgeEvent("menu:splitVertical"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuSplitVertical))
 		{
 			ShortcutKeyDisplayString = "Ctrl+Shift+\\",
 		};
 		var unsplitItem = new ToolStripMenuItem(
 			"分割解除(&U)",
 			null,
-			(_, _) => PostBridgeEvent("menu:unsplit"))
+			(_, _) => PostBridgeEvent(BridgeEventName.MenuUnsplit))
 		{
 			ShortcutKeyDisplayString = "Ctrl+Shift+U",
 		};
@@ -797,10 +810,10 @@ internal sealed class MainForm : Form
 		viewMenu.DropDownItems.Add(unsplitItem);
 
 		var settingsMenu = new ToolStripMenuItem("設定(&S)");
-		settingsMenu.DropDownItems.Add("設定を開く(&S)...", null, (_, _) => PostBridgeEvent("menu:openSettings"));
+		settingsMenu.DropDownItems.Add("設定を開く(&S)...", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuOpenSettings));
 		settingsMenu.DropDownItems.Add(new ToolStripSeparator());
-		settingsMenu.DropDownItems.Add("CSSスニペットを再読込(&R)", null, (_, _) => PostBridgeEvent("menu:reloadCssSnippets"));
-		settingsMenu.DropDownItems.Add("CSSスニペットフォルダを開く(&O)", null, (_, _) => PostBridgeEvent("menu:openSnippetsFolder"));
+		settingsMenu.DropDownItems.Add("CSSスニペットを再読込(&R)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuReloadCssSnippets));
+		settingsMenu.DropDownItems.Add("CSSスニペットフォルダを開く(&O)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuOpenSnippetsFolder));
 
 		var helpMenu = new ToolStripMenuItem("ヘルプ(&H)");
 		helpMenu.DropDownItems.Add("開発者ツール(&D)", null, (_, _) =>
@@ -808,7 +821,7 @@ internal sealed class MainForm : Form
 			_webView.CoreWebView2?.OpenDevToolsWindow();
 		});
 		helpMenu.DropDownItems.Add(new ToolStripSeparator());
-		helpMenu.DropDownItems.Add("更新を確認(&U)", null, (_, _) => PostBridgeEvent("menu:checkForUpdates"));
+		helpMenu.DropDownItems.Add("更新を確認(&U)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuCheckForUpdates));
 		helpMenu.DropDownItems.Add(new ToolStripSeparator());
 		helpMenu.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
 		{
@@ -866,7 +879,7 @@ internal sealed class MainForm : Form
 			string displayName = filePath;
 			_recentFilesMenuItem.DropDownItems.Add(displayName, null, (_, _) =>
 			{
-				PostBridgeEvent("app:openFiles", new { files = new[] { filePath } });
+				PostBridgeEvent(BridgeEventName.AppOpenFiles, new { files = new[] { filePath } });
 			});
 		}
 	}
@@ -896,18 +909,19 @@ internal sealed class MainForm : Form
 		}
 		catch (Exception ex)
 		{
-			_appContext.Logger.Error("shell", "切り離しタブ状態の読み込みに失敗しました", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_appContext.Logger.Error(LogCategory.Shell, "切り離しタブ状態の読み込みに失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			return null;
 		}
 		finally
 		{
+			// 転送ファイルは一度だけ読む一時媒体なので、成功・失敗にかかわらず回収する。
 			try
 			{
 				if (File.Exists(transferPath)) File.Delete(transferPath);
 			}
 			catch (Exception ex)
 			{
-				_appContext.Logger.Warn("shell", "切り離しタブ状態ファイルを削除できませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+				_appContext.Logger.Warn(LogCategory.Shell, "切り離しタブ状態ファイルを削除できませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			}
 		}
 	}
@@ -918,6 +932,7 @@ internal sealed class MainForm : Form
 		if (tab is null) return false;
 
 		var pending = new PendingDetachedTab(tab.Value, request.ScreenX, request.ScreenY);
+		// Web初期化前なら座標付き要求を保持し、ready後に同じ順序で届ける。
 		if (_webReady)
 		{
 			PostDetachedTab(pending);
@@ -937,8 +952,9 @@ internal sealed class MainForm : Form
 
 	private void PostDetachedTab(PendingDetachedTab pending)
 	{
+		// Win32の画面座標をWebView内座標へ変換し、ドロップ先ペイン判定へ渡す。
 		Point clientPoint = _webView.PointToClient(new Point(pending.ScreenX, pending.ScreenY));
-		PostBridgeEvent("app:receiveDetachedTab", new
+		PostBridgeEvent(BridgeEventName.AppReceiveDetachedTab, new
 		{
 			tab = pending.Tab,
 			clientX = clientPoint.X,
@@ -951,7 +967,7 @@ internal sealed class MainForm : Form
 		string[] files = StartupArguments.ResolveFilePaths(args);
 		if (files.Length > 0)
 		{
-			PostBridgeEvent("app:openFiles", new { files });
+			PostBridgeEvent(BridgeEventName.AppOpenFiles, new { files });
 		}
 
 		if (WindowState == FormWindowState.Minimized)

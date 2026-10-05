@@ -37,6 +37,7 @@ export type SessionSnapshotInput = {
 
 /** 保存可能なファイルタブだけを残し、空になったペインを畳んだセッションを生成する。 */
 export function createSessionSnapshot(input: SessionSnapshotInput): SessionSnapshot | null {
+	// 未保存タブは復元できないため除外し、各ペインの参照も同じ集合へ揃える。
 	const tabs        = input.tabs.filter((tab): tab is SessionTabSnapshot => Boolean(tab.filePath?.trim()));
 	const savedTabIds = new Set(tabs.map((tab) => tab.tabId));
 	const panes       = input.panes.map((pane) => {
@@ -53,6 +54,7 @@ export function createSessionSnapshot(input: SessionSnapshotInput): SessionSnaps
 	const paneLayout = prunePaneLayout(input.paneLayout, paneIds);
 	if (!paneLayout || panes.length === 0) return null;
 
+	// レイアウトから脱落したペインとタブを再度除き、保存JSON内の相互参照を閉じる。
 	const layoutPaneIds = new Set(listLayoutPaneIds(paneLayout));
 	const layoutPanes   = panes.filter((pane) => layoutPaneIds.has(pane.paneId));
 	const usedTabIds    = new Set(layoutPanes.flatMap((pane) => pane.tabIds));
@@ -73,6 +75,7 @@ export function normalizeSessionSnapshot(value: unknown): SessionSnapshot | null
 
 	const tabs: SessionTabSnapshot[] = [];
 	const tabIds                     = new Set<string>();
+	// 壊れた項目と重複IDだけを捨て、残りのセッションは可能な限り復元する。
 	for (const candidate of value.tabs) {
 		if (!isRecord(candidate) || !isNonEmptyString(candidate.tabId) || !isNonEmptyString(candidate.filePath) || tabIds.has(candidate.tabId)) continue;
 		tabIds.add(candidate.tabId);
@@ -85,6 +88,7 @@ export function normalizeSessionSnapshot(value: unknown): SessionSnapshot | null
 	const layoutPaneIds                = new Set(listLayoutPaneIds(rawLayout));
 	const panes: SessionPaneSnapshot[] = [];
 	const seenPanes                    = new Set<string>();
+	// レイアウトに存在し、少なくとも1つ有効なタブを持つペインだけを採用する。
 	for (const candidate of value.panes) {
 		if (!isRecord(candidate) || !isNonEmptyString(candidate.paneId) || seenPanes.has(candidate.paneId) || !layoutPaneIds.has(candidate.paneId) || !Array.isArray(candidate.tabIds)) continue;
 		const paneTabIds = candidate.tabIds.filter((tabId, index, values): tabId is string => typeof tabId === 'string' && tabIds.has(tabId) && values.indexOf(tabId) === index);
@@ -132,16 +136,12 @@ export function prunePaneLayout(layout: PaneLayoutNode, paneIds: ReadonlySet<Pan
 	return next;
 }
 
-/**
- *
- */
+/** 再帰レイアウトを画面上の順序で走査し、参照整合性の検証に使う。 */
 function listLayoutPaneIds(layout: PaneLayoutNode): PaneId[] {
 	return layout.kind === 'pane' ? [layout.paneId] : [...listLayoutPaneIds(layout.first), ...listLayoutPaneIds(layout.second)];
 }
 
-/**
- *
- */
+/** 外部JSONの再帰構造を検証し、重複IDのないペインレイアウトへ正規化する。 */
 function normalizePaneLayout(value: unknown, paneIds: Set<string>, splitIds: Set<string>): PaneLayoutNode | null {
 	if (!isRecord(value) || value.kind === 'pane' && !isNonEmptyString(value.paneId)) return null;
 	if (value.kind === 'pane') {
@@ -151,6 +151,7 @@ function normalizePaneLayout(value: unknown, paneIds: Set<string>, splitIds: Set
 	}
 	if (value.kind !== 'split' || !isNonEmptyString(value.splitId) || splitIds.has(value.splitId) || value.direction !== 'horizontal' && value.direction !== 'vertical') return null;
 	splitIds.add(value.splitId);
+	// 片側だけ壊れた分割は安全に畳めないため、分割ノード全体を無効とする。
 	const first  = normalizePaneLayout(value.first, paneIds, splitIds);
 	const second = normalizePaneLayout(value.second, paneIds, splitIds);
 	if (!first || !second) return null;
@@ -158,23 +159,17 @@ function normalizePaneLayout(value: unknown, paneIds: Set<string>, splitIds: Set
 	return { kind: 'split', splitId: value.splitId, direction: value.direction, ratio, first, second };
 }
 
-/**
- *
- */
+/** 未知の値は、互換性を保てる既定のライブプレビューへフォールバックする。 */
 function normalizeViewMode(value: unknown): ViewMode {
 	return value === 'source' ? 'source' : 'live-preview';
 }
 
-/**
- *
- */
+/** 配列や null を除外し、JSONオブジェクトとして安全にプロパティを参照可能にする。 */
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- *
- */
+/** IDやパスに使える、空白だけではない文字列かを判定する。 */
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === 'string' && value.trim().length > 0;
 }

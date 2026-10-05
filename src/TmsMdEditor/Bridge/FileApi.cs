@@ -27,7 +27,7 @@ internal sealed class FileApi
 	/// <returns>読み込み結果</returns>
 	public TextFileInfo Open(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 
@@ -38,8 +38,8 @@ internal sealed class FileApi
 
 	public TextFileInfo OpenWithEncoding(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.GetProperty("filePath").GetString() ?? string.Empty;
-		TextEncodingKind encoding = EncodingDetector.ParseEncodingKind(paramsElement.GetProperty("encoding").GetString());
+		string filePath = paramsElement.GetProperty(BridgeProperty.FilePath).GetString() ?? string.Empty;
+		TextEncodingKind encoding = EncodingDetector.ParseEncodingKind(paramsElement.GetProperty(BridgeProperty.Encoding).GetString());
 		TextFileInfo result = _appContext.FileService.Read(filePath, encoding);
 		_appContext.FileWatcherService.Track(result.FilePath);
 		return result;
@@ -81,7 +81,7 @@ internal sealed class FileApi
 	/// <returns>保存結果</returns>
 	public SaveFileResult Save(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 
@@ -90,14 +90,14 @@ internal sealed class FileApi
 			throw new InvalidOperationException("filePath が指定されていません。");
 		}
 
-		if (!paramsElement.TryGetProperty("text", out JsonElement textElement))
+		if (!paramsElement.TryGetProperty(BridgeProperty.Text, out JsonElement textElement))
 		{
 			throw new InvalidOperationException("text が指定されていません。");
 		}
 
 		string text = textElement.GetString() ?? string.Empty;
 
-		if (!paramsElement.TryGetProperty("encoding", out JsonElement encodingElement))
+		if (!paramsElement.TryGetProperty(BridgeProperty.Encoding, out JsonElement encodingElement))
 		{
 			throw new InvalidOperationException("encoding が指定されていません。");
 		}
@@ -105,7 +105,7 @@ internal sealed class FileApi
 		TextEncodingKind encoding = EncodingDetector.ParseEncodingKind(encodingElement.GetString());
 
 		EolKind? unifyEol = null;
-		if (paramsElement.TryGetProperty("unifyEol", out JsonElement unifyEolElement)
+		if (paramsElement.TryGetProperty(BridgeProperty.UnifyEol, out JsonElement unifyEolElement)
 			&& unifyEolElement.ValueKind == JsonValueKind.String)
 		{
 			string? unifyValue = unifyEolElement.GetString();
@@ -133,19 +133,19 @@ internal sealed class FileApi
 
 		if (paramsElement.ValueKind != JsonValueKind.Undefined)
 		{
-			if (paramsElement.TryGetProperty("path", out JsonElement pathElement)
+			if (paramsElement.TryGetProperty(BridgeProperty.Path, out JsonElement pathElement)
 				&& pathElement.ValueKind == JsonValueKind.String)
 			{
 				path = pathElement.GetString();
 			}
 
-			if (paramsElement.TryGetProperty("documentPath", out JsonElement documentPathElement)
+			if (paramsElement.TryGetProperty(BridgeProperty.DocumentPath, out JsonElement documentPathElement)
 				&& documentPathElement.ValueKind == JsonValueKind.String)
 			{
 				documentPath = documentPathElement.GetString();
 			}
 
-			if (paramsElement.TryGetProperty("embed", out JsonElement embedElement)
+			if (paramsElement.TryGetProperty(BridgeProperty.Embed, out JsonElement embedElement)
 				&& embedElement.ValueKind == JsonValueKind.String)
 			{
 				embed = embedElement.GetString();
@@ -165,7 +165,7 @@ internal sealed class FileApi
 		string? suggestedPath = null;
 
 		if (paramsElement.ValueKind != JsonValueKind.Undefined
-			&& paramsElement.TryGetProperty("filePath", out JsonElement filePathElement))
+			&& paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement))
 		{
 			suggestedPath = filePathElement.GetString();
 		}
@@ -211,19 +211,19 @@ internal sealed class FileApi
 
 		if (paramsElement.ValueKind != JsonValueKind.Undefined)
 		{
-			if (paramsElement.TryGetProperty("kind", out JsonElement kindElement)
+			if (paramsElement.TryGetProperty(BridgeProperty.Kind, out JsonElement kindElement)
 				&& kindElement.ValueKind == JsonValueKind.String)
 			{
 				kind = kindElement.GetString() ?? "html";
 			}
 
-			if (paramsElement.TryGetProperty("suggestedName", out JsonElement nameElement)
+			if (paramsElement.TryGetProperty(BridgeProperty.SuggestedName, out JsonElement nameElement)
 				&& nameElement.ValueKind == JsonValueKind.String)
 			{
 				suggestedName = nameElement.GetString();
 			}
 
-			if (paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+			if (paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 				&& filePathElement.ValueKind == JsonValueKind.String)
 			{
 				suggestedPath = filePathElement.GetString();
@@ -286,10 +286,10 @@ internal sealed class FileApi
 	/// <returns>保存結果</returns>
 	public SaveFileResult WriteUtf8(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
-		string text = paramsElement.TryGetProperty("text", out JsonElement textElement)
+		string text = paramsElement.TryGetProperty(BridgeProperty.Text, out JsonElement textElement)
 			? textElement.GetString() ?? string.Empty
 			: string.Empty;
 

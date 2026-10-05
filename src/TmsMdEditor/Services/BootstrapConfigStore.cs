@@ -43,10 +43,10 @@ internal sealed class BootstrapConfigStore
 				&& !string.IsNullOrWhiteSpace(parsed.DataDir)
 				&& !Path.GetFullPath(parsed.DataDir.Trim()).Equals(normalized.DataDir, StringComparison.OrdinalIgnoreCase))
 			{
-				_logger.Warn("bootstrap", "ポータブル版のため dataDir を exe 隣の data に固定しました", new Dictionary<string, object?>
+				_logger.Warn(LogCategory.Bootstrap, "ポータブル版のため dataDir を exe 隣の data に固定しました", new Dictionary<string, object?>
 				{
-					["ignored"] = parsed.DataDir,
-					["dataDir"] = normalized.DataDir,
+					[LogProperty.Ignored] = parsed.DataDir,
+					[LogProperty.DataDir] = normalized.DataDir,
 				});
 				Save(normalized);
 			}
@@ -55,7 +55,7 @@ internal sealed class BootstrapConfigStore
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("bootstrap", "app-config.json の読み込みに失敗しました", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Error(LogCategory.Bootstrap, "app-config.json の読み込みに失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 
 			var fallback = CreateDefault();
 			Save(fallback);

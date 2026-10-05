@@ -1,7 +1,7 @@
 import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands';
 import { EditorState, Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { invokeBridge, onBridgeEvent, postDroppedFiles, writeLog } from '../bridge';
+import { BRIDGE_EVENT, BRIDGE_METHOD, invokeBridge, onBridgeEvent, postDroppedFiles, writeLog } from '../bridge';
 import { createEditorState, mountEditorView, reconfigureEditorState, replaceEditorText } from '../editor/createEditor';
 import { buildToggleTaskMarkerTransaction } from '../editor/checkboxToggle';
 import { setLineEolsEffect } from '../editor/eolMarkers';
@@ -386,156 +386,150 @@ export class AppController {
 			this.dismissAllMenus();
 		});
 
-		onBridgeEvent('app:ready', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.appReady, (payload) => {
 			void this.handleAppReady(payload as AppReadyPayload);
 		});
 
-		onBridgeEvent('app:openFiles', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.appOpenFiles, (payload) => {
 			const files = (payload as { files?: string[] }).files ?? [];
 			void this.openFilePaths(files);
 		});
 
-		onBridgeEvent('app:queryClose', () => {
+		onBridgeEvent(BRIDGE_EVENT.appQueryClose, () => {
 			void this.handleQueryClose();
 		});
 
-		onBridgeEvent('ui:dismissContextMenus', () => {
+		onBridgeEvent(BRIDGE_EVENT.uiDismissContextMenus, () => {
 			dismissContextMenus();
 		});
 
-		onBridgeEvent('menu:newFile', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuNewFile, () => {
 			void this.createNewTab();
 		});
 
-		onBridgeEvent('menu:openFile', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuOpenFile, () => {
 			void this.openFileDialog();
 		});
 
-		onBridgeEvent('menu:save', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuSave, () => {
 			void this.saveActiveTab();
 		});
 
-		onBridgeEvent('menu:saveAs', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuSaveAs, () => {
 			void this.saveAsActiveTab();
 		});
 
-		onBridgeEvent('menu:exportHtml', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuExportHtml, () => {
 			void this.exportActiveTab('html');
 		});
 
-		onBridgeEvent('menu:exportPdf', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuExportPdf, () => {
 			void this.exportActiveTab('pdf');
 		});
 
-		onBridgeEvent('menu:print', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuPrint, () => {
 			void this.printActiveTab();
 		});
 
-		onBridgeEvent('menu:toggleViewMode', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuToggleViewMode, () => {
 			this.toggleActiveTabViewMode();
 		});
 
-		onBridgeEvent('menu:toggleOutline', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuToggleOutline, () => {
 			this.toggleOutline();
 		});
 
-		onBridgeEvent('app:externalFileChanged', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.appExternalFileChanged, (payload) => {
 			const externalChange = payload as { filePath?: string; kind?: 'changed' | 'deleted' | 'renamed' };
 			if (externalChange.filePath) void this.handleExternalFileChanged(externalChange.filePath, externalChange.kind ?? 'changed');
 		});
-		onBridgeEvent('menu:reloadWithEncoding', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuReloadWithEncoding, () => {
 			void this.reloadActiveFileWithEncoding();
 		});
 
-		onBridgeEvent('menu:splitHorizontal', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuSplitHorizontal, () => {
 			this.splitActiveView('horizontal');
 		});
 
-		onBridgeEvent('menu:splitVertical', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuSplitVertical, () => {
 			this.splitActiveView('vertical');
 		});
 
-		onBridgeEvent('menu:unsplit', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuUnsplit, () => {
 			this.unsplitActiveView();
 		});
 
-		onBridgeEvent('menu:find', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuFind, () => {
 			this.openActiveSearchPanel('find');
 		});
 
-		onBridgeEvent('menu:replace', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuReplace, () => {
 			this.openActiveSearchPanel('replace');
 		});
 
-		onBridgeEvent('menu:findNext', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuFindNext, () => {
 			if (this.editorView) {
 				moveToSearchMatch(this.editorView, 'next');
 			}
 		});
 
-		onBridgeEvent('menu:findPrevious', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuFindPrevious, () => {
 			if (this.editorView) {
 				moveToSearchMatch(this.editorView, 'previous');
 			}
 		});
 
-		onBridgeEvent('menu:openSettings', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuOpenSettings, () => {
 			void this.openSettings();
 		});
 
-		onBridgeEvent('menu:reloadCssSnippets', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuReloadCssSnippets, () => {
 			void this.refreshCssSnippets(true);
 		});
 
-		onBridgeEvent('menu:openSnippetsFolder', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuOpenSnippetsFolder, () => {
 			void this.openSnippetsFolder();
 		});
 
-		onBridgeEvent('app:receiveDetachedTab', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.appReceiveDetachedTab, (payload) => {
 			this.receiveDetachedTab(payload as DetachedTabDropPayload);
 		});
 
-		onBridgeEvent('menu:checkForUpdates', () => {
+		onBridgeEvent(BRIDGE_EVENT.menuCheckForUpdates, () => {
 			void this.checkForUpdates();
 		});
 
-		onBridgeEvent('update:available', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.updateAvailable, (payload) => {
 			const typed = payload as { release?: UpdateReleaseInfo; mode?: 'installer' | 'portable' };
 			if (typed.release) this.showUpdateAvailableToast(typed.release, typed.mode);
 		});
 
-		onBridgeEvent('update:downloadProgress', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.updateDownloadProgress, (payload) => {
 			const progress = payload as UpdateDownloadProgress;
 			const message  = `更新をダウンロード中です: ${progress.percent}%`;
 			if (!this.updateDownloadToast) {
 				this.updateDownloadToast = showActionToast(message, [{
 					label  : 'キャンセル',
-					/**
-					 *
-					 */
-					onClick: () => void invokeBridge('update:cancelDownload')
+					/** ネイティブ側で共有しているダウンロード用キャンセルトークンを停止する。 */
+					onClick: () => void invokeBridge(BRIDGE_METHOD.updateCancelDownload)
 				}]);
 			} else {
 				this.updateDownloadToast.updateMessage(message);
 			}
 		});
 
-		onBridgeEvent('update:downloadCompleted', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.updateDownloadCompleted, (payload) => {
 			this.dismissUpdateDownloadToast();
 			const version = (payload as { version?: string }).version ?? '';
 			showActionToast(`バージョン ${version} の更新をダウンロードしました。`, [
-				{ label: '今すぐ更新', /**
-				 *
-				 */
-					onClick: () => void invokeBridge('update:applyNow') },
-				{ label: '後で', /**
-				 *
-				 */
+				{ label: '今すぐ更新', /** アプリを閉じた後に検証済みインストーラーを起動する。 */
+					onClick: () => void invokeBridge(BRIDGE_METHOD.updateApplyNow) },
+				{ label: '後で', /** インストーラーを起動せず通知だけ閉じる。 */
 					onClick: () => undefined }
 			]);
 		});
 
-		onBridgeEvent('update:error', (payload) => {
+		onBridgeEvent(BRIDGE_EVENT.updateError, (payload) => {
 			this.dismissUpdateDownloadToast();
 			showToast((payload as { message?: string }).message ?? '更新処理に失敗しました。');
 		});
@@ -547,7 +541,7 @@ export class AppController {
 	 */
 	private async checkForUpdates(): Promise<void> {
 		try {
-			const result = await invokeBridge<UpdateCheckResponse>('update:check');
+			const result = await invokeBridge<UpdateCheckResponse>(BRIDGE_METHOD.updateCheck);
 			if (result.status === 'available' && result.release) {
 				this.showUpdateAvailableToast(result.release, result.mode);
 				return;
@@ -569,35 +563,25 @@ export class AppController {
 			showActionToast(`新しいバージョン v${release.version} があります。公式ページからポータブル ZIP 版をダウンロードしてください。`, [
 				{
 					label  : '公式ダウンロードページを開く',
-					/**
-					 *
-					 */
-					onClick: () => void invokeBridge('update:openOfficialPage')
+					/** ポータブル版は自動更新できないため、手動取得先へ案内する。 */
+					onClick: () => void invokeBridge(BRIDGE_METHOD.updateOpenOfficialPage)
 				},
-				{ label: '後で', /**
-				 *
-				 */
+				{ label: '後で', /** 今回の通知だけを閉じ、次回以降の確認は維持する。 */
 					onClick: () => undefined },
 				{
 					label  : 'このバージョンをスキップ',
-					/**
-					 *
-					 */
-					onClick: () => void invokeBridge('update:skipVersion', { version: release.version })
+					/** 同じリリースを次回の起動時チェックで再通知しない。 */
+					onClick: () => void invokeBridge(BRIDGE_METHOD.updateSkipVersion, { version: release.version })
 				}
 			]);
 			return;
 		}
 
 		showActionToast(`新しいバージョン v${release.version} があります。`, [
-			{ label: 'ダウンロード', /**
-			 *
-			 */
+			{ label: 'ダウンロード', /** UIを塞がず、進捗通知付きで取得を開始する。 */
 				onClick: () => void this.downloadUpdate() },
-			{ label: 'このバージョンをスキップ', /**
-			 *
-			 */
-				onClick: () => void invokeBridge('update:skipVersion', { version: release.version }) }
+			{ label: 'このバージョンをスキップ', /** 同じリリースを以後の自動確認から除外する。 */
+				onClick: () => void invokeBridge(BRIDGE_METHOD.updateSkipVersion, { version: release.version }) }
 		]);
 	}
 
@@ -607,7 +591,7 @@ export class AppController {
 	 */
 	private async downloadUpdate(): Promise<void> {
 		try {
-			const result = await invokeBridge<{ success: boolean; cancelled: boolean; message?: string }>('update:download');
+			const result = await invokeBridge<{ success: boolean; cancelled: boolean; message?: string }>(BRIDGE_METHOD.updateDownload);
 			if (result.cancelled) {
 				this.dismissUpdateDownloadToast();
 				showToast(result.message ?? '更新のダウンロードをキャンセルしました。');
@@ -752,10 +736,10 @@ export class AppController {
 		}
 
 		try {
-			const config     = await invokeBridge<ConfigGetResponse>('config:get');
+			const config     = await invokeBridge<ConfigGetResponse>(BRIDGE_METHOD.configGet);
 			this.dataDirInfo = config.dataDirInfo;
 			this.isPortable  = config.isPortable === true || config.dataDirInfo.isPortable === true;
-			this.cssSnippets = await invokeBridge<CssSnippetsResponse>('cssSnippets:list');
+			this.cssSnippets = await invokeBridge<CssSnippetsResponse>(BRIDGE_METHOD.cssSnippetsList);
 			const modal      = new SettingsModal({
 				settings: config.config.settings,
 				customDecorations: config.config.customDecorations,
@@ -763,17 +747,11 @@ export class AppController {
 				isPortable: this.isPortable,
 				cssSnippets: this.cssSnippets,
 				defaultAttachmentFolder: config.defaultAttachmentFolder ?? '',
-				/**
-				 *
-				 */
+				/** 保存済み設定を実行中のテーマ・エディタ構成へ即時反映する。 */
 				onSettingsApplied: (settings) => this.applySettings(settings),
-				/**
-				 *
-				 */
+				/** 正規表現ルールを再コンパイルし、開いている全ペインへ配布する。 */
 				onCustomDecorationsApplied: (rules) => this.applyCustomDecorations(rules),
-				/**
-				 *
-				 */
+				/** CSS差し替え後に計測を要求し、装飾による高さ変更を再計算させる。 */
 				onCssSnippetsApplied: (response) => {
 					this.cssSnippets = response;
 					applyCssSnippets(response);
@@ -852,7 +830,7 @@ export class AppController {
 	 */
 	private async refreshCssSnippets(notify: boolean): Promise<void> {
 		try {
-			this.cssSnippets = await invokeBridge<CssSnippetsResponse>('cssSnippets:list');
+			this.cssSnippets = await invokeBridge<CssSnippetsResponse>(BRIDGE_METHOD.cssSnippetsList);
 			applyCssSnippets(this.cssSnippets);
 			this.requestEditorMeasure();
 			if (notify) {
@@ -886,7 +864,7 @@ export class AppController {
 	 */
 	private async openSnippetsFolder(): Promise<void> {
 		try {
-			await invokeBridge('cssSnippets:openFolder');
+			await invokeBridge(BRIDGE_METHOD.cssSnippetsOpenFolder);
 		} catch (error) {
 			showErrorMessage(this.formatError(error));
 		}
@@ -973,7 +951,7 @@ export class AppController {
 	 */
 	public async openFileDialog(): Promise<void> {
 		try {
-			const result = await invokeBridge<{ canceled: boolean; file?: TextFileInfo }>('file:openDialog');
+			const result = await invokeBridge<{ canceled: boolean; file?: TextFileInfo }>(BRIDGE_METHOD.fileOpenDialog);
 			if (result.canceled || !result.file) {
 				return;
 			}
@@ -992,11 +970,11 @@ export class AppController {
 	public async openFilePaths(filePaths: string[]): Promise<void> {
 		for (const filePath of filePaths) {
 			try {
-				const file = await invokeBridge<TextFileInfo>('file:open', { filePath });
+				const file = await invokeBridge<TextFileInfo>(BRIDGE_METHOD.fileOpen, { filePath });
 				await this.openTextFileInfo(file);
 			} catch (error) {
 				showErrorMessage(this.formatError(error));
-				await invokeBridge('recent:remove', { filePath });
+				await invokeBridge(BRIDGE_METHOD.recentRemove, { filePath });
 			}
 		}
 	}
@@ -1021,7 +999,7 @@ export class AppController {
 			this.activateTab(tab.tabId, this.activePaneId);
 		}
 
-		await invokeBridge('recent:add', { filePath: file.filePath });
+		await invokeBridge(BRIDGE_METHOD.recentAdd, { filePath: file.filePath });
 	}
 
 	/** 保存済みセッションをディスク上の最新ファイル内容で復元する。 */
@@ -1039,7 +1017,7 @@ export class AppController {
 				const pathKey = savedTab.filePath.toLowerCase();
 				let tab       = runtimeByPath.get(pathKey);
 				if (!tab) {
-					const file              = await invokeBridge<TextFileInfo>('file:open', { filePath: savedTab.filePath });
+					const file              = await invokeBridge<TextFileInfo>(BRIDGE_METHOD.fileOpen, { filePath: savedTab.filePath });
 					const preferredViewMode = this.findSessionViewMode(session, savedTab.tabId);
 					tab                     = this.createTabRuntimeFromTextFile(file, preferredViewMode);
 					restoredTabs.push(tab);
@@ -1158,7 +1136,7 @@ export class AppController {
 		void this.updateWindowTitle();
 
 		if (options.recordRecent && nextTab.filePath && !alreadyActive) {
-			void invokeBridge('recent:add', { filePath: nextTab.filePath });
+			void invokeBridge(BRIDGE_METHOD.recentAdd, { filePath: nextTab.filePath });
 		}
 	}
 
@@ -1202,7 +1180,7 @@ export class AppController {
 			if (this.settings.closeAppWhenLastTabClosed) {
 				await this.persistSession();
 				await this.flushNoteViewPositions();
-				await invokeBridge('app:reportCloseReady', { allowClose: true });
+				await invokeBridge(BRIDGE_METHOD.appReportCloseReady, { allowClose: true });
 				return true;
 			}
 
@@ -1254,7 +1232,7 @@ export class AppController {
 		this.persistActiveEditorState();
 
 		try {
-			const dialogResult = await invokeBridge<{ canceled: boolean; filePath?: string }>('file:saveAsDialog', {
+			const dialogResult = await invokeBridge<{ canceled: boolean; filePath?: string }>(BRIDGE_METHOD.fileSaveAsDialog, {
 				filePath: tab.filePath ?? undefined
 			});
 
@@ -1299,7 +1277,7 @@ export class AppController {
 				return;
 			}
 
-			const dialogResult = await invokeBridge<{ canceled: boolean; filePath?: string }>('file:exportDialog', {
+			const dialogResult = await invokeBridge<{ canceled: boolean; filePath?: string }>(BRIDGE_METHOD.fileExportDialog, {
 				kind,
 				suggestedName: suggestedExportFileName(tab, kind),
 				filePath     : tab.filePath ?? undefined,
@@ -1309,7 +1287,7 @@ export class AppController {
 			}
 
 			if (kind === 'html') {
-				const saved = await invokeBridge<{ success: boolean; message?: string }>('file:writeUtf8', {
+				const saved = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.fileWriteUtf8, {
 					filePath: dialogResult.filePath,
 					text    : html,
 				});
@@ -1321,7 +1299,7 @@ export class AppController {
 				return;
 			}
 
-			const printed = await invokeBridge<{ success: boolean; message?: string }>('export:printToPdf', {
+			const printed = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.exportPrintToPdf, {
 				html,
 				filePath: dialogResult.filePath,
 			});
@@ -1354,7 +1332,7 @@ export class AppController {
 				return;
 			}
 
-			const printed = await invokeBridge<{ success: boolean; message?: string }>('export:showPrintUI', { html });
+			const printed = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.exportShowPrintUi, { html });
 			if (!printed.success) {
 				throw new Error(printed.message ?? '印刷ダイアログを表示できませんでした。');
 			}
@@ -1407,7 +1385,7 @@ export class AppController {
 		}
 
 		try {
-			const result = await invokeBridge<{ ok: boolean; dataUrl?: string }>('file:readImageAsDataUrl', {
+			const result = await invokeBridge<{ ok: boolean; dataUrl?: string }>(BRIDGE_METHOD.fileReadImageAsDataUrl, {
 				path        : request.embed ? undefined : request.raw,
 				embed       : request.embed ? request.raw : undefined,
 				documentPath: request.documentPath ?? undefined,
@@ -1500,7 +1478,7 @@ export class AppController {
 
 		try {
 			// 改行は diskText に既に反映済み。C# 側で再統一しない。
-			const result = await invokeBridge<SaveFileResult>('file:save', {
+			const result = await invokeBridge<SaveFileResult>(BRIDGE_METHOD.fileSave, {
 				filePath,
 				text: diskText,
 				encoding
@@ -1531,7 +1509,7 @@ export class AppController {
 			this.renderTabBar();
 			this.refreshStatusBar();
 			void this.updateWindowTitle();
-			await invokeBridge('recent:add', { filePath: result.filePath });
+			await invokeBridge(BRIDGE_METHOD.recentAdd, { filePath: result.filePath });
 			return true;
 		} catch (error) {
 			this.refreshStatusBar();
@@ -1552,14 +1530,14 @@ export class AppController {
 		for (const tab of dirtyTabs) {
 			const choice = await showCloseConfirmDialog(tab.title);
 			if (choice === 'cancel') {
-				await invokeBridge('app:reportCloseReady', { allowClose: false });
+				await invokeBridge(BRIDGE_METHOD.appReportCloseReady, { allowClose: false });
 				return;
 			}
 
 			if (choice === 'save') {
 				const saved = await this.saveTab(tab.tabId);
 				if (!saved) {
-					await invokeBridge('app:reportCloseReady', { allowClose: false });
+					await invokeBridge(BRIDGE_METHOD.appReportCloseReady, { allowClose: false });
 					return;
 				}
 			}
@@ -1567,7 +1545,7 @@ export class AppController {
 
 		await this.persistSession();
 		await this.flushNoteViewPositions();
-		await invokeBridge('app:reportCloseReady', { allowClose: true });
+		await invokeBridge(BRIDGE_METHOD.appReportCloseReady, { allowClose: true });
 	}
 
 	/** 主ウィンドウの保存可能なタブ・ペイン状態を session.json へ保存する。 */
@@ -1593,7 +1571,7 @@ export class AppController {
 		};
 
 		try {
-			const result = await invokeBridge<{ success: boolean; message?: string }>('session:save', snapshot as unknown as Record<string, unknown>);
+			const result = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.sessionSave, snapshot as unknown as Record<string, unknown>);
 			if (!result.success) void writeLog('WARN', result.message ?? 'Session save failed.');
 		} catch (error) {
 			void writeLog('WARN', `Session save failed: ${this.formatError(error)}`);
@@ -1785,9 +1763,7 @@ export class AppController {
 			const action = kind === 'deleted' ? '削除' : 'リネーム';
 			showActionToast(`外部で${action}されました: ${tab.title}`, [{
 				label  : '無視',
-				/**
-				 *
-				 */
+				/** ディスク側が消えても、現在のバッファは未保存のまま保持する。 */
 				onClick: () => showToast(`現在の編集内容を保持します: ${tab.title}`)
 			}]);
 			return;
@@ -1796,16 +1772,12 @@ export class AppController {
 			showActionToast(`外部で変更されました: ${tab.title}`, [
 				{
 					label  : '再読込（編集を破棄）',
-					/**
-					 *
-					 */
+					/** ユーザーの明示操作時だけ、未保存バッファをディスク内容で置き換える。 */
 					onClick: () => void this.reloadExternalFile(tab)
 				},
 				{
 					label  : '無視',
-					/**
-					 *
-					 */
+					/** 外部変更を取り込まず、編集を継続できる状態を残す。 */
 					onClick: () => showToast(`現在の編集内容を保持します: ${tab.title}`)
 				}
 			]);
@@ -1822,7 +1794,7 @@ export class AppController {
 	private async reloadExternalFile(tab: TabRuntime): Promise<void> {
 		try {
 			if (!tab.filePath) return;
-			const file    = await invokeBridge<TextFileInfo>('file:open', { filePath: tab.filePath });
+			const file    = await invokeBridge<TextFileInfo>(BRIDGE_METHOD.fileOpen, { filePath: tab.filePath });
 			const split   = splitPreservingEol(file.text);
 			const text    = toCm6Text(split.lines, split.eols);
 			tab.encoding  = file.encoding;
@@ -1944,7 +1916,7 @@ export class AppController {
 		const encoding = await showReloadEncodingDialog(tab.encoding);
 		if (!encoding) return;
 		try {
-			const file    = await invokeBridge<TextFileInfo>('file:openWithEncoding', { filePath: tab.filePath, encoding });
+			const file    = await invokeBridge<TextFileInfo>(BRIDGE_METHOD.fileOpenWithEncoding, { filePath: tab.filePath, encoding });
 			const split   = splitPreservingEol(file.text);
 			const text    = toCm6Text(split.lines, split.eols);
 			tab.encoding  = file.encoding;
@@ -2204,7 +2176,7 @@ export class AppController {
 	 */
 	private dismissAllMenus(): void {
 		dismissContextMenus();
-		void invokeBridge('ui:dismissMenus');
+		void invokeBridge(BRIDGE_METHOD.uiDismissMenus);
 	}
 
 	/**
@@ -2216,7 +2188,7 @@ export class AppController {
 	 */
 	private showTabContextMenu(tabId: string, x: number, y: number): void {
 		dismissContextMenus();
-		void invokeBridge('ui:dismissMenus');
+		void invokeBridge(BRIDGE_METHOD.uiDismissMenus);
 
 		const tab      = this.tabs.find((entry) => entry.tabId === tabId);
 		const pane     = this.panes.get(this.activePaneId);
@@ -2248,7 +2220,7 @@ export class AppController {
 	 */
 	private showEditorContextMenu(event: MouseEvent): void {
 		dismissContextMenus();
-		void invokeBridge('ui:dismissMenus');
+		void invokeBridge(BRIDGE_METHOD.uiDismissMenus);
 
 		const tab            = this.getActiveTab();
 		const view           = this.editorView;
@@ -2326,7 +2298,7 @@ export class AppController {
 		}
 
 		try {
-			const result = await invokeBridge<PasteForEditorResult>('clipboard:pasteForEditor', { mode });
+			const result = await invokeBridge<PasteForEditorResult>(BRIDGE_METHOD.clipboardPasteForEditor, { mode });
 			if (!result.ok) {
 				showToast(result.error ?? '貼り付けに失敗しました。');
 				return;
@@ -2394,7 +2366,7 @@ export class AppController {
 				const text = view.state.selection.ranges
 					.map((range) => view.state.sliceDoc(range.from, range.to))
 					.join(view.state.lineBreak);
-				await invokeBridge('clipboard:writeText', { text });
+				await invokeBridge(BRIDGE_METHOD.clipboardWriteText, { text });
 				if (action === 'cut') {
 					view.dispatch({ ...view.state.replaceSelection(''), userEvent: 'delete.cut' });
 				}
@@ -2448,7 +2420,7 @@ export class AppController {
 			}
 
 			if (action === 'openLink' && linkUrl && isSupportedExternalLinkUrl(linkUrl)) {
-				await invokeBridge('shell:openExternal', { url: linkUrl });
+				await invokeBridge(BRIDGE_METHOD.shellOpenExternal, { url: linkUrl });
 				return;
 			}
 
@@ -2533,12 +2505,12 @@ export class AppController {
 		}
 
 		if (action === 'copyPath') {
-			await invokeBridge('clipboard:writeText', { text: tab.filePath ?? '' });
+			await invokeBridge(BRIDGE_METHOD.clipboardWriteText, { text: tab.filePath ?? '' });
 			return;
 		}
 
 		if (action === 'showInFolder' && tab.filePath) {
-			await invokeBridge('shell:showInFolder', { filePath: tab.filePath });
+			await invokeBridge(BRIDGE_METHOD.shellShowInFolder, { filePath: tab.filePath });
 		}
 	}
 
@@ -2625,7 +2597,7 @@ export class AppController {
 		if (!tab) return;
 		this.persistActiveEditorState();
 		try {
-			const result = await invokeBridge<{ detached: boolean }>('window:detachTab', {
+			const result = await invokeBridge<{ detached: boolean }>(BRIDGE_METHOD.windowDetachTab, {
 				screenX,
 				screenY,
 				tab: {
@@ -3176,7 +3148,7 @@ export class AppController {
 		const json     = JSON.stringify(document);
 		if (json === this.lastNoteViewPositionJson) return;
 		try {
-			const result = await invokeBridge<{ success: boolean; message?: string }>('noteViewPositions:save', document as unknown as Record<string, unknown>);
+			const result = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.noteViewPositionsSave, document as unknown as Record<string, unknown>);
 			if (!result.success) {
 				void writeLog('WARN', result.message ?? 'Note view position save failed.');
 				return;
@@ -3253,7 +3225,7 @@ export class AppController {
 			return;
 		}
 
-		await invokeBridge('window:setTitle', {
+		await invokeBridge(BRIDGE_METHOD.windowSetTitle, {
 			title: buildWindowTitle(tab.title, tab.dirty, tab.filePath)
 		});
 	}

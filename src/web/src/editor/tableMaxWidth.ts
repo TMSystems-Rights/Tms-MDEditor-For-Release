@@ -164,13 +164,9 @@ class TableMaxWidthController {
 
 		this.view.requestMeasure({
 			key  : TABLE_MAX_WIDTH_PROPERTY,
-			/**
-			 *
-			 */
+			/** DOM読取フェーズで最大幅を集計し、レイアウトの読み書きを分離する。 */
 			read : (view) => readTableMaxWidth(view),
-			/**
-			 *
-			 */
+			/** 書込フェーズでCSS変数だけを更新し、再レイアウトの連鎖を避ける。 */
 			write: (width, view) => {
 				if (this.destroyed) {
 					return;

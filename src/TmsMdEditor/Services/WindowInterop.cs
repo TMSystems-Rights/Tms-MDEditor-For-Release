@@ -18,6 +18,7 @@ internal static class WindowInterop
 	/// <summary>指定座標直下にある別の TMS-MDEditor トップレベルウィンドウを返す</summary>
 	public static bool TryFindOtherEditorWindow(Point screenPoint, IntPtr currentWindow, string executablePath, out IntPtr targetWindow)
 	{
+		// 子コントロール上へドロップされても、比較・転送対象はトップレベルウィンドウに揃える。
 		IntPtr child = WindowFromPoint(new NativePoint(screenPoint.X, screenPoint.Y));
 		IntPtr root  = child == IntPtr.Zero ? IntPtr.Zero : GetAncestor(child, GetAncestorRoot);
 		targetWindow = IntPtr.Zero;
@@ -27,6 +28,7 @@ internal static class WindowInterop
 		if (processId == 0) return false;
 		try
 		{
+			// タイトルやクラス名ではなく実行ファイルを照合し、別アプリへのWM_COPYDATA送信を防ぐ。
 			using Process process = Process.GetProcessById((int)processId);
 			string? targetPath = process.MainModule?.FileName;
 			if (!string.Equals(Path.GetFullPath(targetPath ?? string.Empty), Path.GetFullPath(executablePath), StringComparison.OrdinalIgnoreCase)) return false;
@@ -47,12 +49,14 @@ internal static class WindowInterop
 		IntPtr data = Marshal.StringToHGlobalUni(json);
 		try
 		{
+			// 受信側が自アプリの転送データだけを識別できるよう、固定シグネチャを付ける。
 			var copyData = new CopyDataStruct
 			{
 				DataIdentifier = new IntPtr(DetachedTabSignature),
 				ByteCount      = (json.Length + 1) * sizeof(char),
 				DataPointer    = data,
 			};
+			// 相手ウィンドウが応答不能でも、ドラッグ元UIを無期限に止めない。
 			bool sent = SendMessageTimeout(
 				targetWindow,
 				CopyDataMessage,
@@ -75,6 +79,7 @@ internal static class WindowInterop
 		request = null;
 		if (message.Msg != CopyDataMessage || message.LParam == IntPtr.Zero) return false;
 		CopyDataStruct data = Marshal.PtrToStructure<CopyDataStruct>(message.LParam);
+		// メッセージ種別に加えてシグネチャとバッファ長を検証してからポインターを読む。
 		if (data.DataIdentifier.ToInt64() != DetachedTabSignature || data.DataPointer == IntPtr.Zero || data.ByteCount <= sizeof(char)) return false;
 
 		string? json = Marshal.PtrToStringUni(data.DataPointer, data.ByteCount / sizeof(char) - 1);

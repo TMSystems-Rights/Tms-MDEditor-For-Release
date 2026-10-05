@@ -21,6 +21,7 @@ internal sealed class SessionStore
 	public SessionLoadResult Load()
 	{
 		string sessionPath = GetSessionPath();
+		// 保存履歴がない初回起動は、復元対象なしの正常状態として扱う。
 		if (!File.Exists(sessionPath)) return new SessionLoadResult { Success = true };
 
 		try
@@ -28,11 +29,12 @@ internal sealed class SessionStore
 			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(sessionPath));
 			JsonElement session = document.RootElement;
 			Validate(session);
+			// JsonDocument破棄後もWeb層へ渡せるよう、所有権を持つ要素へ複製する。
 			return new SessionLoadResult { Success = true, Session = session.Clone() };
 		}
 		catch (Exception ex)
 		{
-			_logger.Warn("session", "セッションを読み込めませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Warn(LogCategory.Session, "セッションを読み込めませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			return new SessionLoadResult
 			{
 				Success = false,
@@ -45,13 +47,14 @@ internal sealed class SessionStore
 	{
 		try
 		{
+			// 未対応スキーマで既存の復元データを置き換えないよう、書込み前にも検証する。
 			Validate(session);
 			JsonFileHelper.WriteAtomic(GetSessionPath(), session);
 			return new SessionSaveResult { Success = true };
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("session", "セッションを保存できませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Error(LogCategory.Session, "セッションを保存できませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			return new SessionSaveResult { Success = false, Message = "セッションを保存できませんでした。" };
 		}
 	}
@@ -65,7 +68,7 @@ internal sealed class SessionStore
 	private static void Validate(JsonElement session)
 	{
 		if (session.ValueKind != JsonValueKind.Object
-			|| !session.TryGetProperty("schemaVersion", out JsonElement schemaVersion)
+			|| !session.TryGetProperty(StoredJsonProperty.SchemaVersion, out JsonElement schemaVersion)
 			|| schemaVersion.ValueKind != JsonValueKind.Number
 			|| schemaVersion.GetInt32() != CurrentSchemaVersion)
 		{

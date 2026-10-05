@@ -41,7 +41,7 @@ internal sealed class RecentApi
 	/// <returns>保存結果</returns>
 	public SaveConfigResult Add(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 
@@ -57,7 +57,7 @@ internal sealed class RecentApi
 	/// <returns>保存結果</returns>
 	public SaveConfigResult Remove(JsonElement paramsElement)
 	{
-		string filePath = paramsElement.TryGetProperty("filePath", out JsonElement filePathElement)
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 

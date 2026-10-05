@@ -1,5 +1,5 @@
 /* eslint-disable jsdoc/require-jsdoc */
-import { invokeBridge } from '../bridge';
+import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import {
 	isCssHexColor,
 	toColorInputValue,
@@ -123,6 +123,7 @@ export class SettingsModal {
 	 * @param {SettingsModalOptions} options 設定と反映コールバック
 	 */
 	public constructor(options: SettingsModalOptions) {
+		// 編集途中のUI操作で呼び出し元の設定オブジェクトを書き換えないよう、可変部分を複製して保持する。
 		this.options                 = options;
 		this.settings                = { ...options.settings, contextMenu: normalizeContextMenuSettings(options.settings.contextMenu) };
 		this.customDecorations       = options.customDecorations.map((rule) => ({ ...rule }));
@@ -163,6 +164,7 @@ export class SettingsModal {
 	}
 
 	private render(): void {
+		// dataDir変更後などの再構築でも古いDOM参照を使わないよう、バインド情報から作り直す。
 		this.content.innerHTML = '';
 		this.bindings.length   = 0;
 		this.contextMenuLists.clear();
@@ -189,6 +191,7 @@ export class SettingsModal {
 		const sections     = document.createElement('div');
 		sections.className = 'tms-mde-settings-sections';
 
+		// ナビゲーションと対応セクションを同時に登録し、data-sectionを切替キーとして共有する。
 		this.addSection(navigation, sections, 'appearance', '外観', (section) => this.renderAppearance(section));
 		this.addSection(navigation, sections, 'editor', 'エディタ', (section) => this.renderEditor(section));
 		this.addSection(navigation, sections, 'save', '保存', (section) => this.renderSave(section));
@@ -242,6 +245,7 @@ export class SettingsModal {
 	}
 
 	private activateSection(id: string): void {
+		// 表示領域とaria-currentを同じ条件で更新し、見た目と読み上げ状態を一致させる。
 		this.content.querySelectorAll<HTMLElement>('.tms-mde-settings-section').forEach((section) => {
 			section.hidden = section.dataset.section !== id;
 		});
@@ -347,7 +351,7 @@ export class SettingsModal {
 
 	private async pickAttachmentFolder(input: HTMLInputElement): Promise<void> {
 		try {
-			const result = await invokeBridge<PickFolderResult>('shell:pickFolder');
+			const result = await invokeBridge<PickFolderResult>(BRIDGE_METHOD.shellPickFolder);
 			if (result.canceled || !result.path) {
 				return;
 			}
@@ -472,6 +476,7 @@ export class SettingsModal {
 			return;
 		}
 
+		// 追加・削除でインデックスが変わるため、部分更新せず一覧とdata属性をまとめて再生成する。
 		this.decorationsList.innerHTML = '';
 		if (this.customDecorations.length === 0) {
 			const empty       = document.createElement('p');
@@ -563,6 +568,7 @@ export class SettingsModal {
 		const next  = [...this.customDecorations, createNewCustomDecorationRule(this.customDecorations)];
 		const saved = await this.saveCustomDecorations(next, true);
 		if (saved) {
+			// 保存成功後、新規ルールの名前をすぐ入力できる位置へフォーカスを移す。
 			const inputs = this.decorationsList?.querySelectorAll<HTMLInputElement>('[data-decoration-field="name"]');
 			const input  = inputs?.item(inputs.length - 1);
 			input?.focus();
@@ -596,6 +602,7 @@ export class SettingsModal {
 		rerender: boolean,
 		focusControl?: HTMLInputElement,
 	): Promise<boolean> {
+		// 入力値を先に画面へ反映し、検証・保存に失敗した場合だけpreviousへ戻す。
 		const previous         = this.customDecorations;
 		this.customDecorations = next;
 		if (rerender) {
@@ -605,6 +612,7 @@ export class SettingsModal {
 		const errors = validateCustomDecorationRules(next);
 		this.markCustomDecorationErrors(errors);
 		if (errors.length > 0) {
+			// 不正な正規表現やCSSクラスはネイティブ側へ送らず、最初の修正箇所を案内する。
 			this.setStatus(`ルール ${errors[0]!.index + 1}: ${errors[0]!.message}`, true);
 			return false;
 		}
@@ -613,7 +621,7 @@ export class SettingsModal {
 		this.setStatus('カスタム装飾ルールを保存中...');
 		try {
 			const normalized = normalizeCustomDecorationRules(next);
-			const result     = await invokeBridge<SaveConfigResponse>('config:update', {
+			const result     = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configUpdate, {
 				customDecorations: normalized,
 			});
 			if (!result.success || !result.config) {
@@ -624,6 +632,7 @@ export class SettingsModal {
 			this.setStatus('カスタム装飾ルールを保存しました。');
 			return true;
 		} catch (error) {
+			// 保存済み状態と表示状態が食い違わないよう、楽観更新した配列を復元する。
 			this.customDecorations = previous;
 			if (rerender) {
 				this.renderCustomDecorationList();
@@ -641,6 +650,7 @@ export class SettingsModal {
 	private markCustomDecorationErrors(
 		errors: ReturnType<typeof validateCustomDecorationRules>,
 	): void {
+		// 前回の検証結果を消してから、現在のエラーだけをaria属性とツールチップへ反映する。
 		this.decorationsList?.querySelectorAll<HTMLInputElement>('[data-decoration-field]').forEach((input) => {
 			input.removeAttribute('aria-invalid');
 			input.removeAttribute('title');
@@ -682,6 +692,7 @@ export class SettingsModal {
 				this.setStatus('キーを入力してください。Escapeで設定画面を閉じます。');
 			});
 			input.addEventListener('keydown', (event) => {
+				// ショートカット入力をエディタやブラウザ既定操作へ伝播させず、設定値としてだけ解釈する。
 				event.preventDefault();
 				event.stopPropagation();
 				if (event.key === 'Escape') {
@@ -730,6 +741,7 @@ export class SettingsModal {
 			return;
 		}
 
+		// 順序配列を表示の基準にし、非表示配列はチェック状態へ投影する。
 		list.innerHTML    = '';
 		const order       = kind === 'editor' ? this.settings.contextMenu.editorOrder : this.settings.contextMenu.tabOrder;
 		const hiddenItems = new Set(kind === 'editor' ? this.settings.contextMenu.editorHidden : this.settings.contextMenu.tabHidden);
@@ -804,6 +816,7 @@ export class SettingsModal {
 		control: HTMLInputElement | HTMLButtonElement,
 		successMessage = '右クリックメニュー設定を保存しました。',
 	): Promise<void> {
+		// 連打による保存競合を防ぎ、応答後は正規化済み設定から両メニューを再描画する。
 		control.disabled = true;
 		this.setStatus('右クリックメニュー設定を保存中...');
 		try {
@@ -813,6 +826,7 @@ export class SettingsModal {
 			this.renderContextMenuList('tab');
 			this.setStatus(successMessage);
 		} catch (error) {
+			// 失敗時もローカル設定を正として描画し直し、操作前のチェック・順序へ戻す。
 			this.renderContextMenuList('editor');
 			this.renderContextMenuList('tab');
 			this.setStatus(this.formatError(error), true);
@@ -920,6 +934,7 @@ export class SettingsModal {
 		picker.addEventListener('change', () => void this.saveValue(key, picker.value, input));
 		input.addEventListener('change', () => {
 			const trimmed = input.value.trim();
+			// hover色だけは空値をテーマ色指定として扱い、その他はCSS色形式を必須にする。
 			if (allowEmpty && trimmed.length === 0) {
 				void this.saveValue(key, '', input);
 				return;
@@ -982,6 +997,7 @@ export class SettingsModal {
 	}
 
 	private async saveValue(key: string, value: unknown, control: SettingControl): Promise<void> {
+		// 同じ入力から保存を重ねないよう一時無効化し、応答の設定値で関連コントロールも同期する。
 		control.disabled = true;
 		this.setStatus('保存中...');
 		try {
@@ -1006,6 +1022,7 @@ export class SettingsModal {
 		shortcut: string,
 		input: HTMLInputElement,
 	): Promise<void> {
+		// 競合は利用者が意図して重複させる場合もあるため、禁止ではなく確認警告として扱う。
 		const conflicts          = findShortcutConflicts(
 			this.settings.keybindings as unknown as Record<string, string>,
 			definition.key,
@@ -1032,10 +1049,11 @@ export class SettingsModal {
 	}
 
 	private async updateSettings(patch: Record<string, unknown>): Promise<AppSettings> {
-		const result = await invokeBridge<SaveConfigResponse>('config:update', { settings: patch });
+		const result = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configUpdate, { settings: patch });
 		if (!result.success || !result.config) {
 			throw new Error(result.message ?? '設定を保存できませんでした。');
 		}
+		// ネイティブ側で既定値補完・正規化された設定を、モーダル外の実行状態にも反映する。
 		this.options.onSettingsApplied(result.config.settings);
 		return result.config.settings;
 	}
@@ -1043,7 +1061,7 @@ export class SettingsModal {
 	private async resetItem(key: string): Promise<void> {
 		this.setStatus('リセット中...');
 		try {
-			const result = await invokeBridge<SaveConfigResponse>('config:resetItem', { itemKey: key });
+			const result = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configResetItem, { itemKey: key });
 			if (!result.success || !result.config) {
 				throw new Error(result.message ?? '設定をリセットできませんでした。');
 			}
@@ -1054,6 +1072,7 @@ export class SettingsModal {
 			this.renderContextMenuList('tab');
 			this.updateExternalBrowserCommandVisibility();
 			if (key === 'cssSnippets.enabled') {
+				// 有効一覧のリセットはCSS本体の再適用まで行わないと画面に古いスタイルが残る。
 				await this.reloadSnippets();
 			}
 			this.setStatus('設定を既定値へ戻しました。');
@@ -1068,7 +1087,7 @@ export class SettingsModal {
 		}
 		this.setStatus('すべての設定をリセット中...');
 		try {
-			const result = await invokeBridge<SaveConfigResponse>('config:resetAll');
+			const result = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configResetAll);
 			if (!result.success || !result.config) {
 				throw new Error(result.message ?? '設定をリセットできませんでした。');
 			}
@@ -1088,7 +1107,7 @@ export class SettingsModal {
 	private async reloadSnippets(): Promise<void> {
 		this.setStatus('CSSスニペットを再読み込み中...');
 		try {
-			this.cssSnippets = await invokeBridge<CssSnippetsResponse>('cssSnippets:list');
+			this.cssSnippets = await invokeBridge<CssSnippetsResponse>(BRIDGE_METHOD.cssSnippetsList);
 			this.options.onCssSnippetsApplied(this.cssSnippets);
 			this.updateSnippetDirectoryInfo();
 			this.renderSnippetList();
@@ -1145,6 +1164,7 @@ export class SettingsModal {
 	}
 
 	private async toggleSnippet(name: string, enabled: boolean, checkbox: HTMLInputElement): Promise<void> {
+		// Setで重複を避けながら対象名だけを増減し、保存後の一覧は実ファイル状態から再取得する。
 		const current = new Set(this.settings.cssSnippets.enabled);
 		if (enabled) {
 			current.add(name);
@@ -1159,6 +1179,7 @@ export class SettingsModal {
 			});
 			await this.reloadSnippets();
 		} catch (error) {
+			// 保存失敗時はチェックだけ先に反転していたため、直前の状態へ戻す。
 			checkbox.checked = !enabled;
 			this.setStatus(this.formatError(error), true);
 		} finally {
@@ -1168,7 +1189,7 @@ export class SettingsModal {
 
 	private async openSnippetsFolder(): Promise<void> {
 		try {
-			await invokeBridge('cssSnippets:openFolder');
+			await invokeBridge(BRIDGE_METHOD.cssSnippetsOpenFolder);
 			this.setStatus('CSSスニペットフォルダを開きました。');
 		} catch (error) {
 			this.setStatus(this.formatError(error), true);
@@ -1180,12 +1201,13 @@ export class SettingsModal {
 			this.setStatus('ポータブル版ではデータ保存先を変更できません。', true);
 			return;
 		}
+		// 設定だけでなく複数ディレクトリをコピーするため、長時間処理の開始前に明示確認する。
 		if (!window.confirm('データ保存先を変更し、config・snippets・backupsを移行します。移行元は削除されません。続行しますか？')) {
 			return;
 		}
 		this.setStatus('データを移行中です。アプリを終了しないでください...');
 		try {
-			const result = await invokeBridge<MigrateDataDirResponse>('config:changeDataDir');
+			const result = await invokeBridge<MigrateDataDirResponse>(BRIDGE_METHOD.configChangeDataDir);
 			if (!result.success) {
 				if (result.message === 'キャンセルされました。') {
 					this.setStatus('dataDirの変更をキャンセルしました。');
@@ -1210,7 +1232,7 @@ export class SettingsModal {
 		}
 		this.setStatus('既定のdataDirへ移行中です...');
 		try {
-			const result = await invokeBridge<SaveConfigResponse>('config:resetItem', { itemKey: 'dataDir' });
+			const result = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configResetItem, { itemKey: 'dataDir' });
 			if (!result.success) {
 				throw new Error(result.message ?? 'dataDirを既定値へ戻せませんでした。');
 			}
@@ -1222,11 +1244,12 @@ export class SettingsModal {
 	}
 
 	private async refreshAfterDataDirChange(): Promise<void> {
-		const config           = await invokeBridge<ConfigGetResponse>('config:get');
+		// 保存ルートが変わると設定とスニペットの参照先も変わるため、関連キャッシュを一括で再取得する。
+		const config           = await invokeBridge<ConfigGetResponse>(BRIDGE_METHOD.configGet);
 		this.settings          = config.config.settings;
 		this.customDecorations = config.config.customDecorations.map((rule) => ({ ...rule }));
 		this.dataDirInfo       = config.dataDirInfo;
-		this.cssSnippets       = await invokeBridge<CssSnippetsResponse>('cssSnippets:list');
+		this.cssSnippets       = await invokeBridge<CssSnippetsResponse>(BRIDGE_METHOD.cssSnippetsList);
 		this.options.onSettingsApplied(this.settings);
 		this.options.onCustomDecorationsApplied(this.customDecorations);
 		this.options.onCssSnippetsApplied(this.cssSnippets);
@@ -1246,6 +1269,7 @@ export class SettingsModal {
 	}
 
 	private syncControls(): void {
+		// 保存・リセット後の正規化値を全入力へ戻し、個別UIに古い値が残らないようにする。
 		this.bindings.forEach(({ key, control }) => {
 			const value = this.getValue(key);
 			if (control instanceof HTMLInputElement && control.type === 'checkbox') {
@@ -1271,6 +1295,7 @@ export class SettingsModal {
 	}
 
 	private getValue(key: string): unknown {
+		// ドット区切りキーを共通化し、各設定画面がネスト構造を個別にたどらずに済むようにする。
 		return key.split('.').reduce<unknown>((current, part) => {
 			if (!current || typeof current !== 'object') {
 				return undefined;
@@ -1294,6 +1319,7 @@ export class SettingsModal {
 }
 
 function createNestedPatch(key: string, value: unknown): Record<string, unknown> {
+	// config:updateが部分更新できるよう、ドット区切りキーを最小のネストオブジェクトへ展開する。
 	const root: Record<string, unknown> = {};
 	let current                         = root;
 	const parts                         = key.split('.');

@@ -23,6 +23,7 @@ internal sealed class NoteViewPositionStore
 	public NoteViewPositionLoadResult Load()
 	{
 		string path = GetPath();
+		// 初回起動は異常ではないため、空の現行スキーマを通常結果として返す。
 		if (!File.Exists(path)) return new NoteViewPositionLoadResult { Success = true, Document = EmptyDocument() };
 
 		try
@@ -37,7 +38,7 @@ internal sealed class NoteViewPositionStore
 		}
 		catch (Exception ex)
 		{
-			_logger.Warn("noteViewPosition", "表示位置を読み込めませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Warn(LogCategory.NoteViewPosition, "表示位置を読み込めませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			return new NoteViewPositionLoadResult { Success = false, Document = EmptyDocument() };
 		}
 	}
@@ -46,11 +47,13 @@ internal sealed class NoteViewPositionStore
 	{
 		try
 		{
+			// 壊れたクライアント入力を既存ファイルへ混ぜる前に、文書単位で形式を拒否する。
 			if (!HasCurrentSchema(incoming))
 			{
 				throw new InvalidDataException("未対応または不正な表示位置形式です。");
 			}
 
+			// 複数ウィンドウが別々のノート位置を送るため、上書きではなく既存内容へマージする。
 			List<NoteViewPositionEntry> merged = Merge(ReadStoredEntries(), ReadEntries(incoming));
 			JsonFileHelper.WriteAtomic(GetPath(), new NoteViewPositionDocument
 			{
@@ -61,7 +64,7 @@ internal sealed class NoteViewPositionStore
 		}
 		catch (Exception ex)
 		{
-			_logger.Error("noteViewPosition", "表示位置を保存できませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+			_logger.Error(LogCategory.NoteViewPosition, "表示位置を保存できませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			return new NoteViewPositionSaveResult { Success = false, Message = "表示位置を保存できませんでした。" };
 		}
 	}
@@ -79,7 +82,8 @@ internal sealed class NoteViewPositionStore
 		}
 		catch (Exception ex)
 		{
-			_logger.Warn("noteViewPosition", "既存の表示位置をマージできませんでした", new Dictionary<string, object?> { ["error"] = ex.Message });
+			// 既存ファイルだけが壊れていても、新しく受け取った正常な位置情報は保存できるよう空扱いにする。
+			_logger.Warn(LogCategory.NoteViewPosition, "既存の表示位置をマージできませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
 			return [];
 		}
 	}
@@ -92,6 +96,7 @@ internal sealed class NoteViewPositionStore
 
 	private static List<NoteViewPositionEntry> Merge(IEnumerable<NoteViewPositionEntry> current, IEnumerable<NoteViewPositionEntry> incoming)
 	{
+		// Windowsパスの表記揺れを同一キーへ寄せ、ノートごとに最新の更新だけを残す。
 		Dictionary<string, NoteViewPositionEntry> byKey = new(StringComparer.Ordinal);
 		foreach (NoteViewPositionEntry entry in current)
 		{
@@ -107,6 +112,7 @@ internal sealed class NoteViewPositionStore
 			}
 		}
 
+		// ファイルを肥大化させず、よく使う直近のノートを優先して保持する。
 		return byKey.Values
 			.OrderByDescending(entry => ParseUpdatedAt(entry.UpdatedAt))
 			.ThenBy(entry => entry.FilePath, StringComparer.OrdinalIgnoreCase)
@@ -116,7 +122,7 @@ internal sealed class NoteViewPositionStore
 
 	private static List<NoteViewPositionEntry> ReadEntries(JsonElement document)
 	{
-		if (!document.TryGetProperty("entries", out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
+		if (!document.TryGetProperty(StoredJsonProperty.Entries, out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
 		{
 			return [];
 		}
@@ -124,6 +130,7 @@ internal sealed class NoteViewPositionStore
 		List<NoteViewPositionEntry> result = [];
 		foreach (JsonElement candidate in entries.EnumerateArray())
 		{
+			// 1件の破損で全履歴を失わないよう、有効なエントリだけを回収する。
 			if (TryReadEntry(candidate, out NoteViewPositionEntry entry)) result.Add(entry);
 		}
 
@@ -162,7 +169,7 @@ internal sealed class NoteViewPositionStore
 	private static bool HasCurrentSchema(JsonElement document)
 	{
 		return document.ValueKind == JsonValueKind.Object
-			&& document.TryGetProperty("schemaVersion", out JsonElement schemaVersion)
+			&& document.TryGetProperty(StoredJsonProperty.SchemaVersion, out JsonElement schemaVersion)
 			&& schemaVersion.ValueKind == JsonValueKind.Number
 			&& schemaVersion.TryGetInt32(out int version)
 			&& version == CurrentSchemaVersion;
@@ -208,6 +215,7 @@ internal sealed class NoteViewPositionStore
 
 	private static string NormalizeKey(string filePath)
 	{
+		// 大文字小文字と区切り文字の差を吸収し、同じWindowsファイルの重複登録を防ぐ。
 		string trimmed = filePath.Trim().Replace('/', '\\');
 		try
 		{
@@ -215,6 +223,7 @@ internal sealed class NoteViewPositionStore
 		}
 		catch (Exception)
 		{
+			// 不正パスでも比較キーは作り、他の正常なエントリの保存を妨げない。
 			return trimmed.ToLowerInvariant();
 		}
 	}
@@ -226,6 +235,7 @@ internal sealed class NoteViewPositionStore
 
 	private static DateTimeOffset ParseUpdatedAt(string value)
 	{
+		// 不正な日時は最古として扱い、正常な受信データを誤って上書きしない。
 		return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed)
 			? parsed
 			: DateTimeOffset.MinValue;

@@ -17,6 +17,7 @@ internal sealed class SessionApi
 
 	public SessionSaveResult Save(JsonElement paramsElement)
 	{
+		// 副ウィンドウの部分的なタブ構成で、主ウィンドウの復元セッションを上書きしない。
 		if (!_isSessionOwner)
 		{
 			return new SessionSaveResult { Success = false, Message = "副ウィンドウはセッションを保存しません。" };

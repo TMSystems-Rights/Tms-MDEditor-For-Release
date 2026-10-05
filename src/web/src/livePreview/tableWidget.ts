@@ -623,9 +623,7 @@ function extractInlineNodes(state: EditorState, node: SyntaxNode): TableCellNode
 	let current: TableCellNode[]      = root;
 	let cursor                        = node.from;
 
-	/**
-	 *
-	 */
+	/** 構文ノード間に残る通常テキストを、現在のHTML階層へ追加する。 */
 	const flushText = (to: number): void => {
 		if (to <= cursor) {
 			return;
@@ -2426,9 +2424,7 @@ function appendEditableTableCellSegments(
 	rangeFrom: number,
 	rangeTo: number,
 ): void {
-	/**
-	 *
-	 */
+	/** 装飾範囲を対象セル内へ収め、分割境界がセル外へ漏れないようにする。 */
 	const clip       = (position: number): number => Math.max(rangeFrom, Math.min(rangeTo, position));
 	const boundaries = new Set<number>([rangeFrom, rangeTo]);
 	for (const inlineRange of inlineRanges) {
@@ -3307,9 +3303,7 @@ export function snapshotTableMergeActionFromEvent(
 	};
 }
 
-/**
- *
- */
+/** コンテキストメニュー表示中に固定したセル範囲から、結合可否を返す。 */
 export function getTableMergeActionStateFromEvent(
 	view: EditorView,
 	event: MouseEvent,
@@ -3393,9 +3387,7 @@ export function applyTableMergeSnapshot(
 	return true;
 }
 
-/**
- *
- */
+/** クリック時点の選択範囲を固定し、再描画後も同じセルへ結合操作を適用する。 */
 export function applyTableMergeAction(
 	view: EditorView,
 	event: MouseEvent,

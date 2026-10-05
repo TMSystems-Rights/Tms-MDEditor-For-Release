@@ -41,16 +41,17 @@ internal sealed class FileService
 	{
 		string fullPath = NormalizeExistingFilePath(filePath);
 		byte[] bytes    = File.ReadAllBytes(fullPath);
+		// 再読込で明示指定された文字コードを優先し、通常読込だけ自動判定する。
 		TextEncodingKind encoding = specifiedEncoding ?? EncodingDetector.DetectEncoding(bytes);
 		string text     = EncodingDetector.Decode(bytes, encoding);
 		EolAnalysis eol = EolAnalyzer.Analyze(text);
 
-		_logger.Debug("file", "ファイルを読み込みました", new Dictionary<string, object?>
+		_logger.Debug(LogCategory.File, "ファイルを読み込みました", new Dictionary<string, object?>
 		{
-			["filePath"] = fullPath,
-			["encoding"] = encoding.ToString(),
-			["primaryEol"] = eol.Primary.ToString(),
-			["eolMixed"] = eol.IsMixed,
+			[LogProperty.FilePath]   = fullPath,
+			[LogProperty.Encoding]   = encoding.ToString(),
+			[LogProperty.PrimaryEol] = eol.Primary.ToString(),
+			[LogProperty.EolMixed]   = eol.IsMixed,
 		});
 
 		long fileSizeBytes = new FileInfo(fullPath).Length;
@@ -77,6 +78,7 @@ internal sealed class FileService
 	public SaveFileResult Save(string filePath, string text, TextEncodingKind encoding, EolKind? unifyEol)
 	{
 		string fullPath = Path.GetFullPath(filePath);
+		// 混在改行を保持する選択肢があるため、統一指定がある場合だけ本文を変換する。
 		string content  = unifyEol.HasValue ? EolAnalyzer.NormalizeEol(text, unifyEol.Value) : text;
 		byte[] bytes    = EncodingDetector.Encode(content, encoding);
 
@@ -84,13 +86,13 @@ internal sealed class FileService
 
 		EolAnalysis eol = EolAnalyzer.Analyze(content);
 
-		_logger.Info("file", "ファイルを保存しました", new Dictionary<string, object?>
+		_logger.Info(LogCategory.File, "ファイルを保存しました", new Dictionary<string, object?>
 		{
-			["filePath"] = fullPath,
-			["encoding"] = encoding.ToString(),
-			["primaryEol"] = eol.Primary.ToString(),
-			["eolMixed"] = eol.IsMixed,
-			["unifyEol"] = unifyEol?.ToString(),
+			[LogProperty.FilePath]   = fullPath,
+			[LogProperty.Encoding]   = encoding.ToString(),
+			[LogProperty.PrimaryEol] = eol.Primary.ToString(),
+			[LogProperty.EolMixed]   = eol.IsMixed,
+			[LogProperty.UnifyEol]   = unifyEol?.ToString(),
 		});
 
 		return new SaveFileResult
@@ -125,6 +127,7 @@ internal sealed class FileService
 	{
 		try
 		{
+			// 通常Markdown画像とObsidian埋め込みを共通の絶対パスへ解決してから安全性を確認する。
 			string? resolved = ResolveImagePath(path, documentPath, embed);
 			if (resolved is null || !File.Exists(resolved))
 			{
@@ -135,6 +138,7 @@ internal sealed class FileService
 				};
 			}
 
+			// base64化でメモリ使用量が増えるため、読込み前にファイルサイズで上限を掛ける。
 			var info = new FileInfo(resolved);
 			if (info.Length > MaxImageBytes)
 			{
@@ -159,10 +163,10 @@ internal sealed class FileService
 			string mime   = GuessMimeType(extension);
 			string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
 
-			_logger.Debug("file", "画像を読み込みました", new Dictionary<string, object?>
+			_logger.Debug(LogCategory.File, "画像を読み込みました", new Dictionary<string, object?>
 			{
-				["resolvedPath"] = resolved,
-				["bytes"]        = bytes.Length,
+				[LogProperty.ResolvedPath] = resolved,
+				[LogProperty.Bytes]        = bytes.Length,
 			});
 
 			return new ReadImageResult
@@ -174,12 +178,12 @@ internal sealed class FileService
 		}
 		catch (Exception ex)
 		{
-			_logger.Warn("file", "画像の読み込みに失敗しました", new Dictionary<string, object?>
+			_logger.Warn(LogCategory.File, "画像の読み込みに失敗しました", new Dictionary<string, object?>
 			{
-				["path"]         = path,
-				["documentPath"] = documentPath,
-				["embed"]        = embed,
-				["error"]        = ex.Message,
+				[LogProperty.Path]         = path,
+				[LogProperty.DocumentPath] = documentPath,
+				[LogProperty.Embed]        = embed,
+				[LogProperty.Error]        = ex.Message,
 			});
 
 			return new ReadImageResult
@@ -228,6 +232,7 @@ internal sealed class FileService
 
 		Directory.CreateDirectory(directory);
 
+		// 同名添付を上書きせず、連番を付けて既存リンクの参照先を保護する。
 		string dest = Path.Combine(directory, stem + extension);
 		int suffix  = 1;
 		while (File.Exists(dest))
@@ -237,10 +242,10 @@ internal sealed class FileService
 		}
 
 		WriteBytesAtomic(dest, bytes);
-		_logger.Info("file", "貼り付け画像を保存しました", new Dictionary<string, object?>
+		_logger.Info(LogCategory.File, "貼り付け画像を保存しました", new Dictionary<string, object?>
 		{
-			["filePath"] = dest,
-			["bytes"]    = bytes.Length,
+			[LogProperty.FilePath] = dest,
+			[LogProperty.Bytes]    = bytes.Length,
 		});
 		return dest;
 	}
@@ -253,6 +258,7 @@ internal sealed class FileService
 
 	private static string? ResolveImagePath(string? path, string? documentPath, string? embed)
 	{
+		// Wiki埋め込みはVault内検索が必要なため、通常のMarkdownパスより先に専用解決する。
 		if (!string.IsNullOrWhiteSpace(embed))
 		{
 			string embedPath = StripImageSizeSuffix(embed);
@@ -282,6 +288,7 @@ internal sealed class FileService
 
 		string trimmed = StripImageSizeSuffix(path).Replace('/', Path.DirectorySeparatorChar);
 
+		// 絶対パスは文書位置に依存させず、そのまま正規化して返す。
 		if (TryResolveAbsoluteImagePath(trimmed, out string? absolutePath))
 		{
 			return absolutePath;
@@ -315,6 +322,7 @@ internal sealed class FileService
 			return false;
 		}
 
+		// 直下で見つからない場合だけ再帰検索し、通常ケースのI/O負荷を抑える。
 		try
 		{
 			resolved = Path.GetFullPath(normalized);
@@ -437,6 +445,7 @@ internal sealed class FileService
 
 		Directory.CreateDirectory(directory);
 
+		// 同一ディレクトリの一時ファイルを使い、最終移動を同一ボリューム内の原子的操作にする。
 		string tempPath = Path.Combine(directory, $".{Path.GetFileName(filePath)}.{Environment.ProcessId}.tmp");
 		File.WriteAllBytes(tempPath, bytes);
 
@@ -455,6 +464,7 @@ internal sealed class FileService
 		}
 		finally
 		{
+			// Replace/Move失敗時にも次回保存を邪魔する一時ファイルを可能な限り残さない。
 			if (File.Exists(tempPath))
 			{
 				try

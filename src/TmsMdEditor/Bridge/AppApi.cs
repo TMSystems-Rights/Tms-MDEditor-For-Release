@@ -26,7 +26,7 @@ internal sealed class AppApi
 	/// <returns>受付結果</returns>
 	public CloseDecisionResult ReportCloseReady(JsonElement paramsElement)
 	{
-		bool allowClose = paramsElement.TryGetProperty("allowClose", out JsonElement allowCloseElement)
+		bool allowClose = paramsElement.TryGetProperty(BridgeProperty.AllowClose, out JsonElement allowCloseElement)
 			&& allowCloseElement.GetBoolean();
 
 		_mainForm.CompleteCloseDecision(allowClose);

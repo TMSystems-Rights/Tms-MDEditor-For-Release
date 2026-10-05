@@ -52,9 +52,7 @@ export function showEolMixedDialog(): Promise<EolMixedChoice> {
 			</div>
 		`;
 
-		/**
-		 *
-		 */
+		/** モーダルDOMを必ず片付けてから、選択結果で待機中の処理を再開する。 */
 		const close = (choice: EolMixedChoice): void => {
 			backdrop.remove();
 			resolve(choice);
@@ -92,9 +90,7 @@ export function showCloseConfirmDialog(title: string): Promise<CloseChoice> {
 			</div>
 		`;
 
-		/**
-		 *
-		 */
+		/** 二重操作を避けるためダイアログを先に破棄し、閉じ方を呼び出し元へ返す。 */
 		const close = (choice: CloseChoice): void => {
 			backdrop.remove();
 			resolve(choice);
@@ -156,9 +152,7 @@ export function showSaveAsOptionsDialog(options: SaveAsDialogOptions): Promise<S
 		encodingSelect.value = options.defaultEncoding;
 		eolSelect.value      = options.defaultEol;
 
-		/**
-		 *
-		 */
+		/** キャンセルを null として返しつつ、どの終了経路でも背景要素を残さない。 */
 		const close = (result: SaveAsOptions | null): void => {
 			backdrop.remove();
 			resolve(result);
@@ -362,9 +356,7 @@ export function showReloadEncodingDialog(defaultEncoding: EncodingKind): Promise
 		dialog.innerHTML = `<h2 class="tms-mde-dialog-title">指定の文字コードで再読込</h2><p class="tms-mde-dialog-message">未保存の変更があるファイルは再読込できません。</p><label class="tms-mde-dialog-field"><span>文字コード</span><select id="tmsMdeReloadEncoding"><option value="utf8">UTF-8</option><option value="utf8Bom">UTF-8(BOM)</option><option value="cp932">CP932</option><option value="utf16Le">UTF-16LE</option></select></label><div class="tms-mde-dialog-actions"><button type="button" id="tmsMdeReloadOk">再読込</button><button type="button" id="tmsMdeReloadCancel">キャンセル</button></div>`;
 		const select     = dialog.querySelector('#tmsMdeReloadEncoding') as HTMLSelectElement;
 		select.value     = defaultEncoding;
-		/**
-		 *
-		 */
+		/** 再読込を中止した場合は null を返し、現在の文字コードを維持させる。 */
 		const close = (result: EncodingKind | null): void => {
 			backdrop.remove();
 			resolve(result);

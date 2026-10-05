@@ -18,6 +18,7 @@ internal static class StartupArguments
 		for (int index = 0; index < args.Length; index++)
 		{
 			string arg = args[index];
+			// 内部オプションの値をファイルパスと誤認しないよう、オプションと次の1要素をまとめて飛ばす。
 			if (string.Equals(arg, DetachedTabOption, StringComparison.OrdinalIgnoreCase)
 				|| string.Equals(arg, WindowXOption, StringComparison.OrdinalIgnoreCase)
 				|| string.Equals(arg, WindowYOption, StringComparison.OrdinalIgnoreCase))

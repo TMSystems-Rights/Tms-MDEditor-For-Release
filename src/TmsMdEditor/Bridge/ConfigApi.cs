@@ -45,14 +45,14 @@ internal sealed class ConfigApi
 	/// <returns>保存結果</returns>
 	public SaveConfigResult Update(JsonElement paramsElement)
 	{
-		if (paramsElement.TryGetProperty("settings", out JsonElement settingsElement))
+		if (paramsElement.TryGetProperty(BridgeProperty.Settings, out JsonElement settingsElement))
 		{
 			SaveConfigResult result = _appContext.ConfigStore.UpdateSettings(settingsElement);
 			ApplySavedConfig(result);
 			return result;
 		}
 
-		if (paramsElement.TryGetProperty("customDecorations", out JsonElement decorationsElement))
+		if (paramsElement.TryGetProperty(BridgeProperty.CustomDecorations, out JsonElement decorationsElement))
 		{
 			if (decorationsElement.ValueKind != JsonValueKind.Array)
 			{
@@ -89,7 +89,7 @@ internal sealed class ConfigApi
 			}
 		}
 
-		if (paramsElement.TryGetProperty("window", out JsonElement windowElement))
+		if (paramsElement.TryGetProperty(BridgeProperty.Window, out JsonElement windowElement))
 		{
 			AppConfigDocument current = _appContext.Config;
 			WindowConfig? window = windowElement.Deserialize<WindowConfig>(BridgeJson.Options);
@@ -119,7 +119,7 @@ internal sealed class ConfigApi
 	/// <returns>保存結果</returns>
 	public SaveConfigResult ResetItem(JsonElement paramsElement)
 	{
-		string itemKey = paramsElement.TryGetProperty("itemKey", out JsonElement keyElement)
+		string itemKey = paramsElement.TryGetProperty(BridgeProperty.ItemKey, out JsonElement keyElement)
 			? keyElement.GetString() ?? string.Empty
 			: string.Empty;
 
@@ -164,7 +164,7 @@ internal sealed class ConfigApi
 			};
 		}
 
-		if (paramsElement.TryGetProperty("dataDir", out JsonElement dataDirElement))
+		if (paramsElement.TryGetProperty(BridgeProperty.DataDir, out JsonElement dataDirElement))
 		{
 			string? dataDir = dataDirElement.GetString();
 			if (string.IsNullOrWhiteSpace(dataDir))

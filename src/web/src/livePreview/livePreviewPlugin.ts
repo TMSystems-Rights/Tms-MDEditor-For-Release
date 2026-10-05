@@ -8,7 +8,7 @@ import {
 	StateField,
 } from '@codemirror/state';
 import type { ViewMode } from '../types/app';
-import { invokeBridge } from '../bridge';
+import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import { buildToggleTaskMarkerTransaction } from '../editor/checkboxToggle';
 import { normalizeCaretSelection } from '../editor/caretNormalize';
 import { codeLanguageReadyEffect } from '../editor/inlineCodeHighlight';
@@ -404,7 +404,7 @@ export function handleExternalLinkMouseDown(view: EditorView, event: MouseEvent)
 
 	event.preventDefault();
 	event.stopPropagation();
-	void invokeBridge('shell:openExternal', { url: href });
+	void invokeBridge(BRIDGE_METHOD.shellOpenExternal, { url: href });
 	return true;
 }
 
