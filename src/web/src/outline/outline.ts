@@ -137,6 +137,63 @@ export function findActiveOutlineItemIndex(items: readonly OutlineItem[], positi
 }
 
 /**
+ * アクティブ見出しを内包する祖先見出しの文書位置を返す。
+ * @param {readonly OutlineItem[]} items 文書順の見出し
+ * @param {number} activeIndex アクティブ見出しのインデックス
+ * @returns {number[]} 外側から内側の順に並んだ祖先見出し位置
+ */
+export function collectOutlineAncestorFroms(
+	items: readonly OutlineItem[],
+	activeIndex: number,
+): number[] {
+	if (activeIndex < 0 || activeIndex >= items.length) return [];
+
+	const ancestors: number[] = [];
+	let childLevel            = items[activeIndex].level;
+	for (let index = activeIndex - 1; index >= 0; index -= 1) {
+		const item = items[index];
+		if (item.level >= childLevel) continue;
+
+		ancestors.unshift(item.from);
+		childLevel = item.level;
+	}
+
+	return ancestors;
+}
+
+/**
+ * アクティブ項目をアウトラインの表示範囲へ収める scrollTop を返す。
+ * @param {object} input 計算入力
+ * @param {number} input.itemTop 項目上端
+ * @param {number} input.itemBottom 項目下端
+ * @param {number} input.viewportTop 一覧表示領域上端
+ * @param {number} input.viewportBottom 一覧表示領域下端
+ * @param {number} input.scrollTop 現在の scrollTop
+ * @param {number} input.maxScrollTop 最大 scrollTop
+ * @param {number} [input.margin] 上下余白
+ * @returns {number} 設定する scrollTop
+ */
+export function computeOutlineListScrollTop(input: {
+	itemTop: number;
+	itemBottom: number;
+	viewportTop: number;
+	viewportBottom: number;
+	scrollTop: number;
+	maxScrollTop: number;
+	margin?: number;
+}): number {
+	const margin = Math.max(0, input.margin ?? 6);
+	let target   = input.scrollTop;
+	if (input.itemTop < input.viewportTop + margin) {
+		target += input.itemTop - input.viewportTop - margin;
+	} else if (input.itemBottom > input.viewportBottom - margin) {
+		target += input.itemBottom - input.viewportBottom + margin;
+	}
+
+	return Math.min(input.maxScrollTop, Math.max(0, target));
+}
+
+/**
  * アウトライン項目へフォーカスとキャレットだけを移動する。
  * スクロールはライブプレビューの行高確定後に補正プラグインが行う。
  */

@@ -275,22 +275,83 @@ ${renderExportOutlineNav(items)}
 }
 
 /**
- * アウトラインの「すべて展開 / すべて折りたたむ」だけを動かす固定スクリプト。
+ * アウトラインの開閉と本文スクロール追従を行う固定スクリプト。
  * Markdown 由来の文字列は埋め込まない。
  */
-const EXPORT_OUTLINE_FOLD_SCRIPT = [
+const EXPORT_OUTLINE_SCRIPT = [
 	'(function(){',
 	'var root=document.getElementById("tms-mde-export-outline");',
 	'if(!root)return;',
+	'var panel=root.querySelector(".tms-mde-export-outline-panel");',
+	'var links=Array.prototype.slice.call(root.querySelectorAll("a.tms-mde-export-outline-item"));',
+	'var entries=[];',
+	'links.forEach(function(link){',
+	'var href=link.getAttribute("href")||"";',
+	'var heading=href.charAt(0)==="#"?document.getElementById(href.slice(1)):null;',
+	'if(heading)entries.push({link:link,heading:heading});',
+	'});',
+	'var activeLink=null;',
+	'var frame=0;',
 	'function setFolds(open){',
 	'root.querySelectorAll("input.tms-mde-export-outline-fold").forEach(function(el){el.checked=open;});',
+	'}',
+	'function expandAncestors(link){',
+	'var node=link.closest(".tms-mde-export-outline-node");',
+	'while(node&&root.contains(node)){',
+	'var fold=node.firstElementChild;',
+	'if(fold&&fold.matches("input.tms-mde-export-outline-fold"))fold.checked=true;',
+	'var parent=node.parentElement;',
+	'node=parent?parent.closest(".tms-mde-export-outline-node"):null;',
+	'}',
+	'}',
+	'function reveal(link){',
+	'if(!panel||!link)return;',
+	'expandAncestors(link);',
+	'var itemRect=link.getBoundingClientRect();',
+	'var panelRect=panel.getBoundingClientRect();',
+	'var margin=6;',
+	'if(itemRect.top<panelRect.top+margin)panel.scrollTop+=itemRect.top-panelRect.top-margin;',
+	'else if(itemRect.bottom>panelRect.bottom-margin)panel.scrollTop+=itemRect.bottom-panelRect.bottom+margin;',
+	'}',
+	'function setActive(link){',
+	'if(activeLink!==link){',
+	'links.forEach(function(item){',
+	'var active=item===link;',
+	'item.classList.toggle("is-active",active);',
+	'if(active)item.setAttribute("aria-current","location");else item.removeAttribute("aria-current");',
+	'});',
+	'activeLink=link;',
+	'}',
+	'reveal(link);',
+	'}',
+	'function syncActive(){',
+	'if(entries.length===0){setActive(null);return;}',
+	'var threshold=Math.min(120,window.innerHeight*0.25);',
+	'var current=null;',
+	'for(var i=0;i<entries.length;i+=1){',
+	'if(entries[i].heading.getBoundingClientRect().top>threshold)break;',
+	'current=entries[i].link;',
+	'}',
+	'var doc=document.documentElement;',
+	'if(doc.scrollHeight>window.innerHeight+1&&window.scrollY+window.innerHeight>=doc.scrollHeight-1)current=entries[entries.length-1].link;',
+	'setActive(current);',
+	'}',
+	'function scheduleSync(){',
+	'if(frame)return;',
+	'frame=window.requestAnimationFrame(function(){frame=0;syncActive();});',
 	'}',
 	'root.addEventListener("click",function(ev){',
 	'var t=ev.target;',
 	'if(!t||!t.closest)return;',
 	'if(t.closest("[data-outline-expand]"))setFolds(true);',
 	'if(t.closest("[data-outline-collapse]"))setFolds(false);',
+	'scheduleSync();',
 	'});',
+	'window.addEventListener("scroll",scheduleSync,{passive:true});',
+	'window.addEventListener("resize",scheduleSync);',
+	'window.addEventListener("hashchange",scheduleSync);',
+	'window.addEventListener("load",scheduleSync);',
+	'scheduleSync();',
 	'})();',
 ].join('');
 
@@ -322,7 +383,7 @@ function renderExportOutlineHeader(): string {
  */
 function renderExportOutlineNav(items: OutlineItem[]): string {
 	const header = renderExportOutlineHeader();
-	const script = `<script>${EXPORT_OUTLINE_FOLD_SCRIPT}</script>`;
+	const script = `<script>${EXPORT_OUTLINE_SCRIPT}</script>`;
 	const toggle = `<input type="checkbox" id="tms-mde-export-outline-dock" class="tms-mde-export-outline-dock" checked>
 <label for="tms-mde-export-outline-dock" class="tms-mde-export-outline-toggle" title="アウトラインの表示を切り替える" aria-label="アウトラインの表示を切り替える"></label>`;
 	if (items.length === 0) {

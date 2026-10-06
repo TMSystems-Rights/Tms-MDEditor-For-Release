@@ -42,6 +42,7 @@ import {
 	isBreakHtmlTag,
 	normalizeEditableCellDomText,
 	normalizeTableCellSource,
+	syncTableCellEditorSelection,
 	syncTableDataAfterCellChange,
 	TABLE_CELL_BREAK_CARET,
 	tableCellNodesToPlainText,
@@ -389,6 +390,47 @@ describe('blockWidgets', () => {
 		expect(after[0]!.from).toBe(tables[0]!.from);
 		expect(view.state.doc.sliceString(after[0]!.from, after[0]!.to)).not.toContain('colwidths');
 		expect(view.state.doc.sliceString(after[1]!.from, after[1]!.to)).toContain('{colwidths=160,90}');
+	});
+
+	it('表セルクリック用の同期処理はCodeMirrorの選択をセルのソース位置へ移す', () => {
+		const state = createState([
+			'# 見出し',
+			'',
+			'| a | b |',
+			'|---|---|',
+			'| 1 | 2 |',
+		].join('\n'));
+		const data  = extractTableData(state, findNode(state, 'Table')!);
+		const view  = {
+			state,
+			/**
+			 * @param {import('@codemirror/state').TransactionSpec} spec 更新
+			 * @returns {void}
+			 */
+			dispatch(spec: import('@codemirror/state').TransactionSpec) {
+				this.state = this.state.update(spec).state;
+			},
+		};
+
+		expect(syncTableCellEditorSelection(view as never, data, { row: 1, column: 1 })).toBe(true);
+		expect(view.state.selection.main.head).toBe(data.rowSources[0]![1]!.from);
+	});
+
+	it('存在しない表セルではCodeMirrorの選択を変更しない', () => {
+		const state = createState('| a |\n|---|\n| 1 |');
+		const data  = extractTableData(state, findNode(state, 'Table')!);
+		const view  = {
+			state,
+			/**
+			 * @returns {void}
+			 */
+			dispatch() {
+				throw new Error('dispatchされないこと');
+			},
+		};
+
+		expect(syncTableCellEditorSelection(view as never, data, { row: 9, column: 9 })).toBe(false);
+		expect(view.state.selection.main.head).toBe(0);
 	});
 
 	it('検証表の Windows パスでも覚えた幅で表示し、行へ書いたあと抽出できる', () => {

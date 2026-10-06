@@ -321,6 +321,11 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('#tms-mde-export-outline-dock:not(:checked)');
 		expect(html).toContain('grid-template-columns: minmax(0, 1fr) 22px');
 		expect(html).toContain('grid-template-columns: 22px minmax(0, 1fr)');
+		expect(html).toContain('window.addEventListener("scroll",scheduleSync,{passive:true})');
+		expect(html).toContain('aria-current","location');
+		expect(html).toContain('expandAncestors(link)');
+		expect(html).toContain('panel.scrollTop+=');
+		expect(html).toContain('.tms-mde-export-outline-item.is-active');
 		expect(html).not.toContain('<ol class="tms-mde-export-outline-list"');
 		expect(html).toMatch(/<script>[\s\S]*data-outline-expand/);
 		expect(html).not.toContain('alert(1)');

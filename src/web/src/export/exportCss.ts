@@ -449,6 +449,11 @@ export const EXPORT_OUTLINE_CSS = `
 	background-color: var(--tms-mde-color-bg);
 	color: var(--tms-mde-color-text);
 }
+.tms-mde-export-outline-item.is-active {
+	background-color: color-mix(in srgb, var(--tms-mde-color-primary) 18%, transparent);
+	color: var(--tms-mde-color-text);
+	font-weight: 600;
+}
 .tms-mde-export-outline-empty {
 	margin: 0;
 	padding: 8px 4px;

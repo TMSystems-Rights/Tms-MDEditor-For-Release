@@ -1623,6 +1623,36 @@ export function getTableCellSource(
 }
 
 /**
+ * 表セルに対応する Markdown ソース位置へ CodeMirror の選択を同期する。
+ * セルは独立した contenteditable のため、クリックだけでは CodeMirror の選択が変わらない。
+ * @param {EditorView} view エディタビュー
+ * @param {TableData} data 表データ
+ * @param {TableCellPosition} position セル位置
+ * @returns {boolean} 対応するセル位置を取得できたか
+ */
+export function syncTableCellEditorSelection(
+	view: EditorView,
+	data: TableData,
+	position: TableCellPosition,
+): boolean {
+	const source = getTableCellSource(data, position);
+	if (!source) {
+		return false;
+	}
+
+	const target = Math.min(source.from, view.state.doc.length);
+	if (view.state.selection.main.anchor === target && view.state.selection.main.head === target) {
+		return true;
+	}
+
+	view.dispatch({
+		selection: EditorSelection.cursor(target),
+		userEvent: 'select.pointer',
+	});
+	return true;
+}
+
+/**
  * 縦移動でテーブル外から入る場合のフォーカス先を返す。
  * 上側からはヘッダー行、下側からは末尾行の第1列へ入る。
  * @param {EditorState} state エディタ状態
@@ -3942,7 +3972,10 @@ export class TableWidget extends WidgetType {
 				skipEditFromImage = target instanceof Element && Boolean(target.closest('.cm-md-image-wrap'));
 				if (skipEditFromImage) {
 					event.stopPropagation();
+					return;
 				}
+
+				syncTableCellEditorSelection(view, this.data, position);
 			});
 
 			if (!source || view.state.readOnly) {

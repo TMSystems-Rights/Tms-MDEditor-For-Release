@@ -3,8 +3,10 @@ import { EditorState, Transaction, type TransactionSpec } from '@codemirror/stat
 import { describe, expect, it } from 'vitest';
 import {
 	buildOutlineTree,
+	collectOutlineAncestorFroms,
 	collectFoldableOutlineFroms,
 	collectOutlineItems,
+	computeOutlineListScrollTop,
 	computeOutlineTargetScrollTop,
 	createOutlineCaretRedrawSpec,
 	createOutlineScrollExtension,
@@ -109,6 +111,73 @@ describe('findActiveOutlineItemIndex', () => {
 		[100, 2],
 	])('位置 %i の現在見出しは %i', (position, expected) => {
 		expect(findActiveOutlineItemIndex(items, position)).toBe(expected);
+	});
+});
+
+describe('collectOutlineAncestorFroms', () => {
+	const items = [
+		{ level: 1, title: 'A', from: 0 },
+		{ level: 3, title: 'B', from: 10 },
+		{ level: 4, title: 'C', from: 20 },
+		{ level: 2, title: 'D', from: 30 },
+	];
+
+	it('アクティブ見出しの祖先を外側から返す', () => {
+		expect(collectOutlineAncestorFroms(items, 2)).toEqual([0, 10]);
+		expect(collectOutlineAncestorFroms(items, 3)).toEqual([0]);
+	});
+
+	it('アクティブ見出しがない場合は空配列を返す', () => {
+		expect(collectOutlineAncestorFroms(items, -1)).toEqual([]);
+		expect(collectOutlineAncestorFroms(items, items.length)).toEqual([]);
+	});
+});
+
+describe('computeOutlineListScrollTop', () => {
+	it('項目が表示範囲内なら現在位置を維持する', () => {
+		expect(computeOutlineListScrollTop({
+			itemTop      : 130,
+			itemBottom   : 150,
+			viewportTop  : 100,
+			viewportBottom: 200,
+			scrollTop    : 300,
+			maxScrollTop : 900,
+		})).toBe(300);
+	});
+
+	it('項目が上側に隠れていれば余白付きで上へ移動する', () => {
+		expect(computeOutlineListScrollTop({
+			itemTop      : 80,
+			itemBottom   : 100,
+			viewportTop  : 100,
+			viewportBottom: 200,
+			scrollTop    : 300,
+			maxScrollTop : 900,
+			margin       : 6,
+		})).toBe(274);
+	});
+
+	it('項目が下側に隠れていれば余白付きで下へ移動する', () => {
+		expect(computeOutlineListScrollTop({
+			itemTop      : 195,
+			itemBottom   : 220,
+			viewportTop  : 100,
+			viewportBottom: 200,
+			scrollTop    : 300,
+			maxScrollTop : 900,
+			margin       : 6,
+		})).toBe(326);
+	});
+
+	it('スクロール可能範囲を超えない', () => {
+		expect(computeOutlineListScrollTop({
+			itemTop      : 195,
+			itemBottom   : 260,
+			viewportTop  : 100,
+			viewportBottom: 200,
+			scrollTop    : 880,
+			maxScrollTop : 900,
+		})).toBe(900);
 	});
 });
 

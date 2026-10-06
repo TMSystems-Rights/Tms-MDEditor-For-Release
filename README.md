@@ -4,9 +4,15 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.9.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.9.1)
+最新リリース: [v1.10.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.10.0)
 
 ## 変更内容
+### v1.10.0 の主な変更
+
+- アプリのアウトラインを、キャレット位置に対応する見出しが常に見える位置へ自動スクロールする
+- アクティブ見出しが折りたたまれている場合は祖先を自動展開し、表セルのクリックにもアウトラインを追従させる
+- HTML 出力で本文のスクロール位置に合わせてアウトラインをハイライトし、対象見出しが常に見える位置へ自動スクロールする
+
 ### v1.9.1 の主な変更
 
 - 表見出しの下に、データ行が隠れているあいだだけ線と影の仕切りを出す

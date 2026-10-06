@@ -40,8 +40,10 @@ import { createCaretRedrawSpec } from '../editor/caretRedraw';
 import { captureNoteViewPosition, normalizeNoteViewPositionDocument, NoteViewPositionMemory, restoreNoteViewScroll, selectionFromNoteViewPosition, type NoteViewPosition } from '../editor/noteViewPosition';
 import {
 	buildOutlineTree,
+	collectOutlineAncestorFroms,
 	collectFoldableOutlineFroms,
 	collectOutlineItems,
+	computeOutlineListScrollTop,
 	findActiveOutlineItemIndex,
 	jumpToOutlineItem,
 	preserveEditorFocusOnOutlineMouseDown,
@@ -3442,14 +3444,45 @@ export class AppController {
 		this.renderOutline();
 	}
 
-	/** キャレット位置に対応する見出しを強調する。 */
+	/** キャレット位置に対応する見出しを強調し、アウトラインの表示範囲へ収める。 */
 	private updateOutlineActiveItem(): void {
 		if (!this.outlineVisible || !this.editorView) return;
 
 		const activeIndex = findActiveOutlineItemIndex(this.outlineItems, this.editorView.state.selection.main.head);
+		let expanded      = false;
+		for (const from of collectOutlineAncestorFroms(this.outlineItems, activeIndex)) {
+			expanded = this.outlineCollapsedFroms.delete(from) || expanded;
+		}
+		if (expanded) {
+			this.renderOutline();
+			return;
+		}
+
 		this.outlineListElement.querySelectorAll<HTMLElement>('.tms-mde-outline-item').forEach((element) => {
-			element.classList.toggle('is-active', Number(element.dataset.outlineIndex) === activeIndex);
+			const active = Number(element.dataset.outlineIndex) === activeIndex;
+			element.classList.toggle('is-active', active);
+			if (active) {
+				element.setAttribute('aria-current', 'location');
+			} else {
+				element.removeAttribute('aria-current');
+			}
 		});
+		const activeElement = this.outlineListElement.querySelector<HTMLElement>(
+			`.tms-mde-outline-item[data-outline-index="${activeIndex}"]`,
+		);
+		if (!activeElement) return;
+
+		const itemRect        = activeElement.getBoundingClientRect();
+		const viewportRect    = this.outlineListElement.getBoundingClientRect();
+		const targetScrollTop = computeOutlineListScrollTop({
+			itemTop      : itemRect.top,
+			itemBottom   : itemRect.bottom,
+			viewportTop  : viewportRect.top,
+			viewportBottom: viewportRect.bottom,
+			scrollTop    : this.outlineListElement.scrollTop,
+			maxScrollTop : Math.max(0, this.outlineListElement.scrollHeight - this.outlineListElement.clientHeight),
+		});
+		this.outlineListElement.scrollTo({ top: targetScrollTop });
 	}
 
 	/** 選択した見出しへキャレットを移動する。スクロールは補正プラグインが行う。 */
