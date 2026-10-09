@@ -77,7 +77,6 @@ try {
 
 	& pwsh (Join-Path $repoRoot 'scripts\package-portable.ps1') -Version $version -PublishDir $publishPath -StageDir $stagePath -LauncherPublishDir $launcherPublishPath -OutputDir (Join-Path $repoRoot 'dist')
 	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
-finally {
+} finally {
 	Pop-Location
 }

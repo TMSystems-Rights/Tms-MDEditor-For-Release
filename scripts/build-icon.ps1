@@ -66,8 +66,7 @@ function Add-SmallIconBadge {
 		$textBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 1, 45, 28))
 		try { $Graphics.FillPath($textBrush, $textPath) }
 		finally { $textBrush.Dispose(); $textPath.Dispose(); $textFormat.Dispose(); $fontFamily.Dispose() }
-	}
-	finally { $borderPen.Dispose(); $badgeBrush.Dispose(); $shadowBrush.Dispose() }
+	} finally { $borderPen.Dispose(); $badgeBrush.Dispose(); $shadowBrush.Dispose() }
 }
 
 function Add-LargeIconLabel {
@@ -77,8 +76,7 @@ function Add-LargeIconLabel {
 		$labelWidth  = [single]($Size * 0.56)
 		$labelHeight = [single]($Size * 0.27)
 		$fontSize    = [single]($Size * 0.23)
-	}
-	else {
+	} else {
 		$labelWidth  = [single]($Size * 0.74)
 		$labelHeight = [single]($Size * 0.34)
 		$fontSize    = [single]($Size * 0.27)
@@ -111,8 +109,7 @@ function Add-LargeIconLabel {
 		$textBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 1, 45, 28))
 		try { $Graphics.FillPath($textBrush, $textPath) }
 		finally { $textBrush.Dispose(); $textPath.Dispose(); $textFormat.Dispose(); $fontFamily.Dispose() }
-	}
-	finally {
+	} finally {
 		$borderPen.Dispose()
 		$labelBrush.Dispose()
 		$shadowBrush.Dispose()
@@ -126,8 +123,7 @@ function Add-IconBadge {
 
 	if ($Size -le 48) {
 		Add-SmallIconBadge -Graphics $Graphics -Size $Size
-	}
-	else {
+	} else {
 		Add-LargeIconLabel -Graphics $Graphics -Size $Size
 	}
 }
@@ -148,8 +144,7 @@ function New-BadgedBitmap {
 		$g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 		$g.DrawImage($Source, $dstRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
 		Add-IconBadge -Graphics $g -Size $Size
-	}
-	finally { $g.Dispose() }
+	} finally { $g.Dispose() }
 
 	return $bmp
 }
@@ -180,16 +175,14 @@ function New-IconDibBytes {
 			$writer.Write($row)
 		}
 		$writer.Flush(); return , $ms.ToArray()
-	}
-	finally { $writer.Dispose(); $ms.Dispose(); $bmp.Dispose() }
+	} finally { $writer.Dispose(); $ms.Dispose(); $bmp.Dispose() }
 }
 
 $source = [System.Drawing.Image]::FromFile($resolvedBasePng)
 try {
 	Save-BadgedPng -Source $source -Path $resolvedPng
 	$images = foreach ($size in $sizes) { [pscustomobject]@{ Size = $size; Bytes = [byte[]](New-IconDibBytes -Source $source -Size $size) } }
-}
-finally { $source.Dispose() }
+} finally { $source.Dispose() }
 
 $stream = [System.IO.File]::Open($resolvedIco, [System.IO.FileMode]::Create)
 $writer = New-Object System.IO.BinaryWriter $stream
@@ -198,8 +191,7 @@ try {
 	$offset = 6 + (16 * $images.Count)
 	foreach ($image in $images) { $sizeByte = if ($image.Size -eq 256) { 0 } else { $image.Size }; $writer.Write([byte]$sizeByte); $writer.Write([byte]$sizeByte); $writer.Write([byte]0); $writer.Write([byte]0); $writer.Write([UInt16]1); $writer.Write([UInt16]32); $writer.Write([UInt32]$image.Bytes.Length); $writer.Write([UInt32]$offset); $offset += $image.Bytes.Length }
 	foreach ($image in $images) { $writer.Write($image.Bytes) }
-}
-finally { $writer.Dispose(); $stream.Dispose() }
+} finally { $writer.Dispose(); $stream.Dispose() }
 
 Write-Host "Created $resolvedPng"
 Write-Host "Created $resolvedIco"

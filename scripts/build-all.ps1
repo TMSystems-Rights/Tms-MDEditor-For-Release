@@ -55,8 +55,7 @@ try {
 	if ($dotnetExitCode -ne 0) { exit $dotnetExitCode }
 
 	Write-Host 'Build completed.'
-}
-finally {
+} finally {
 	if ((Get-Location).Path -eq $webDir) {
 		Pop-Location
 	}

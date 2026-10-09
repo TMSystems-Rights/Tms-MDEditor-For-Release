@@ -12,8 +12,7 @@ try {
 	if ($Build) {
 		& "$PSScriptRoot\build-all.ps1"
 		if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-	}
-	else {
+	} else {
 		# 別コンソールの `dotnet run` だとビルド失敗が一瞬で消えるため、ここへ出す。
 		Write-Host '==> dotnet build (Debug)'
 		& dotnet build $project -c Debug
@@ -26,7 +25,6 @@ try {
 
 	Write-Host '==> Launch TMS-MDEditor (detached; terminal stays usable)'
 	Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe)
-}
-finally {
+} finally {
 	Pop-Location
 }

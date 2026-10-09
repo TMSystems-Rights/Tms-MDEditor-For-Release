@@ -41,7 +41,6 @@ try {
 	Write-Host "OK: $tag -> $local"
 	Write-Host 'OK: ローカルとリモートのタグ SHA が一致しています。'
 	exit 0
-}
-finally {
+} finally {
 	Pop-Location
 }
