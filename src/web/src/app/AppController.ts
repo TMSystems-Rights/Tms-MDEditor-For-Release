@@ -2953,7 +2953,7 @@ export class AppController {
 	 * @returns {void}
 	 */
 	private bindNoteViewPosition(view: EditorView): void {
-		const position = this.noteViewPositionForView(view);
+		const position         = this.noteViewPositionForView(view);
 		/**
 		 * スクロールのたびに表示位置を記録する
 		 * @returns {void}

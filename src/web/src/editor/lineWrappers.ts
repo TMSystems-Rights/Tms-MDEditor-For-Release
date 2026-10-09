@@ -106,7 +106,7 @@ const lineWrappersField = StateField.define<LineWrapperState>({
  * @returns {Extension[]} 行ラッパー拡張
  */
 export function createLineWrapperExtensions(): Extension[] {
-	let restoreQueued = false;
+	let restoreQueued        = false;
 	/**
 	 * IME 合成開始を行ラッパー Field へ通知する。
 	 * @param {CompositionEvent} event 合成開始イベント
@@ -123,7 +123,7 @@ export function createLineWrapperExtensions(): Extension[] {
 	 * @param {EditorView} view 対象エディタ
 	 * @returns {boolean} イベント未処理
 	 */
-	const onCompositionEnd = (_event: CompositionEvent, view: EditorView): boolean => {
+	const onCompositionEnd   = (_event: CompositionEvent, view: EditorView): boolean => {
 		if (restoreQueued) {
 			return false;
 		}

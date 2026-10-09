@@ -957,7 +957,7 @@ class TmsSearchPanel implements Panel {
 		 * 現在の入力値を検索状態へ反映する
 		 * @returns {void}
 		 */
-		const commit = (): void => {
+		const commit        = (): void => {
 			this.commitQuery();
 		};
 		/**

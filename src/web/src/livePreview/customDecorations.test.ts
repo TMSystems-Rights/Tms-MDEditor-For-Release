@@ -106,8 +106,8 @@ describe('customDecorations', () => {
 			},
 		]);
 		// カーソルは 1 行目。対象は 2 行目（プレビュー行）
-		const state   = createState('cursor here\nhello _v装飾サンプル文字列_v end', { cursor: 0, rules });
-		const entries = collectCustomDecorationEntries(state, collectSourceLineNumbers(state), rules);
+		const state     = createState('cursor here\nhello _v装飾サンプル文字列_v end', { cursor: 0, rules });
+		const entries   = collectCustomDecorationEntries(state, collectSourceLineNumbers(state), rules);
 
 		const marks = entries.filter((entry) => entry.decoration.spec.class === 'tms-underline');
 		expect(marks).toHaveLength(1);

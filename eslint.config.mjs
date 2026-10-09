@@ -3,7 +3,7 @@
 import globals from 'globals';
 import js from '@eslint/js';
 import jsdoc from 'eslint-plugin-jsdoc';
-import alignAssignments from 'eslint-plugin-align-assignments';
+import alignAssignments from '@tms/eslint-plugin-align-assignments';
 import tseslint from 'typescript-eslint';
 
 /** @type {import('eslint').Linter.RulesRecord} */

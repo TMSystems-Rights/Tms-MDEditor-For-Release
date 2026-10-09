@@ -106,7 +106,7 @@ export function buildTableHeaderPinFrames(
 	/**
 	 *
 	 */
-	const at = (scroll: number): number => Math.max(0, Math.min(maxTravel, scroll - headerDocTop));
+	const at                            = (scroll: number): number => Math.max(0, Math.min(maxTravel, scroll - headerDocTop));
 	const frames: TableHeaderPinFrame[] = [
 		{ offset: 0, translateY: at(0) },
 		{ offset: 1, translateY: at(maxScroll) },

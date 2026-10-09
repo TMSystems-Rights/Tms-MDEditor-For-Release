@@ -820,7 +820,7 @@ function flattenTableCellText(nodes: TableCellNode[]): string {
 	 * @param {TableCellNode[]} items ノード
 	 * @returns {void}
 	 */
-	const walk = (items: TableCellNode[]): void => {
+	const walk            = (items: TableCellNode[]): void => {
 		for (const item of items) {
 			if (item.kind === 'text') {
 				parts.push(item.text);
@@ -1838,7 +1838,7 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 	 * @param {Text} node テキスト
 	 * @returns {void}
 	 */
-	const pushText = (node: Text): void => {
+	const pushText                       = (node: Text): void => {
 		if (visibleTableCellTextLength(node.textContent ?? '') === 0) {
 			return;
 		}
@@ -1850,7 +1850,7 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 	 * @param {HTMLElement | null} lineBlock 所属する行
 	 * @returns {void}
 	 */
-	const walkInline = (node: Node, lineBlock: HTMLElement | null): void => {
+	const walkInline                     = (node: Node, lineBlock: HTMLElement | null): void => {
 		if (node.nodeType === Node.TEXT_NODE) {
 			pushText(node as Text);
 			return;
@@ -4039,7 +4039,7 @@ export class TableWidget extends WidgetType {
 			 * @param {string} userEvent CodeMirror のユーザーイベント名
 			 * @returns {boolean} 書いたか
 			 */
-			const persistCellValue = (userEvent: string): boolean => {
+			const persistCellValue       = (userEvent: string): boolean => {
 				if (cell.dataset.editing !== 'true' || composing) {
 					return false;
 				}

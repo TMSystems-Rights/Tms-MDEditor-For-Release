@@ -173,7 +173,7 @@ export function parseHtmlTag(raw: string): ParsedHtmlTag | null {
 		return null;
 	}
 
-	const isClose = match[1] === '/';
+	const isClose            = match[1] === '/';
 	const name               = (match[2] ?? '').toLowerCase();
 	const attributeText      = match[3] ?? '';
 	const selfClosingBySlash = /\/\s*$/.test(attributeText.trim()) || /\/\s*>$/.test(trimmed);

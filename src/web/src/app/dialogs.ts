@@ -357,7 +357,7 @@ export function showReloadEncodingDialog(defaultEncoding: EncodingKind): Promise
 		const select     = dialog.querySelector('#tmsMdeReloadEncoding') as HTMLSelectElement;
 		select.value     = defaultEncoding;
 		/** 再読込を中止した場合は null を返し、現在の文字コードを維持させる。 */
-		const close = (result: EncodingKind | null): void => {
+		const close      = (result: EncodingKind | null): void => {
 			backdrop.remove();
 			resolve(result);
 		};

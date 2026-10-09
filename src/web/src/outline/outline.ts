@@ -114,7 +114,7 @@ export function collectFoldableOutlineFroms(nodes: readonly OutlineTreeNode[]): 
 	 * @param {readonly OutlineTreeNode[]} list ノード
 	 * @returns {void}
 	 */
-	const walk = (list: readonly OutlineTreeNode[]): void => {
+	const walk            = (list: readonly OutlineTreeNode[]): void => {
 		for (const node of list) {
 			if (node.children.length > 0) {
 				froms.push(node.item.from);
