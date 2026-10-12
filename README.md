@@ -4,9 +4,16 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.10.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.10.0)
+最新リリース: [v1.11.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.11.0)
 
 ## 変更内容
+### v1.11.0 の主な変更
+
+- HTML 出力のノート幅とテーブルの表示をアプリに合わせ、ウィンドウ幅に応じた表示と横スクロールに対応する
+- Obsidian 保管庫を基準に、ノートからの相対画像パスを解決できるようにする
+- アプリと HTML 出力のアウトライン幅をドラッグまたはキーボードで調整し、設定した幅を保持する
+- ライブプレビュー上で表の新規作成と、複数行・複数列の追加、削除、移動を行えるようにする
+
 ### v1.10.0 の主な変更
 
 - アプリのアウトラインを、キャレット位置に対応する見出しが常に見える位置へ自動スクロールする
