@@ -417,6 +417,16 @@ describe('buildExportCss', () => {
 		expect(snippetIndex).toBeGreaterThan(fontIndex);
 	});
 
+	it('エディタフォントとサイズをHTML出力へ反映する', () => {
+		const css = buildExportCss({
+			theme           : 'light',
+			editorFontFamily: '"BIZ UDゴシック", sans-serif',
+			editorFontSize  : 15,
+		});
+		expect(css).toContain('.tms-mde-export-root { --tms-mde-font-family: "BIZ UDゴシック", sans-serif; }');
+		expect(css).toContain('.tms-mde-export .cm-editor { font-size: 15px; }');
+	});
+
 	it('画像枠線の CSS 変数を書き出す', () => {
 		const css = buildExportCss({
 			theme      : 'light',

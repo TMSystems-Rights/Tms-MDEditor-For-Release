@@ -1365,6 +1365,8 @@ export class AppController {
 			title            : tab.title || '無題',
 			filePath         : tab.filePath,
 			theme            : resolveExportTheme(this.settings.theme),
+			editorFontFamily : this.settings.editorFontFamily,
+			editorFontSize   : this.settings.editorFontSize,
 			codeFontFamily   : this.settings.codeFontFamily,
 			imageBorder      : this.settings.imageBorder,
 			snippetsCss      : snippets,

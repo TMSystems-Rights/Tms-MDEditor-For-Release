@@ -88,6 +88,17 @@ describe('tableResize', () => {
 		expect(livePreviewCss).not.toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
 	});
 
+	it('HTML出力でも表本体を縮めずラッパーで横スクロールする', () => {
+		expect(EXPORT_PREVIEW_CSS).toMatch(/\.cm-md-table-wrap,[\s\S]*?\.cm-md-html-table-wrap\s*\{[^}]*width:\s*max-content;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;/s);
+		expect(EXPORT_PREVIEW_CSS).toMatch(/\.cm-md-table\s*\{[^}]*width:\s*max-content;[^}]*line-height:\s*1\.4;/s);
+		expect(EXPORT_PREVIEW_CSS).not.toMatch(/\.cm-md-table\s*\{[^}]*max-width:\s*100%;/s);
+	});
+
+	it('HTML出力のノート幅を表示領域へ追従させる', () => {
+		expect(EXPORT_PREVIEW_CSS).toMatch(/\.tms-mde-export\s*\{[^}]*box-sizing:\s*border-box;[^}]*width:\s*100%;/s);
+		expect(EXPORT_PREVIEW_CSS).not.toMatch(/\.tms-mde-export\s*\{[^}]*max-width:\s*52rem;/s);
+	});
+
 	it('列幅を保存したセルはエディタの折り返しがオフでも列内で折り返す', () => {
 		expect(livePreviewCss).toMatch(/\.cm-md-table\.is-resized th,[\s\S]*?white-space:\s*pre-wrap;/);
 		expect(livePreviewCss).toMatch(/\.cm-md-table\.is-resized td\s*\{[^}]*overflow-wrap:\s*anywhere;/s);

@@ -67,9 +67,11 @@ export const EXPORT_PREVIEW_CSS = `
 	color: var(--tms-mde-color-text);
 	font-family: var(--tms-mde-font-family);
 }
+/* 本文はブラウザの表示領域へ追従し、固定幅で表を押しつぶさない。 */
 .tms-mde-export {
-	max-width: 52rem;
-	margin: 0 auto;
+	box-sizing: border-box;
+	width: 100%;
+	margin: 0;
 	padding: 2rem 1.5rem 3rem;
 	line-height: 1.65;
 }
@@ -148,8 +150,16 @@ export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export .cm-md-syntax-type { color: var(--tms-mde-color-syntax-type); }
 .tms-mde-export .cm-md-syntax-property { color: var(--tms-mde-color-syntax-property); }
 .tms-mde-export .cm-md-syntax-invalid { color: var(--tms-mde-color-syntax-invalid); }
-.tms-mde-export .cm-md-table-wrap { overflow-x: auto; margin: 0.35em 0; }
-.tms-mde-export .cm-md-table { border-collapse: collapse; width: max-content; max-width: 100%; }
+/* 保存済みの列幅を保ち、表示領域を超えた分はラッパー内で横スクロールする。 */
+.tms-mde-export .cm-md-table-wrap, .tms-mde-export .cm-md-html-table-wrap {
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	margin: 0.35em 0;
+	overflow-x: auto;
+	overflow-y: auto;
+}
+.tms-mde-export .cm-md-table { border-collapse: collapse; width: max-content; font-size: inherit; line-height: 1.4; }
 .tms-mde-export .cm-md-table.is-resized { table-layout: fixed; }
 .tms-mde-export .cm-md-table.is-resized th, .tms-mde-export .cm-md-table.is-resized td { overflow-wrap: anywhere; word-break: break-word; }
 .tms-mde-export .cm-md-table th, .tms-mde-export .cm-md-table td {
@@ -163,7 +173,6 @@ export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export .cm-md-table th.cm-md-table-valign-middle, .tms-mde-export .cm-md-table td.cm-md-table-valign-middle { vertical-align: middle; }
 .tms-mde-export .cm-md-table th.cm-md-table-valign-bottom, .tms-mde-export .cm-md-table td.cm-md-table-valign-bottom { vertical-align: bottom; }
 .tms-mde-export .cm-md-table th { font-weight: 600; background: color-mix(in srgb, var(--tms-mde-color-primary) 16%, var(--tms-mde-color-surface)); }
-.tms-mde-export .cm-md-html-table-wrap { overflow-x: auto; margin: 0.35em 0; }
 .tms-mde-export .cm-md-image { max-width: min(100%, 720px); height: auto; box-sizing: border-box; border: var(--tms-mde-image-border-width, 1px) solid var(--tms-mde-image-border-color, #888888); }
 .tms-mde-export .cm-md-image.is-sized { max-width: 100%; max-height: none; height: auto; }
 .tms-mde-export .cm-md-image-fallback {

@@ -15,7 +15,7 @@ import {
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { buildOutlineTree, collectOutlineItems, type OutlineItem, type OutlineTreeNode } from '../outline/outline';
 import type { CustomDecorationRule, ExportOutlineSettings, ImageBorderSettings } from '../types/app';
-import { buildCodeFontCss } from '../app/codeFont';
+import { buildCodeFontCss, sanitizeCssFontFamily } from '../app/codeFont';
 import { buildImageBorderCss } from '../app/imageBorder';
 import { extractImageAltAndUrl, extractWikiEmbedPath } from '../livePreview/blockWidgets';
 import {
@@ -84,6 +84,8 @@ export type RenderExportHtmlOptions = {
 	title?: string;
 	filePath?: string | null;
 	theme: 'light' | 'dark';
+	editorFontFamily?: string;
+	editorFontSize?: number;
 	codeFontFamily?: string;
 	imageBorder?: Partial<ImageBorderSettings>;
 	snippetsCss?: string[];
@@ -216,18 +218,43 @@ ${main}
  * @param {RenderExportHtmlOptions} options オプション
  * @returns {string}
  */
-export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss' | 'codeFontFamily' | 'imageBorder'>): string {
+export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss' | 'editorFontFamily' | 'editorFontSize' | 'codeFontFamily' | 'imageBorder'>): string {
 	const snippets = (options.snippetsCss ?? []).filter((item) => item.trim().length > 0);
 	return [
 		EXPORT_THEME_LIGHT_CSS,
 		options.theme === 'dark' ? EXPORT_THEME_DARK_CSS : '',
 		EXPORT_PREVIEW_CSS,
+		buildExportEditorTypographyCss(options.editorFontFamily, options.editorFontSize),
 		buildCodeFontCss(options.codeFontFamily, '.tms-mde-export-root'),
 		buildImageBorderCss(options.imageBorder, '.tms-mde-export-root'),
 		...snippets,
 		EXPORT_OUTLINE_CSS,
 		EXPORT_PRINT_CSS,
 	].filter(Boolean).join('\n');
+}
+
+/**
+ * アプリのエディタフォントを HTML 出力へ反映する。
+ * @param {string | undefined} fontFamily エディタフォント
+ * @param {number | undefined} fontSize エディタフォントサイズ
+ * @returns {string}
+ */
+function buildExportEditorTypographyCss(
+	fontFamily: string | undefined,
+	fontSize: number | undefined,
+): string {
+	const rules           = [];
+	const numericFontSize = fontSize ?? Number.NaN;
+	if (fontFamily?.trim()) {
+		rules.push(`.tms-mde-export-root { --tms-mde-font-family: ${sanitizeCssFontFamily(fontFamily)}; }`);
+	}
+
+	if (Number.isFinite(numericFontSize)) {
+		const normalized = Math.min(72, Math.max(8, Math.round(numericFontSize)));
+		rules.push(`.tms-mde-export .cm-editor { font-size: ${normalized}px; }`);
+	}
+
+	return rules.join('\n');
 }
 
 /**
