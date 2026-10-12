@@ -10,13 +10,17 @@ import { findMarkdownLinkUrlFromMouseEvent, isSupportedExternalLinkUrl, setDocum
 import {
 	applyTableAlignSnapshot,
 	applyTableMergeSnapshot,
+	applyTableStructureSnapshot,
 	snapshotTableMergeActionFromEvent,
+	snapshotTableStructureActionFromEvent,
 	type TableMergeMenuSnapshot,
+	type TableStructureMenuSnapshot,
 } from '../livePreview/tableWidget';
 import type { TableAlignPatch } from '../livePreview/tableMerge';
+import { buildTableInsertionChange, createMarkdownTable, type TableStructureAction } from '../livePreview/tableStructure';
 import { showActionToast, showToast, type ToastHandle } from './toast';
 import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, PasteForEditorResult, SaveConfigResponse, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
-import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
+import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showInsertTableDialog, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
 import { applyCodeFontFamily, DEFAULT_CODE_FONT_FAMILY } from './codeFont';
 import { applyImageBorder, DEFAULT_IMAGE_BORDER } from './imageBorder';
 import { applyTheme } from './theme';
@@ -2340,16 +2344,21 @@ export class AppController {
 		dismissContextMenus();
 		void invokeBridge(BRIDGE_METHOD.uiDismissMenus);
 
-		const tab            = this.getActiveTab();
-		const view           = this.editorView;
-		const clickPosition  = view?.posAtCoords({ x: event.clientX, y: event.clientY }) ?? null;
-		const checkboxAction = view && clickPosition !== null
+		const tab             = this.getActiveTab();
+		const view            = this.editorView;
+		const clickPosition   = view?.posAtCoords({ x: event.clientX, y: event.clientY }) ?? null;
+		const checkboxAction  = view && clickPosition !== null
 			? buildToggleTaskMarkerTransaction(view.state, clickPosition)
 			: null;
-		const linkUrl        = view ? findMarkdownLinkUrlFromMouseEvent(view, event) : null;
-		const hasSelection   = Boolean(view && view.state.selection.ranges.some((range) => !range.empty));
-		const tableMerge     = view ? snapshotTableMergeActionFromEvent(view, event) : null;
-		const entries        = this.buildConfiguredContextMenuEntries(
+		const linkUrl         = view ? findMarkdownLinkUrlFromMouseEvent(view, event) : null;
+		const hasSelection    = Boolean(view && view.state.selection.ranges.some((range) => !range.empty));
+		const tableMerge      = view ? snapshotTableMergeActionFromEvent(view, event) : null;
+		const tableStructure  = view ? snapshotTableStructureActionFromEvent(view, event) : null;
+		const viewMode        = tab
+			? this.panes.get(this.activePaneId)?.viewModes.get(tab.tabId) ?? tab.viewMode
+			: 'source';
+		const inMarkdownTable = event.target instanceof Element && Boolean(event.target.closest('.cm-md-table-wrap'));
+		const entries         = this.buildConfiguredContextMenuEntries(
 			this.settings.contextMenu.editorOrder,
 			this.settings.contextMenu.editorHidden,
 			{
@@ -2363,6 +2372,17 @@ export class AppController {
 				find           : { shortcut: this.settings.keybindings.find, disabled: !view },
 				replace        : { shortcut: this.settings.keybindings.replace, disabled: !view || view.state.readOnly },
 				toggleCheckbox : { shortcut: this.settings.keybindings.toggleCheckbox, hidden: !checkboxAction },
+				insertTable    : { hidden: viewMode !== 'live-preview' || inMarkdownTable, disabled: !view || view.state.readOnly },
+				insertTableRowsBefore: { hidden: tableStructure?.axis !== 'row', disabled: !view || view.state.readOnly },
+				insertTableRowsAfter : { hidden: tableStructure?.axis !== 'row', disabled: !view || view.state.readOnly },
+				deleteTableRows      : { hidden: tableStructure?.axis !== 'row', disabled: !view || view.state.readOnly || !tableStructure?.canDelete },
+				moveTableRowsUp      : { hidden: tableStructure?.axis !== 'row', disabled: !view || view.state.readOnly || !tableStructure?.canMovePrevious },
+				moveTableRowsDown    : { hidden: tableStructure?.axis !== 'row', disabled: !view || view.state.readOnly || !tableStructure?.canMoveNext },
+				insertTableColumnsBefore: { hidden: tableStructure?.axis !== 'column', disabled: !view || view.state.readOnly },
+				insertTableColumnsAfter : { hidden: tableStructure?.axis !== 'column', disabled: !view || view.state.readOnly },
+				deleteTableColumns      : { hidden: tableStructure?.axis !== 'column', disabled: !view || view.state.readOnly || !tableStructure?.canDelete },
+				moveTableColumnsLeft    : { hidden: tableStructure?.axis !== 'column', disabled: !view || view.state.readOnly || !tableStructure?.canMovePrevious },
+				moveTableColumnsRight   : { hidden: tableStructure?.axis !== 'column', disabled: !view || view.state.readOnly || !tableStructure?.canMoveNext },
 				mergeTableCells: { hidden: !tableMerge?.canMerge, disabled: !view || view.state.readOnly },
 				unmergeTableCells: { hidden: !tableMerge?.canUnmerge, disabled: !view || view.state.readOnly },
 				alignTableCellLeft  : { hidden: !tableMerge, disabled: !view || view.state.readOnly },
@@ -2381,7 +2401,7 @@ export class AppController {
 		);
 
 		showContextMenuAtPoint(event.clientX, event.clientY, entries, (action) => {
-			void this.handleEditorContextAction(action, clickPosition, linkUrl, tableMerge);
+			void this.handleEditorContextAction(action, clickPosition, linkUrl, tableMerge, tableStructure);
 		});
 	}
 
@@ -2460,6 +2480,7 @@ export class AppController {
 	 * @param {number | null} clickPosition 右クリックした文書位置
 	 * @param {string | null} linkUrl 右クリックしたリンクURL
 	 * @param {TableMergeMenuSnapshot | null} [tableMerge] 右クリック時点の表対象
+	 * @param {TableStructureMenuSnapshot | null} [tableStructure] 右クリック時点の行・列対象
 	 * @returns {Promise<void>}
 	 */
 	private async handleEditorContextAction(
@@ -2467,6 +2488,7 @@ export class AppController {
 		clickPosition: number | null,
 		linkUrl: string | null,
 		tableMerge?: TableMergeMenuSnapshot | null,
+		tableStructure?: TableStructureMenuSnapshot | null,
 	): Promise<void> {
 		const view = this.editorView;
 		if (!view) {
@@ -2506,6 +2528,28 @@ export class AppController {
 
 			if (action === 'find' || action === 'replace') {
 				this.openActiveSearchPanel(action);
+				return;
+			}
+
+			if (action === 'insertTable') {
+				const options = await showInsertTableDialog();
+				if (!options) {
+					view.focus();
+					return;
+				}
+				const markdown = createMarkdownTable(options.columns, options.dataRows);
+				const position = Math.min(clickPosition ?? view.state.selection.main.head, view.state.doc.length);
+				view.dispatch({
+					changes  : buildTableInsertionChange(view.state, position, markdown),
+					userEvent: 'input.type',
+				});
+				view.focus();
+				return;
+			}
+
+			const structureAction = tableStructureActionFromContextMenu(action);
+			if (structureAction && tableStructure) {
+				if (!applyTableStructureSnapshot(view, tableStructure, structureAction)) view.focus();
 				return;
 			}
 
@@ -3851,6 +3895,16 @@ function tableAlignPatchFromAction(action: string): TableAlignPatch | null {
 		return { valign: 'bottom' };
 	}
 
+	return null;
+}
+
+/** @param {string} action メニューID @returns {TableStructureAction | null} 表構造操作 */
+function tableStructureActionFromContextMenu(action: string): TableStructureAction | null {
+	if (action === 'insertTableRowsBefore' || action === 'insertTableColumnsBefore') return 'insert-before';
+	if (action === 'insertTableRowsAfter' || action === 'insertTableColumnsAfter') return 'insert-after';
+	if (action === 'deleteTableRows' || action === 'deleteTableColumns') return 'delete';
+	if (action === 'moveTableRowsUp' || action === 'moveTableColumnsLeft') return 'move-previous';
+	if (action === 'moveTableRowsDown' || action === 'moveTableColumnsRight') return 'move-next';
 	return null;
 }
 

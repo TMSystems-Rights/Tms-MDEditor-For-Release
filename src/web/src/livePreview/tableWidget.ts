@@ -43,6 +43,8 @@ import {
 } from './imageResize';
 import {
 	attachTableResize,
+	collectTableCellBoxes,
+	computeColumnRightEdges,
 	forgetTableLayout,
 	getTableLayoutKey,
 	type TableLayout,
@@ -71,6 +73,15 @@ import {
 	type TableSelectionRect,
 	type TableSizeLayout,
 } from './tableMerge';
+import {
+	buildTableStructureChange,
+	buildTableStructureGroups,
+	getTableStructureActionState,
+	type TableStructureAction,
+	type TableStructureAxis,
+	type TableStructureRange,
+	type TableStructureSelection,
+} from './tableStructure';
 
 export {
 	clearCellImageWidths,
@@ -3280,6 +3291,7 @@ function attachTableCellSelection(
 		anchor   = position;
 		dragging = true;
 		clearTableSelectionRect(wrap, table);
+		clearTableStructureSelection(wrap, table);
 	});
 	wrap.addEventListener('mouseover', (event) => {
 		if (!dragging || !anchor || (event.buttons & 1) === 0) {
@@ -3298,6 +3310,274 @@ function attachTableCellSelection(
 	});
 	void view;
 	void data;
+}
+
+const TABLE_STRUCTURE_SELECTION_CLASS = 'cm-md-table-structure-selected';
+
+/** 表構造選択ヘッダーを表の外周へ追加する。 */
+function attachTableStructureControls(
+	wrap: HTMLElement,
+	table: HTMLTableElement,
+	data: TableData,
+	view: EditorView,
+): void {
+	const columnGroups = buildTableStructureGroups(data, 'column');
+	const rowGroups    = buildTableStructureGroups(data, 'row');
+	if (columnGroups.length === 0) {
+		return;
+	}
+
+	wrap.classList.add('cm-md-table-has-structure-controls');
+	const controls     = document.createElement('div');
+	controls.className = 'cm-md-table-structure-controls';
+	controls.setAttribute('contenteditable', 'false');
+	controls.hidden = true;
+	wrap.appendChild(controls);
+	let anchor: { axis: TableStructureAxis; group: TableStructureRange } | null = null;
+	let dragging                                                                = false;
+
+	/** @param {TableStructureAxis} axis 軸 @param {TableStructureRange} group グループ @returns {HTMLButtonElement} */
+	const createButton = (axis: TableStructureAxis, group: TableStructureRange): HTMLButtonElement => {
+		const button                       = document.createElement('button');
+		button.type                        = 'button';
+		button.tabIndex                    = -1;
+		button.className                   = `cm-md-table-structure-selector is-${axis}`;
+		button.dataset.tableStructureAxis  = axis;
+		button.dataset.tableStructureStart = String(group.start);
+		button.dataset.tableStructureEnd   = String(group.end);
+		const numberFrom                   = axis === 'row' ? group.start : group.start + 1;
+		const numberTo                     = axis === 'row' ? group.end : group.end + 1;
+		const label                        = numberFrom === numberTo ? String(numberFrom) : `${numberFrom}–${numberTo}`;
+		button.textContent                 = '';
+		button.title                       = `${axis === 'row' ? '行' : '列'} ${label} を選択`;
+		button.setAttribute('aria-label', button.title);
+		button.setAttribute('aria-pressed', 'false');
+		return button;
+	};
+
+	columnGroups.forEach((group) => controls.appendChild(createButton('column', group)));
+	rowGroups.forEach((group) => controls.appendChild(createButton('row', group)));
+
+	/** ボタンを表の実寸へ合わせる。 */
+	const sync = (): void => {
+		const rightEdges = computeColumnRightEdges(collectTableCellBoxes(table), columnGroups.at(-1)!.end + 1);
+		controls.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector.is-column').forEach((button) => {
+			const range = readTableStructureRange(button);
+			if (!range) return;
+			const left         = range.start === 0 ? 0 : rightEdges[range.start - 1] ?? 0;
+			const right        = rightEdges[range.end] ?? left;
+			button.style.left  = `${table.offsetLeft + left}px`;
+			button.style.top   = '0';
+			button.style.width = `${Math.max(0, right - left)}px`;
+		});
+		controls.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector.is-row').forEach((button) => {
+			const range = readTableStructureRange(button);
+			if (!range) return;
+			const first = table.rows[range.start];
+			const last  = table.rows[range.end];
+			if (!first || !last) return;
+			button.style.left   = '0';
+			button.style.top    = `${table.offsetTop + first.offsetTop}px`;
+			button.style.height = `${last.offsetTop + last.offsetHeight - first.offsetTop}px`;
+		});
+	};
+
+	/** @param {TableStructureAxis} axis 軸 @param {TableStructureRange} group 対象 @param {boolean} extend 拡張 */
+	const select = (axis: TableStructureAxis, group: TableStructureRange, extend: boolean): void => {
+		const current = readTableStructureSelection(wrap);
+		if (!extend
+			&& current?.axis === axis
+			&& current.start === group.start
+			&& current.end === group.end) {
+			anchor = null;
+			clearTableStructureSelection(wrap, table);
+			return;
+		}
+
+		const groups = axis === 'row' ? rowGroups : columnGroups;
+		if (!extend || !anchor || anchor.axis !== axis) {
+			anchor = { axis, group };
+			writeTableStructureSelection(wrap, table, { axis, ...group });
+			return;
+		}
+		const anchorIndex = groups.findIndex((item) => item.start === anchor!.group.start && item.end === anchor!.group.end);
+		const focusIndex  = groups.findIndex((item) => item.start === group.start && item.end === group.end);
+		if (anchorIndex < 0 || focusIndex < 0) return;
+		const from = Math.min(anchorIndex, focusIndex);
+		const to   = Math.max(anchorIndex, focusIndex);
+		writeTableStructureSelection(wrap, table, {
+			axis,
+			start: groups[from]!.start,
+			end  : groups[to]!.end,
+		});
+	};
+
+	controls.addEventListener('mousedown', (event) => {
+		if (event.button !== 0) return;
+		const button = event.target instanceof Element
+			? event.target.closest<HTMLElement>('.cm-md-table-structure-selector')
+			: null;
+		const target = button ? readTableStructureButton(button) : null;
+		if (!target) return;
+		event.preventDefault();
+		event.stopPropagation();
+		dragging = true;
+		select(target.axis, target.range, event.shiftKey);
+	});
+	controls.addEventListener('mouseover', (event) => {
+		if (!dragging || (event.buttons & 1) === 0) return;
+		const button = event.target instanceof Element
+			? event.target.closest<HTMLElement>('.cm-md-table-structure-selector')
+			: null;
+		const target = button ? readTableStructureButton(button) : null;
+		if (!target || !anchor || target.axis !== anchor.axis) return;
+		select(target.axis, target.range, true);
+	});
+	controls.addEventListener('contextmenu', (event) => {
+		const button = event.target instanceof Element
+			? event.target.closest<HTMLElement>('.cm-md-table-structure-selector')
+			: null;
+		const target = button ? readTableStructureButton(button) : null;
+		if (!target) return;
+		const current = readTableStructureSelection(wrap);
+		if (!current || current.axis !== target.axis || target.range.start < current.start || target.range.end > current.end) {
+			anchor = { axis: target.axis, group: target.range };
+			writeTableStructureSelection(wrap, table, { axis: target.axis, ...target.range });
+		}
+	});
+	controls.addEventListener('mouseup', () => {
+		dragging = false;
+	});
+	wrap.addEventListener('focusin', () => {
+		controls.hidden = false;
+	});
+	wrap.addEventListener('focusout', () => {
+		queueMicrotask(() => {
+			controls.hidden = !wrap.contains(wrap.ownerDocument.activeElement);
+		});
+	});
+
+	sync();
+	requestAnimationFrame(sync);
+	const observer = new ResizeObserver(() => {
+		if (!table.isConnected) {
+			observer.disconnect();
+			return;
+		}
+		sync();
+	});
+	observer.observe(table);
+	void view;
+}
+
+/** @param {HTMLElement} button ボタン @returns {{ axis: TableStructureAxis; range: TableStructureRange } | null} */
+function readTableStructureButton(button: HTMLElement): { axis: TableStructureAxis; range: TableStructureRange } | null {
+	const axis  = button.dataset.tableStructureAxis;
+	const range = readTableStructureRange(button);
+	return (axis === 'row' || axis === 'column') && range ? { axis, range } : null;
+}
+
+/** @param {HTMLElement} element 要素 @returns {TableStructureRange | null} */
+function readTableStructureRange(element: HTMLElement): TableStructureRange | null {
+	const start = Number(element.dataset.tableStructureStart);
+	const end   = Number(element.dataset.tableStructureEnd);
+	return Number.isInteger(start) && Number.isInteger(end) && start <= end ? { start, end } : null;
+}
+
+/** @param {HTMLElement} wrap ラッパー @returns {TableStructureSelection | null} */
+function readTableStructureSelection(wrap: HTMLElement): TableStructureSelection | null {
+	const [axis, rawStart, rawEnd] = (wrap.dataset.tableStructureSelection ?? '').split(',');
+	const start                    = Number(rawStart);
+	const end                      = Number(rawEnd);
+	return (axis === 'row' || axis === 'column') && Number.isInteger(start) && Number.isInteger(end) && start <= end
+		? { axis, start, end }
+		: null;
+}
+
+/** @param {HTMLElement} wrap ラッパー @param {HTMLTableElement} table 表 */
+function clearTableStructureSelection(wrap: HTMLElement, table: HTMLTableElement): void {
+	delete wrap.dataset.tableStructureSelection;
+	wrap.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector').forEach((button) => {
+		button.classList.remove('is-selected');
+		button.setAttribute('aria-pressed', 'false');
+	});
+	table.querySelectorAll(`.${TABLE_STRUCTURE_SELECTION_CLASS}`).forEach((cell) => {
+		cell.classList.remove(TABLE_STRUCTURE_SELECTION_CLASS);
+	});
+}
+
+/** @param {HTMLElement} wrap ラッパー @param {HTMLTableElement} table 表 @param {TableStructureSelection} selection 選択 */
+function writeTableStructureSelection(
+	wrap: HTMLElement,
+	table: HTMLTableElement,
+	selection: TableStructureSelection,
+): void {
+	clearTableSelectionRect(wrap, table);
+	wrap.dataset.tableStructureSelection = `${selection.axis},${selection.start},${selection.end}`;
+	wrap.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector').forEach((button) => {
+		const target   = readTableStructureButton(button);
+		const selected = Boolean(target
+			&& target.axis === selection.axis
+			&& target.range.start >= selection.start
+			&& target.range.end <= selection.end);
+		button.classList.toggle('is-selected', selected);
+		button.setAttribute('aria-pressed', String(selected));
+	});
+	table.querySelectorAll<HTMLElement>('[data-table-row][data-table-column]').forEach((cell) => {
+		const row      = Number(cell.dataset.tableRow);
+		const column   = Number(cell.dataset.tableColumn);
+		const span     = cell instanceof HTMLTableCellElement
+			? selection.axis === 'row' ? cell.rowSpan : cell.colSpan
+			: 1;
+		const value    = selection.axis === 'row' ? row : column;
+		const selected = value >= selection.start && value + span - 1 <= selection.end;
+		cell.classList.toggle(TABLE_STRUCTURE_SELECTION_CLASS, selected);
+	});
+}
+
+export type TableStructureMenuSnapshot = TableStructureSelection & {
+	tableFrom: number;
+	canDelete: boolean;
+	canMovePrevious: boolean;
+	canMoveNext: boolean;
+};
+
+/** 右クリックした行・列選択ヘッダーの操作対象を固定する。 */
+export function snapshotTableStructureActionFromEvent(
+	view: EditorView,
+	event: MouseEvent,
+): TableStructureMenuSnapshot | null {
+	const button = event.target instanceof Element
+		? event.target.closest<HTMLElement>('.cm-md-table-structure-selector')
+		: null;
+	const wrap   = button?.closest<HTMLElement>('.cm-md-table-wrap');
+	if (!button || !wrap || !view.dom.contains(wrap)) return null;
+	const tableFrom = Number(wrap.dataset.tableFrom);
+	const selection = readTableStructureSelection(wrap);
+	if (!Number.isInteger(tableFrom) || !selection) return null;
+	const tableNode = findTableNodeAt(view.state, tableFrom);
+	if (!tableNode) return null;
+	const data  = extractTableData(view.state, tableNode);
+	const state = getTableStructureActionState(data, selection);
+	return { tableFrom, ...selection, ...state };
+}
+
+/** 固定済みの行・列範囲へ構造操作を適用する。 */
+export function applyTableStructureSnapshot(
+	view: EditorView,
+	snapshot: Pick<TableStructureMenuSnapshot, 'tableFrom' | 'axis' | 'start' | 'end'>,
+	action: TableStructureAction,
+): boolean {
+	if (view.state.readOnly) return false;
+	persistEditingTableCellsAt(view, snapshot.tableFrom);
+	const tableNode = findTableNodeAt(view.state, snapshot.tableFrom);
+	if (!tableNode) return false;
+	const data   = extractTableData(view.state, tableNode);
+	const change = buildTableStructureChange(view.state, data, snapshot, action);
+	if (!change) return false;
+	view.dispatch({ changes: change, userEvent: 'input.type' });
+	view.focus();
+	return true;
 }
 
 /**
@@ -4392,6 +4672,7 @@ export class TableWidget extends WidgetType {
 
 		wrap.appendChild(table);
 		attachTableCellSelection(wrap, table, this.data, view);
+		attachTableStructureControls(wrap, table, this.data, view);
 		if (columnCount > 0) {
 			attachTableResize(wrap, table, getTableLayoutKey(this.data.tableFrom, columnCount), {
 				layout   : readTableLayout(this.data),
@@ -4419,7 +4700,7 @@ export class TableWidget extends WidgetType {
 		const rowCount = this.data.headers.length > 0
 			? 1 + this.data.rows.length
 			: this.data.rows.length;
-		return Math.max(1, rowCount) * 42 + 14;
+		return Math.max(1, rowCount) * 42 + 40;
 	}
 
 	/**

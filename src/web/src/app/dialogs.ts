@@ -31,6 +31,11 @@ export type ContextMenuEntry = {
 	separator?: boolean;
 };
 
+export type InsertTableOptions = {
+	columns: number;
+	dataRows: number;
+};
+
 /**
  * 改行コード混在確認ダイアログを表示する
  * @returns {Promise<EolMixedChoice>} 選択結果
@@ -171,6 +176,60 @@ export function showSaveAsOptionsDialog(options: SaveAsDialogOptions): Promise<S
 
 		backdrop.appendChild(dialog);
 		document.body.appendChild(backdrop);
+	});
+}
+
+/**
+ * 新規表の列数・データ行数を入力する。
+ * @returns {Promise<InsertTableOptions | null>} 作成条件
+ */
+export function showInsertTableDialog(): Promise<InsertTableOptions | null> {
+	return new Promise((resolve) => {
+		const backdrop   = createBackdrop();
+		const dialog     = document.createElement('div');
+		dialog.className = 'tms-mde-dialog';
+		dialog.innerHTML = `
+			<h2 class="tms-mde-dialog-title">表を挿入</h2>
+			<label class="tms-mde-dialog-field">
+				<span>列数</span>
+				<input id="tmsMdeInsertTableColumns" type="number" min="1" max="50" value="3" />
+			</label>
+			<label class="tms-mde-dialog-field">
+				<span>データ行数（見出し行を除く）</span>
+				<input id="tmsMdeInsertTableRows" type="number" min="0" max="100" value="2" />
+			</label>
+			<div class="tms-mde-dialog-actions">
+				<button type="button" id="tmsMdeInsertTableOk">挿入</button>
+				<button type="button" id="tmsMdeInsertTableCancel">キャンセル</button>
+			</div>
+		`;
+		const columns    = dialog.querySelector('#tmsMdeInsertTableColumns') as HTMLInputElement;
+		const rows       = dialog.querySelector('#tmsMdeInsertTableRows') as HTMLInputElement;
+		/**
+		 *
+		 */
+		const close      = (result: InsertTableOptions | null): void => {
+			backdrop.remove();
+			resolve(result);
+		};
+		/**
+		 *
+		 */
+		const submit     = (): void => {
+			const columnCount = clamp(Math.floor(Number(columns.value) || 1), 1, 50);
+			const rowCount    = clamp(Math.floor(Number(rows.value) || 0), 0, 100);
+			close({ columns: columnCount, dataRows: rowCount });
+		};
+		dialog.querySelector('#tmsMdeInsertTableOk')?.addEventListener('click', submit);
+		dialog.querySelector('#tmsMdeInsertTableCancel')?.addEventListener('click', () => close(null));
+		dialog.addEventListener('keydown', (event) => {
+			if (event.key === 'Enter') submit();
+			if (event.key === 'Escape') close(null);
+		});
+		backdrop.appendChild(dialog);
+		document.body.appendChild(backdrop);
+		columns.focus();
+		columns.select();
 	});
 }
 

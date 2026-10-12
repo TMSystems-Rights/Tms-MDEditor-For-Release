@@ -24,6 +24,17 @@ export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'valignTableCellTop',
 	'valignTableCellMiddle',
 	'valignTableCellBottom',
+	'insertTable',
+	'insertTableRowsBefore',
+	'insertTableRowsAfter',
+	'deleteTableRows',
+	'moveTableRowsUp',
+	'moveTableRowsDown',
+	'insertTableColumnsBefore',
+	'insertTableColumnsAfter',
+	'deleteTableColumns',
+	'moveTableColumnsLeft',
+	'moveTableColumnsRight',
 	'openLink',
 	'editorSeparatorView',
 	'toggleViewMode',
@@ -61,6 +72,17 @@ export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 	find                    : '検索',
 	replace                 : '置換',
 	toggleCheckbox          : 'チェックボックス切替',
+	insertTable             : '表を挿入...',
+	insertTableRowsBefore   : '選択数と同じ行を上に追加',
+	insertTableRowsAfter    : '選択数と同じ行を下に追加',
+	deleteTableRows         : '選択した行を削除',
+	moveTableRowsUp         : '選択した行を上へ移動',
+	moveTableRowsDown       : '選択した行を下へ移動',
+	insertTableColumnsBefore: '選択数と同じ列を左に追加',
+	insertTableColumnsAfter : '選択数と同じ列を右に追加',
+	deleteTableColumns      : '選択した列を削除',
+	moveTableColumnsLeft    : '選択した列を左へ移動',
+	moveTableColumnsRight   : '選択した列を右へ移動',
 	mergeTableCells         : 'セルを結合',
 	unmergeTableCells       : '結合を解除',
 	alignTableCellLeft      : '左詰め',
@@ -220,6 +242,28 @@ function insertMissingContextMenuItem(result: string[], itemId: string): void {
 		const pasteIndex = result.indexOf('paste');
 		if (pasteIndex >= 0) {
 			result.splice(pasteIndex + 1, 0, itemId);
+			return;
+		}
+	}
+
+	const tableAfter: Record<string, string> = {
+		insertTable             : 'valignTableCellBottom',
+		insertTableRowsBefore   : 'insertTable',
+		insertTableRowsAfter    : 'insertTableRowsBefore',
+		deleteTableRows         : 'insertTableRowsAfter',
+		moveTableRowsUp         : 'deleteTableRows',
+		moveTableRowsDown       : 'moveTableRowsUp',
+		insertTableColumnsBefore: 'moveTableRowsDown',
+		insertTableColumnsAfter : 'insertTableColumnsBefore',
+		deleteTableColumns      : 'insertTableColumnsAfter',
+		moveTableColumnsLeft    : 'deleteTableColumns',
+		moveTableColumnsRight   : 'moveTableColumnsLeft',
+	};
+	const tableAfterId                       = tableAfter[itemId];
+	if (tableAfterId) {
+		const tableIndex = result.indexOf(tableAfterId);
+		if (tableIndex >= 0) {
+			result.splice(tableIndex + 1, 0, itemId);
 			return;
 		}
 	}
