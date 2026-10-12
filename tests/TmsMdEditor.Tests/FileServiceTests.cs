@@ -144,6 +144,89 @@ public class FileServiceTests : IDisposable
 	}
 
 	[Fact]
+	public void ReadImageAsDataUrl_resolves_vault_root_embed_with_arbitrary_attachment_folder()
+	{
+		Directory.CreateDirectory(Path.Combine(_tempRoot, ".obsidian"));
+		string noteDirectory = Path.Combine(_tempRoot, "notes", "nested");
+		string imageDirectory = Path.Combine(_tempRoot, "custom-attachments", "images");
+		Directory.CreateDirectory(noteDirectory);
+		Directory.CreateDirectory(imageDirectory);
+		string notePath  = Path.Combine(noteDirectory, "note.md");
+		string imagePath = Path.Combine(imageDirectory, "vault-image.png");
+		File.WriteAllText(notePath, "# note");
+		File.WriteAllBytes(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+		ReadImageResult result = _fileService.ReadImageAsDataUrl(
+			path: null,
+			notePath,
+			embed: "custom-attachments/images/vault-image.png|480");
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
+	}
+
+	[Fact]
+	public void ReadImageAsDataUrl_resolves_explicit_document_relative_embed_inside_vault()
+	{
+		Directory.CreateDirectory(Path.Combine(_tempRoot, ".obsidian"));
+		string noteDirectory  = Path.Combine(_tempRoot, "notes");
+		string localDirectory = Path.Combine(noteDirectory, "images");
+		Directory.CreateDirectory(localDirectory);
+		string notePath  = Path.Combine(noteDirectory, "note.md");
+		string imagePath = Path.Combine(localDirectory, "local.png");
+		File.WriteAllText(notePath, "# note");
+		File.WriteAllBytes(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+		ReadImageResult result = _fileService.ReadImageAsDataUrl(
+			path: null,
+			notePath,
+			embed: "./images/local.png");
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
+	}
+
+	[Fact]
+	public void ReadImageAsDataUrl_resolves_unique_bare_embed_from_vault_root()
+	{
+		Directory.CreateDirectory(Path.Combine(_tempRoot, ".obsidian"));
+		string noteDirectory  = Path.Combine(_tempRoot, "notes", "nested");
+		string imageDirectory = Path.Combine(_tempRoot, "another-attachment-location");
+		Directory.CreateDirectory(noteDirectory);
+		Directory.CreateDirectory(imageDirectory);
+		string notePath  = Path.Combine(noteDirectory, "note.md");
+		string imagePath = Path.Combine(imageDirectory, "unique.png");
+		File.WriteAllText(notePath, "# note");
+		File.WriteAllBytes(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+		ReadImageResult result = _fileService.ReadImageAsDataUrl(path: null, notePath, embed: "unique.png");
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
+	}
+
+	[Fact]
+	public void ReadImageAsDataUrl_does_not_choose_ambiguous_bare_embed()
+	{
+		Directory.CreateDirectory(Path.Combine(_tempRoot, ".obsidian"));
+		string noteDirectory = Path.Combine(_tempRoot, "notes");
+		string firstFolder   = Path.Combine(_tempRoot, "attachments-a");
+		string secondFolder  = Path.Combine(_tempRoot, "attachments-b");
+		Directory.CreateDirectory(noteDirectory);
+		Directory.CreateDirectory(firstFolder);
+		Directory.CreateDirectory(secondFolder);
+		string notePath = Path.Combine(noteDirectory, "note.md");
+		File.WriteAllText(notePath, "# note");
+		File.WriteAllBytes(Path.Combine(firstFolder, "duplicate.png"), [0x89, 0x50, 0x4E, 0x47]);
+		File.WriteAllBytes(Path.Combine(secondFolder, "duplicate.png"), [0x89, 0x50, 0x4E, 0x47]);
+
+		ReadImageResult result = _fileService.ReadImageAsDataUrl(path: null, notePath, embed: "duplicate.png");
+
+		Assert.False(result.Ok);
+		Assert.Equal("画像ファイルが見つかりません。", result.Error);
+	}
+
+	[Fact]
 	public void ReadImageAsDataUrl_resolves_absolute_embed_without_document()
 	{
 		string imagePath = Path.Combine(_tempRoot, "absolute.png");

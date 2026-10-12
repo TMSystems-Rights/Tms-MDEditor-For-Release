@@ -336,18 +336,33 @@ internal sealed class FileService
 
 	private static string? FindEmbedImage(string documentDirectory, string embedName)
 	{
-		string fileName = Path.GetFileName(embedName);
+		string normalized = embedName.Trim().Replace('/', Path.DirectorySeparatorChar);
+		string fileName   = Path.GetFileName(normalized);
 		if (string.IsNullOrWhiteSpace(fileName))
 		{
 			return null;
 		}
 
-		// パス区切りを含む場合はドキュメントフォルダ基準の相対パスとして解決
-		if (embedName.Contains('/') || embedName.Contains('\\'))
+		string? vaultRoot = FindObsidianVaultRoot(documentDirectory);
+		if (normalized.Contains(Path.DirectorySeparatorChar))
 		{
-			string relative = embedName.Replace('/', Path.DirectorySeparatorChar);
-			string candidate = Path.GetFullPath(Path.Combine(documentDirectory, relative));
-			return File.Exists(candidate) ? candidate : null;
+			// `./` と `../` は明示的な文書相対パスとして扱う。
+			if (IsExplicitRelativePath(normalized))
+			{
+				return ExistingFullPath(documentDirectory, normalized);
+			}
+
+			// Obsidian のフォルダ付き内部リンクは保管庫ルート基準。添付先名は固定しない。
+			string? vaultCandidate = vaultRoot is null
+				? null
+				: ExistingFullPath(vaultRoot, normalized.TrimStart(Path.DirectorySeparatorChar));
+			if (vaultCandidate is not null)
+			{
+				return vaultCandidate;
+			}
+
+			// Obsidian 保管庫外や文書相対で記録された既存ファイルを後方互換として解決する。
+			return ExistingFullPath(documentDirectory, normalized);
 		}
 
 		string direct = Path.Combine(documentDirectory, fileName);
@@ -369,24 +384,65 @@ internal sealed class FileService
 			}
 		}
 
-		try
+		string searchRoot = vaultRoot ?? documentDirectory;
+		return FindUniqueEmbedImage(searchRoot, fileName);
+	}
+
+	private static string? FindObsidianVaultRoot(string documentDirectory)
+	{
+		var current = new DirectoryInfo(Path.GetFullPath(documentDirectory));
+		while (current is not null)
 		{
-			foreach (string candidate in Directory.EnumerateFiles(documentDirectory, fileName, SearchOption.AllDirectories))
+			if (Directory.Exists(Path.Combine(current.FullName, ".obsidian")))
 			{
-				return candidate;
+				return current.FullName;
 			}
 
-			if (string.IsNullOrEmpty(Path.GetExtension(fileName)))
+			current = current.Parent;
+		}
+
+		return null;
+	}
+
+	private static bool IsExplicitRelativePath(string path)
+	{
+		return path.StartsWith($".{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+			|| path.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+	}
+
+	private static string? ExistingFullPath(string baseDirectory, string relativePath)
+	{
+		try
+		{
+			string candidate = Path.GetFullPath(Path.Combine(baseDirectory, relativePath));
+			return File.Exists(candidate) ? candidate : null;
+		}
+		catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+		{
+			return null;
+		}
+	}
+
+	private static string? FindUniqueEmbedImage(string searchRoot, string fileName)
+	{
+		string? match = null;
+		IEnumerable<string> searchNames = string.IsNullOrEmpty(Path.GetExtension(fileName))
+			? ImageExtensions.Select(extension => fileName + extension)
+			: [fileName];
+
+		try
+		{
+			foreach (string searchName in searchNames)
 			{
-				foreach (string extension in ImageExtensions)
+				foreach (string candidate in Directory.EnumerateFiles(searchRoot, searchName, SearchOption.AllDirectories))
 				{
-					foreach (string candidate in Directory.EnumerateFiles(
-						documentDirectory,
-						fileName + extension,
-						SearchOption.AllDirectories))
+					if (match is not null)
 					{
-						return candidate;
+						// Obsidian の短縮リンクを同名ファイルへ恣意的に結び付けない。
+						return null;
 					}
+
+					match = candidate;
 				}
 			}
 		}
@@ -397,8 +453,11 @@ internal sealed class FileService
 		catch (DirectoryNotFoundException)
 		{
 		}
+		catch (IOException)
+		{
+		}
 
-		return null;
+		return match;
 	}
 
 	private static string GuessMimeType(string extension)
