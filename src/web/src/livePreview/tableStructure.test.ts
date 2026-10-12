@@ -8,6 +8,8 @@ import {
 	buildTableStructureGroups,
 	buildTableInsertionChange,
 	createMarkdownTable,
+	resolveTableStructureContextSelection,
+	shouldHideTableStructureControls,
 } from './tableStructure';
 
 /**
@@ -41,6 +43,23 @@ function applyChange(state: EditorState, change: { from: number; to: number; ins
 }
 
 describe('tableStructure', () => {
+	it('右クリック対象を含む複数選択を維持し、範囲外なら対象へ切り替える', () => {
+		expect(resolveTableStructureContextSelection(
+			{ axis: 'column', start: 1, end: 3 },
+			{ axis: 'column', start: 2, end: 2 },
+		)).toEqual({ axis: 'column', start: 1, end: 3 });
+		expect(resolveTableStructureContextSelection(
+			{ axis: 'column', start: 1, end: 3 },
+			{ axis: 'row', start: 2, end: 2 },
+		)).toEqual({ axis: 'row', start: 2, end: 2 });
+	});
+
+	it('フォーカスが外れても行・列選択中は選択ヘッダーを維持する', () => {
+		expect(shouldHideTableStructureControls(false, true)).toBe(false);
+		expect(shouldHideTableStructureControls(true, false)).toBe(false);
+		expect(shouldHideTableStructureControls(false, false)).toBe(true);
+	});
+
 	it('重なる colspan を推移的に1つの列選択単位へまとめる', () => {
 		const state = createState('| H1 | H2 | H3 | H4 |\n| --- | --- | --- | --- |\n| A{colspan=2} | | C | D |\n| A | B{colspan=2} | | D |');
 		expect(buildTableStructureGroups(tableData(state), 'column')).toEqual([

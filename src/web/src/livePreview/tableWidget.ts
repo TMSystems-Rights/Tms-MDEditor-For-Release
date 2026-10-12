@@ -77,6 +77,8 @@ import {
 	buildTableStructureChange,
 	buildTableStructureGroups,
 	getTableStructureActionState,
+	resolveTableStructureContextSelection,
+	shouldHideTableStructureControls,
 	type TableStructureAction,
 	type TableStructureAxis,
 	type TableStructureRange,
@@ -3413,12 +3415,21 @@ function attachTableStructureControls(
 	};
 
 	controls.addEventListener('mousedown', (event) => {
-		if (event.button !== 0) return;
 		const button = event.target instanceof Element
 			? event.target.closest<HTMLElement>('.cm-md-table-structure-selector')
 			: null;
 		const target = button ? readTableStructureButton(button) : null;
 		if (!target) return;
+		if (event.button === 2) {
+			const selection = resolveTableStructureContextSelection(
+				readTableStructureSelection(wrap),
+				{ axis: target.axis, ...target.range },
+			);
+			anchor          = { axis: selection.axis, group: { start: selection.start, end: selection.end } };
+			writeTableStructureSelection(wrap, table, selection);
+			return;
+		}
+		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
 		dragging = true;
@@ -3439,11 +3450,12 @@ function attachTableStructureControls(
 			: null;
 		const target = button ? readTableStructureButton(button) : null;
 		if (!target) return;
-		const current = readTableStructureSelection(wrap);
-		if (!current || current.axis !== target.axis || target.range.start < current.start || target.range.end > current.end) {
-			anchor = { axis: target.axis, group: target.range };
-			writeTableStructureSelection(wrap, table, { axis: target.axis, ...target.range });
-		}
+		const selection = resolveTableStructureContextSelection(
+			readTableStructureSelection(wrap),
+			{ axis: target.axis, ...target.range },
+		);
+		anchor          = { axis: selection.axis, group: { start: selection.start, end: selection.end } };
+		writeTableStructureSelection(wrap, table, selection);
 	});
 	controls.addEventListener('mouseup', () => {
 		dragging = false;
@@ -3453,7 +3465,10 @@ function attachTableStructureControls(
 	});
 	wrap.addEventListener('focusout', () => {
 		queueMicrotask(() => {
-			controls.hidden = !wrap.contains(wrap.ownerDocument.activeElement);
+			controls.hidden = shouldHideTableStructureControls(
+				wrap.contains(wrap.ownerDocument.activeElement),
+				Boolean(readTableStructureSelection(wrap)),
+			);
 		});
 	});
 

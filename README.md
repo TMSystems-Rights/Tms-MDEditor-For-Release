@@ -4,9 +4,13 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.11.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.11.0)
+最新リリース: [v1.11.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.11.1)
 
 ## 変更内容
+### v1.11.1 の主な変更
+
+- 表の行・列選択ヘッダーを右クリックした際に、選択状態が解除されて表操作メニューが表示されない問題を修正する
+
 ### v1.11.0 の主な変更
 
 - HTML 出力のノート幅とテーブルの表示をアプリに合わせ、ウィンドウ幅に応じた表示と横スクロールに対応する

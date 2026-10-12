@@ -25,6 +25,35 @@ export type TableStructureAction =
 	| 'move-previous'
 	| 'move-next';
 
+/**
+ * 右クリック対象を含む既存選択は維持し、それ以外は対象グループへ選択を切り替える。
+ * contextmenu より先に発生する mousedown で確定し、ヘッダーが focusout で消える競合を防ぐ。
+ * @param {TableStructureSelection | null} current 現在の選択
+ * @param {TableStructureSelection} target 右クリック対象
+ * @returns {TableStructureSelection} コンテキストメニューの操作対象
+ */
+export function resolveTableStructureContextSelection(
+	current: TableStructureSelection | null,
+	target: TableStructureSelection,
+): TableStructureSelection {
+	return current
+		&& current.axis === target.axis
+		&& target.start >= current.start
+		&& target.end <= current.end
+		? current
+		: target;
+}
+
+/**
+ * 表内にフォーカスも行・列選択もない場合だけ選択ヘッダーを隠す。
+ * @param {boolean} hasFocus 表内にフォーカスがあるか
+ * @param {boolean} hasSelection 行・列選択があるか
+ * @returns {boolean} 選択ヘッダーを隠すか
+ */
+export function shouldHideTableStructureControls(hasFocus: boolean, hasSelection: boolean): boolean {
+	return !hasFocus && !hasSelection;
+}
+
 type TableSourceModel = {
 	header: string[];
 	delimiter: string[];
