@@ -285,6 +285,11 @@ internal sealed class OutlineSettings
 	public bool Visible { get; set; } = true;
 
 	public string Side { get; set; } = "right";
+
+	/// <summary>
+	/// アウトラインの幅（px）
+	/// </summary>
+	public int Width { get; set; } = 300;
 }
 
 /// <summary>

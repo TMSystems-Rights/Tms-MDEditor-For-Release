@@ -293,21 +293,35 @@ public class ConfigStoreTests : IDisposable
 
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
-				"""{"outline":{"visible":false,"side":"left"},"export":{"outline":{"enabled":false,"side":"left"}}}"""
+				"""{"outline":{"visible":false,"side":"left","width":1200},"export":{"outline":{"enabled":false,"side":"left"}}}"""
 			).RootElement);
 
 		Assert.True(update.Success, update.Message);
 		Assert.False(update.Config?.Settings.Outline.Visible);
 		Assert.Equal("left", update.Config?.Settings.Outline.Side);
+		Assert.Equal(1200, update.Config?.Settings.Outline.Width);
 		Assert.False(update.Config?.Settings.Export.Outline.Enabled);
 		Assert.Equal("left", update.Config?.Settings.Export.Outline.Side);
 
 		LoadConfigResult reload = _configStore.Load();
 		Assert.False(reload.Config.Settings.Outline.Visible);
 		Assert.Equal("left", reload.Config.Settings.Outline.Side);
+		Assert.Equal(1200, reload.Config.Settings.Outline.Width);
 		Assert.False(reload.Config.Settings.Export.Outline.Enabled);
 		Assert.Equal("left", reload.Config.Settings.Export.Outline.Side);
 		Assert.Equal("live-preview", reload.Config.Settings.Export.Style);
+	}
+
+	[Fact]
+	public void UpdateSettings_restores_default_for_invalid_outline_width()
+	{
+		_configStore.Load();
+
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse("""{"outline":{"width":9999}}""").RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal(300, update.Config?.Settings.Outline.Width);
 	}
 
 	[Fact]

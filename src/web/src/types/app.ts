@@ -39,6 +39,7 @@ export type KeybindingsSettings = {
 export type OutlineSettings = {
 	visible: boolean;
 	side: OutlineSide;
+	width: number;
 };
 
 /**

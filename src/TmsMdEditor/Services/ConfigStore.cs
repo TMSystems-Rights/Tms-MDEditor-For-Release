@@ -43,6 +43,7 @@ internal sealed class ConfigStore
 		"closeAppWhenLastTabClosed",
 		"outline.visible",
 		"outline.side",
+		"outline.width",
 		"export.style",
 		"export.outline.enabled",
 		"export.outline.side",
@@ -861,6 +862,8 @@ internal sealed class ConfigStore
 			{
 				Visible = settings.Outline?.Visible ?? defaults.Outline.Visible,
 				Side    = outlineSide,
+				// ウィンドウ最大幅まで本文の最低幅を残して拡張できるよう、UI側の可動範囲を狭めない。
+				Width   = Clamp(settings.Outline?.Width ?? defaults.Outline.Width, 180, 4096, defaults.Outline.Width),
 			},
 			Export = new ExportSettings
 			{

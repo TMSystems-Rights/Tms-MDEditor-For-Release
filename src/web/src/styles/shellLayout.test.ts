@@ -24,6 +24,12 @@ describe('ペインエディタのスクロールレイアウト', () => {
 		expect(shellCss).toMatch(/\.tms-mde-outline-list\s*\{[^}]*overflow-y:\s*auto;/s);
 	});
 
+	it('アウトライン境界をドラッグできるリサイズハンドルを表示する', () => {
+		expect(shellCss).toMatch(/\.tms-mde-outline-panel\s*\{[^}]*width:\s*var\(--tms-mde-outline-width, 300px\);/s);
+		expect(shellCss).toMatch(/\.tms-mde-outline-resizer\s*\{[^}]*cursor:\s*col-resize;/s);
+		expect(shellCss).toContain('.tms-mde-workspace.is-outline-left .tms-mde-outline-resizer');
+	});
+
 	it('アウトライン階層にインデント用の縦線を表示する', () => {
 		expect(shellCss).toMatch(/\.tms-mde-outline-list\s*\{[^}]*--tms-mde-outline-indent:/s);
 		expect(shellCss).toMatch(/\.tms-mde-outline-row::before\s*\{[^}]*repeating-linear-gradient/s);

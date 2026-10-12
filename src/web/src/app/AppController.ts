@@ -15,7 +15,7 @@ import {
 } from '../livePreview/tableWidget';
 import type { TableAlignPatch } from '../livePreview/tableMerge';
 import { showActionToast, showToast, type ToastHandle } from './toast';
-import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, PasteForEditorResult, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
+import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsResponse, CustomDecorationRule, DataDirInfo, DetachedTabDropPayload, DetachedTabPayload, EncodingKind, EolKind, PasteForEditorResult, SaveConfigResponse, TabModel, TextFileInfo, UpdateCheckResponse, UpdateDownloadProgress, UpdateReleaseInfo, ViewMode } from '../types/app';
 import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
 import { applyCodeFontFamily, DEFAULT_CODE_FONT_FAMILY } from './codeFont';
 import { applyImageBorder, DEFAULT_IMAGE_BORDER } from './imageBorder';
@@ -50,6 +50,7 @@ import {
 	type OutlineItem,
 	type OutlineTreeNode,
 } from '../outline/outline';
+import { calculateOutlineWidth, clampOutlineWidth, DEFAULT_OUTLINE_WIDTH, OUTLINE_KEYBOARD_RESIZE_STEP } from '../outline/outlineResize';
 import { renderExportHtml, type ExportImageRequest, type ExportMermaidResult } from '../export/renderExportHtml';
 import { renderMermaidSource } from '../livePreview/mermaidWidget';
 
@@ -95,7 +96,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 	instanceMode: 'single-instance',
 	outline: {
 		visible: true,
-		side: 'right'
+		side: 'right',
+		width: DEFAULT_OUTLINE_WIDTH
 	},
 	export: {
 		style: 'live-preview',
@@ -223,11 +225,17 @@ export class AppController {
 
 	private readonly outlinePanelElement: HTMLElement;
 
+	private readonly outlineResizerElement: HTMLElement;
+
 	private readonly outlineListElement: HTMLElement;
 
 	private readonly outlineEmptyElement: HTMLElement;
 
 	private outlineVisible = false;
+
+	private outlineResizePointerId: number | null = null;
+
+	private outlineResizeStartWidth = DEFAULT_OUTLINE_WIDTH;
 
 	private outlineItems: OutlineItem[] = [];
 
@@ -248,12 +256,13 @@ export class AppController {
 	 * AppController を初期化する
 	 */
 	public constructor() {
-		this.editorHostElement   = document.getElementById('tmsMdeEditorHost') as HTMLElement;
-		this.workspaceElement    = document.getElementById('tmsMdeWorkspace') as HTMLElement;
-		this.outlinePanelElement = document.getElementById('tmsMdeOutlinePanel') as HTMLElement;
-		this.outlineListElement  = document.getElementById('tmsMdeOutlineList') as HTMLElement;
-		this.outlineEmptyElement = document.getElementById('tmsMdeOutlineEmpty') as HTMLElement;
-		this.statusElements      = {
+		this.editorHostElement     = document.getElementById('tmsMdeEditorHost') as HTMLElement;
+		this.workspaceElement      = document.getElementById('tmsMdeWorkspace') as HTMLElement;
+		this.outlinePanelElement   = document.getElementById('tmsMdeOutlinePanel') as HTMLElement;
+		this.outlineResizerElement = document.getElementById('tmsMdeOutlineResizer') as HTMLElement;
+		this.outlineListElement    = document.getElementById('tmsMdeOutlineList') as HTMLElement;
+		this.outlineEmptyElement   = document.getElementById('tmsMdeOutlineEmpty') as HTMLElement;
+		this.statusElements        = {
 			cursor: document.getElementById('tmsMdeStatusCursor') as HTMLElement,
 			charCount: document.getElementById('tmsMdeStatusCharCount') as HTMLElement,
 			encoding: document.getElementById('tmsMdeStatusEncoding') as HTMLElement,
@@ -280,6 +289,11 @@ export class AppController {
 		document.getElementById('tmsMdeOutlineCollapseAll')?.addEventListener('click', () => {
 			this.collapseAllOutline();
 		});
+		this.outlineResizerElement.addEventListener('pointerdown', (event) => this.startOutlineResize(event));
+		this.outlineResizerElement.addEventListener('pointermove', (event) => this.resizeOutline(event));
+		this.outlineResizerElement.addEventListener('pointerup', (event) => this.finishOutlineResize(event, true));
+		this.outlineResizerElement.addEventListener('pointercancel', (event) => this.finishOutlineResize(event, false));
+		this.outlineResizerElement.addEventListener('keydown', (event) => this.resizeOutlineWithKeyboard(event));
 
 		this.statusElements.encoding.addEventListener('click', () => {
 			this.handleEncodingMenuClick();
@@ -630,7 +644,7 @@ export class AppController {
 		}
 
 		this.setOutlineVisible(this.settings.outline.visible);
-		this.applyOutlineSide();
+		this.applyOutlineLayout();
 
 		this.dataDirInfo = {
 			dataDir: payload.config?.dataDir ?? '',
@@ -791,15 +805,15 @@ export class AppController {
 			this.mountActiveEditor();
 		}
 
-		this.applyOutlineSide();
+		this.applyOutlineLayout();
 		this.refreshStatusBar();
 	}
 
 	/**
-	 * アウトラインパネルの左右配置を設定へ反映する。
+	 * アウトラインパネルの左右配置と幅を設定へ反映する。
 	 * @returns {void}
 	 */
-	private applyOutlineSide(): void {
+	private applyOutlineLayout(): void {
 		if (!this.workspaceElement) {
 			return;
 		}
@@ -808,6 +822,106 @@ export class AppController {
 			'is-outline-left',
 			this.settings.outline?.side === 'left',
 		);
+		this.applyOutlineWidth(this.settings.outline.width);
+	}
+
+	/**
+	 * アウトライン境界のドラッグを開始する。
+	 * @param {PointerEvent} event ポインターイベント
+	 * @returns {void}
+	 */
+	private startOutlineResize(event: PointerEvent): void {
+		if (event.button !== 0 || this.outlineResizePointerId !== null) return;
+
+		event.preventDefault();
+		this.outlineResizePointerId  = event.pointerId;
+		this.outlineResizeStartWidth = this.outlinePanelElement.getBoundingClientRect().width;
+		this.outlineResizerElement.setPointerCapture(event.pointerId);
+		document.body.classList.add('is-outline-resizing');
+	}
+
+	/**
+	 * ドラッグ位置をアウトライン幅へ反映する。
+	 * @param {PointerEvent} event ポインターイベント
+	 * @returns {void}
+	 */
+	private resizeOutline(event: PointerEvent): void {
+		if (event.pointerId !== this.outlineResizePointerId) return;
+
+		const rect  = this.workspaceElement.getBoundingClientRect();
+		const width = calculateOutlineWidth(event.clientX, rect.left, rect.width, this.settings.outline.side);
+		this.applyOutlineWidth(width);
+	}
+
+	/**
+	 * アウトライン境界のドラッグを終了する。
+	 * @param {PointerEvent} event ポインターイベント
+	 * @param {boolean} save 最終幅を保存するか
+	 * @returns {void}
+	 */
+	private finishOutlineResize(event: PointerEvent, save: boolean): void {
+		if (event.pointerId !== this.outlineResizePointerId) return;
+
+		if (this.outlineResizerElement.hasPointerCapture(event.pointerId)) {
+			this.outlineResizerElement.releasePointerCapture(event.pointerId);
+		}
+		this.outlineResizePointerId = null;
+		document.body.classList.remove('is-outline-resizing');
+
+		if (!save) {
+			this.applyOutlineWidth(this.outlineResizeStartWidth);
+			return;
+		}
+
+		void this.persistOutlineWidth(this.outlinePanelElement.getBoundingClientRect().width);
+	}
+
+	/**
+	 * キーボードでアウトライン幅を調整する。
+	 * @param {KeyboardEvent} event キーボードイベント
+	 * @returns {void}
+	 */
+	private resizeOutlineWithKeyboard(event: KeyboardEvent): void {
+		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+		event.preventDefault();
+		const direction  = event.key === 'ArrowRight' ? 1 : -1;
+		const sideFactor = this.settings.outline.side === 'left' ? 1 : -1;
+		const current    = this.outlinePanelElement.getBoundingClientRect().width;
+		const width      = current + direction * sideFactor * OUTLINE_KEYBOARD_RESIZE_STEP;
+		this.applyOutlineWidth(width);
+		void this.persistOutlineWidth(this.outlinePanelElement.getBoundingClientRect().width);
+	}
+
+	/**
+	 * アウトライン幅を画面へ反映する。
+	 * @param {number} width 幅（px）
+	 * @returns {void}
+	 */
+	private applyOutlineWidth(width: number): void {
+		const normalized = clampOutlineWidth(width, this.workspaceElement.getBoundingClientRect().width);
+		this.workspaceElement.style.setProperty('--tms-mde-outline-width', `${normalized}px`);
+		this.outlineResizerElement.setAttribute('aria-valuenow', String(normalized));
+	}
+
+	/**
+	 * 調整後のアウトライン幅を設定へ保存する。
+	 * @param {number} width 幅（px）
+	 * @returns {Promise<void>}
+	 */
+	private async persistOutlineWidth(width: number): Promise<void> {
+		const normalized = clampOutlineWidth(width, this.workspaceElement.getBoundingClientRect().width);
+		try {
+			const result = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configUpdate, {
+				settings: { outline: { width: normalized } },
+			});
+			if (!result.success || !result.config) throw new Error(result.message ?? 'アウトライン幅を保存できませんでした。');
+
+			this.settings = this.mergeSettingsWithDefaults(result.config.settings);
+			this.applyOutlineWidth(this.settings.outline.width);
+		} catch (error) {
+			showToast(this.formatError(error));
+		}
 	}
 
 	/**

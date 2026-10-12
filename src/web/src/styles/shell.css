@@ -20,10 +20,13 @@
 }
 
 .tms-mde-outline-panel {
+	position: relative;
 	display: grid;
 	grid-area: outline;
 	grid-template-rows: auto minmax(0, 1fr);
-	width: clamp(220px, 24vw, 340px);
+	width: var(--tms-mde-outline-width, 300px);
+	min-width: 180px;
+	max-width: calc(100vw - 240px);
 	min-height: 0;
 	border-left: 1px solid var(--tms-mde-color-border);
 	background: var(--tms-mde-color-surface);
@@ -33,6 +36,47 @@
 .tms-mde-workspace.is-outline-left .tms-mde-outline-panel {
 	border-left: none;
 	border-right: 1px solid var(--tms-mde-color-border);
+}
+
+.tms-mde-outline-resizer {
+	position: absolute;
+	z-index: 5;
+	top: 0;
+	bottom: 0;
+	left: -4px;
+	width: 8px;
+	touch-action: none;
+	cursor: col-resize;
+}
+
+.tms-mde-workspace.is-outline-left .tms-mde-outline-resizer {
+	right: -4px;
+	left: auto;
+}
+
+.tms-mde-outline-resizer::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 3px;
+	width: 2px;
+	background: transparent;
+}
+
+.tms-mde-outline-resizer:hover::after,
+.tms-mde-outline-resizer:focus-visible::after,
+.tms-mde-body.is-outline-resizing .tms-mde-outline-resizer::after {
+	background: var(--tms-mde-color-primary);
+}
+
+.tms-mde-outline-resizer:focus-visible {
+	outline: none;
+}
+
+.tms-mde-body.is-outline-resizing {
+	cursor: col-resize;
+	user-select: none;
 }
 
 .tms-mde-outline-panel[hidden] {
@@ -203,13 +247,6 @@
 
 .tms-mde-outline-empty[hidden] {
 	display: none;
-}
-
-@media (width <=720px) {
-
-	.tms-mde-outline-panel {
-		width: min(220px, 45vw);
-	}
 }
 
 /*

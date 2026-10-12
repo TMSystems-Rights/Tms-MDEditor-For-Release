@@ -189,14 +189,15 @@ export const EXPORT_PREVIEW_CSS = `
 
 export const EXPORT_OUTLINE_CSS = `
 .tms-mde-export-shell {
+	--tms-mde-export-outline-width: 300px;
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) clamp(200px, 22vw, 320px);
+	grid-template-columns: minmax(0, 1fr) var(--tms-mde-export-outline-width);
 	grid-template-areas: "article outline";
 	align-items: start;
 	min-height: 100vh;
 }
 .tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked) {
-	grid-template-columns: clamp(200px, 22vw, 320px) minmax(0, 1fr);
+	grid-template-columns: var(--tms-mde-export-outline-width) minmax(0, 1fr);
 	grid-template-areas: "outline article";
 }
 .tms-mde-export-shell > .tms-mde-editor-host {
@@ -224,6 +225,35 @@ export const EXPORT_OUTLINE_CSS = `
 	border-left: none;
 	border-right: 1px solid var(--tms-mde-color-border);
 }
+.tms-mde-export-outline-resizer {
+	position: relative;
+	z-index: 2;
+	flex: 0 0 8px;
+	width: 8px;
+	margin-right: -8px;
+	touch-action: none;
+	cursor: col-resize;
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-side-left:checked) .tms-mde-export-outline-resizer {
+	margin-right: 0;
+	margin-left: -8px;
+}
+.tms-mde-export-outline-resizer::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 3px;
+	width: 2px;
+	background: transparent;
+}
+.tms-mde-export-outline-resizer:hover::after,
+.tms-mde-export-outline-resizer:focus-visible::after,
+.tms-mde-export-root.is-outline-resizing .tms-mde-export-outline-resizer::after {
+	background: var(--tms-mde-color-primary);
+}
+.tms-mde-export-outline-resizer:focus-visible { outline: none; }
+.tms-mde-export-root.is-outline-resizing { cursor: col-resize; user-select: none; }
 .tms-mde-export-outline-dock {
 	position: absolute;
 	width: 1px;
@@ -251,7 +281,7 @@ export const EXPORT_OUTLINE_CSS = `
 	background: color-mix(in srgb, var(--tms-mde-color-primary) 12%, var(--tms-mde-color-bg));
 	color: var(--tms-mde-color-text);
 }
-.tms-mde-export-outline-dock:focus-visible + .tms-mde-export-outline-toggle {
+.tms-mde-export-outline-dock:focus-visible ~ .tms-mde-export-outline-toggle {
 	outline: 2px solid var(--tms-mde-color-primary);
 	outline-offset: -2px;
 }
@@ -279,6 +309,9 @@ export const EXPORT_OUTLINE_CSS = `
 	grid-template-columns: 22px minmax(0, 1fr);
 }
 .tms-mde-export-shell:has(#tms-mde-export-outline-dock:not(:checked)) .tms-mde-export-outline-panel {
+	display: none;
+}
+.tms-mde-export-shell:has(#tms-mde-export-outline-dock:not(:checked)) .tms-mde-export-outline-resizer {
 	display: none;
 }
 .tms-mde-export-shell:has(#tms-mde-export-outline-dock:not(:checked)) .tms-mde-export-outline-toggle::before {

@@ -318,6 +318,9 @@ describe('renderExportHtml', () => {
 		expect(html).toMatch(/id="tms-mde-export-outline-dock"[^>]*checked/);
 		expect(html).toContain('tms-mde-export-outline-toggle');
 		expect(html).toContain('tms-mde-export-outline-panel');
+		expect(html).toContain('tms-mde-export-outline-resizer');
+		expect(html).toContain('var widthKey="tms-mde-export-outline-width"');
+		expect(html).toContain('resizer.addEventListener("pointerdown"');
 		expect(html).toContain('#tms-mde-export-outline-dock:not(:checked)');
 		expect(html).toContain('grid-template-columns: minmax(0, 1fr) 22px');
 		expect(html).toContain('grid-template-columns: 22px minmax(0, 1fr)');
@@ -403,6 +406,8 @@ describe('buildExportCss', () => {
 		expect(css).toContain('#tms-mde-export-outline-dock:not(:checked)');
 		expect(css).toContain('.tms-mde-export-outline-toggle');
 		expect(css).toContain('.tms-mde-export-outline-panel');
+		expect(css).toContain('.tms-mde-export-outline-resizer');
+		expect(css).toContain('--tms-mde-export-outline-width: 300px');
 	});
 
 	it('コードブロックフォントをテーマ変数へ反映し、スニペットより前へ置く', () => {
