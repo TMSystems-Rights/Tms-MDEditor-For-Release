@@ -351,18 +351,27 @@
 /*
  * 最大幅は表示中の編集領域（--tms-mde-table-max-width）。
  * パーセント幅だと親が表の内容幅まで伸び、横スクロールが出ない。
- * overflow-x と overflow-y は両方指定する。片方だけ visible だと auto に引き込まれる。
+ * 縦方向は内容に合わせて伸びるため隠し、僅かな計測誤差から縦横スクロールが連鎖するのを防ぐ。
  * スニペットの overflow より詳細度を上げる。
  */
 .tms-mde-editor-host div.cm-md-table-wrap,
 .tms-mde-editor-host div.cm-md-html-table-wrap {
 	max-width: var(--tms-mde-table-max-width, 100%);
-	overflow-x: auto;
-	overflow-y: auto;
+	overflow-y: hidden;
 }
 
-.tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-has-structure-controls {
-	box-sizing: border-box;
+.tms-mde-editor-host div.cm-md-table-wrap {
+	overflow-x: hidden;
+}
+
+.tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-horizontal-overflow,
+.tms-mde-editor-host div.cm-md-html-table-wrap {
+	overflow-x: auto;
+}
+
+.tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-structure-controls-visible {
+	box-sizing: content-box;
+	max-width: max(0px, calc(var(--tms-mde-table-max-width, 100%) - 26px));
 	padding-top: 26px;
 	padding-left: 26px;
 }

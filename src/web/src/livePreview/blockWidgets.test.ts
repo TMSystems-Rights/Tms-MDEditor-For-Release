@@ -36,6 +36,7 @@ import {
 	getTableCellVerticalNavigation,
 	getTableVerticalExitPosition,
 	getTableVerticalEntryTarget,
+	hasTableSelectionPointerMoved,
 	insertLineBreakAtOffset,
 	isTableCellSoftBreakKey,
 	isTableCellSelectAllKey,
@@ -431,6 +432,14 @@ describe('blockWidgets', () => {
 
 		expect(syncTableCellEditorSelection(view as never, data, { row: 9, column: 9 })).toBe(false);
 		expect(view.state.selection.main.head).toBe(0);
+	});
+
+	it('選択ヘッダー表示による表の再配置だけではセルドラッグ選択を開始しない', () => {
+		const origin = { x: 420, y: 280 };
+		expect(hasTableSelectionPointerMoved(origin, { x: 420, y: 280 })).toBe(false);
+		expect(hasTableSelectionPointerMoved(origin, { x: 423, y: 280 })).toBe(false);
+		expect(hasTableSelectionPointerMoved(origin, { x: 424, y: 280 })).toBe(true);
+		expect(hasTableSelectionPointerMoved(origin, { x: 420, y: 286 })).toBe(true);
 	});
 
 	it('検証表の Windows パスでも覚えた幅で表示し、行へ書いたあと抽出できる', () => {

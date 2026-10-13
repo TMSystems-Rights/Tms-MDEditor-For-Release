@@ -42,11 +42,13 @@ import {
 	replaceImageWidthInCellText,
 } from './imageResize';
 import {
+	attachTableHorizontalOverflow,
 	attachTableResize,
 	collectTableCellBoxes,
 	computeColumnRightEdges,
 	forgetTableLayout,
 	getTableLayoutKey,
+	resolveTableRelativeOffset,
 	type TableLayout,
 	type TableResizeHit,
 } from './tableResize';
@@ -2830,16 +2832,19 @@ function persistAndDeactivateTableCell(
 	cell.dataset.editing = 'false';
 	cell.classList.remove('cm-md-table-cell-editing');
 	if (!Number.isInteger(position.row) || !Number.isInteger(position.column)) {
+		notifyTableGeometryChange(cell);
 		return;
 	}
 
 	const nodes = getCurrentTableCellNodes(view.state, tableFrom, position);
 	if (!nodes) {
+		notifyTableGeometryChange(cell);
 		return;
 	}
 
 	fillTableCellContent(cell, nodes, view);
 	applyRememberedWidthToCell(cell, nodes, position);
+	notifyTableGeometryChange(cell);
 }
 
 /**
@@ -2900,6 +2905,7 @@ function activateTableCell(cell: HTMLElement, view?: EditorView): void {
 		inlineRanges,
 	);
 	updateTableCellInlineMarks(cell);
+	notifyTableGeometryChange(cell);
 }
 
 /**
@@ -3246,8 +3252,9 @@ function attachTableCellSelection(
 	data: TableData,
 	view: EditorView,
 ): void {
-	let anchor: TableCellPosition | null = null;
-	let dragging                         = false;
+	let anchor: TableCellPosition | null              = null;
+	let dragging                                      = false;
+	let dragOrigin: { x: number; y: number } | null   = null;
 
 	/**
 	 * @param {EventTarget | null} target 対象
@@ -3290,13 +3297,20 @@ function attachTableCellSelection(
 			return;
 		}
 
-		anchor   = position;
-		dragging = true;
+		anchor     = position;
+		dragging   = true;
+		dragOrigin = { x: event.clientX, y: event.clientY };
 		clearTableSelectionRect(wrap, table);
 		clearTableStructureSelection(wrap, table);
 	});
 	wrap.addEventListener('mouseover', (event) => {
-		if (!dragging || !anchor || (event.buttons & 1) === 0) {
+		if (
+			!dragging
+			|| !anchor
+			|| !dragOrigin
+			|| (event.buttons & 1) === 0
+			|| !hasTableSelectionPointerMoved(dragOrigin, { x: event.clientX, y: event.clientY })
+		) {
 			return;
 		}
 
@@ -3308,13 +3322,46 @@ function attachTableCellSelection(
 		writeOrClearTableSelection(wrap, table, normalizeTableSelectionRect(anchor, position));
 	});
 	wrap.addEventListener('mouseup', () => {
-		dragging = false;
+		dragging   = false;
+		dragOrigin = null;
 	});
 	void view;
 	void data;
 }
 
-const TABLE_STRUCTURE_SELECTION_CLASS = 'cm-md-table-structure-selected';
+/**
+ * 表の再配置だけで発生する mouseover と、実際のドラッグ操作を区別する。
+ * @param {{ x: number; y: number }} origin mousedown 座標
+ * @param {{ x: number; y: number }} current 現在座標
+ * @param {number} threshold 開始とみなす最小移動量
+ * @returns {boolean} 実ドラッグとして扱うか
+ */
+export function hasTableSelectionPointerMoved(
+	origin: { x: number; y: number },
+	current: { x: number; y: number },
+	threshold = 4,
+): boolean {
+	const deltaX = current.x - origin.x;
+	const deltaY = current.y - origin.y;
+	return deltaX * deltaX + deltaY * deltaY >= threshold * threshold;
+}
+
+const TABLE_STRUCTURE_SELECTION_CLASS        = 'cm-md-table-structure-selected';
+const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS = 'cm-md-table-structure-controls-visible';
+const TABLE_GEOMETRY_CHANGE_EVENT            = 'tms-mde-table-geometry-change';
+
+/**
+ * セルの表示DOMを差し替えたことを、表外周の補助UIへ通知する。
+ * @param {HTMLElement} cell 対象セル
+ */
+function notifyTableGeometryChange(cell: HTMLElement): void {
+	const wrap = cell.closest<HTMLElement>('.cm-md-table-wrap');
+	if (!wrap) {
+		return;
+	}
+
+	wrap.dispatchEvent(new Event(TABLE_GEOMETRY_CHANGE_EVENT));
+}
 
 /** 表構造選択ヘッダーを表の外周へ追加する。 */
 function attachTableStructureControls(
@@ -3322,6 +3369,7 @@ function attachTableStructureControls(
 	table: HTMLTableElement,
 	data: TableData,
 	view: EditorView,
+	onGeometryChange: () => void,
 ): void {
 	const columnGroups = buildTableStructureGroups(data, 'column');
 	const rowGroups    = buildTableStructureGroups(data, 'row');
@@ -3329,7 +3377,6 @@ function attachTableStructureControls(
 		return;
 	}
 
-	wrap.classList.add('cm-md-table-has-structure-controls');
 	const controls     = document.createElement('div');
 	controls.className = 'cm-md-table-structure-controls';
 	controls.setAttribute('contenteditable', 'false');
@@ -3362,13 +3409,17 @@ function attachTableStructureControls(
 
 	/** ボタンを表の実寸へ合わせる。 */
 	const sync = (): void => {
+		const wrapRect   = wrap.getBoundingClientRect();
+		const tableRect  = table.getBoundingClientRect();
+		const tableLeft  = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
+		const tableTop   = resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop);
 		const rightEdges = computeColumnRightEdges(collectTableCellBoxes(table), columnGroups.at(-1)!.end + 1);
 		controls.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector.is-column').forEach((button) => {
 			const range = readTableStructureRange(button);
 			if (!range) return;
 			const left         = range.start === 0 ? 0 : rightEdges[range.start - 1] ?? 0;
 			const right        = rightEdges[range.end] ?? left;
-			button.style.left  = `${table.offsetLeft + left}px`;
+			button.style.left  = `${tableLeft + left}px`;
 			button.style.top   = '0';
 			button.style.width = `${Math.max(0, right - left)}px`;
 		});
@@ -3378,10 +3429,32 @@ function attachTableStructureControls(
 			const first = table.rows[range.start];
 			const last  = table.rows[range.end];
 			if (!first || !last) return;
+			const firstRect = first.getBoundingClientRect();
+			const lastRect  = last.getBoundingClientRect();
+
 			button.style.left   = '0';
-			button.style.top    = `${table.offsetTop + first.offsetTop}px`;
-			button.style.height = `${last.offsetTop + last.offsetHeight - first.offsetTop}px`;
+			button.style.top    = `${tableTop + firstRect.top - tableRect.top}px`;
+			button.style.height = `${lastRect.bottom - firstRect.top}px`;
 		});
+	};
+
+	/** セルDOMの切替直後とレイアウト確定後の両方で、表外周の補助UIを合わせ直す。 */
+	const syncAfterGeometryChange = (): void => {
+		sync();
+		onGeometryChange();
+		requestAnimationFrame(() => {
+			if (!table.isConnected) return;
+			sync();
+			onGeometryChange();
+		});
+	};
+
+	/** ヘッダーと専用余白をまとめて切り替え、表上のリサイズハンドルを追従させる。 */
+	const setVisible = (visible: boolean): void => {
+		if (controls.hidden === !visible) return;
+		controls.hidden = !visible;
+		wrap.classList.toggle(TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS, visible);
+		syncAfterGeometryChange();
 	};
 
 	/** @param {TableStructureAxis} axis 軸 @param {TableStructureRange} group 対象 @param {boolean} extend 拡張 */
@@ -3461,16 +3534,17 @@ function attachTableStructureControls(
 		dragging = false;
 	});
 	wrap.addEventListener('focusin', () => {
-		controls.hidden = false;
+		setVisible(true);
 	});
 	wrap.addEventListener('focusout', () => {
 		queueMicrotask(() => {
-			controls.hidden = shouldHideTableStructureControls(
+			setVisible(!shouldHideTableStructureControls(
 				wrap.contains(wrap.ownerDocument.activeElement),
 				Boolean(readTableStructureSelection(wrap)),
-			);
+			));
 		});
 	});
+	wrap.addEventListener(TABLE_GEOMETRY_CHANGE_EVENT, syncAfterGeometryChange);
 
 	sync();
 	requestAnimationFrame(sync);
@@ -4270,6 +4344,9 @@ export class TableWidget extends WidgetType {
 					return;
 				}
 
+				// CodeMirror のカーソル同期で再描画される前に、直前の表選択表示を確実に消す。
+				clearTableSelectionRect(wrap, table);
+				clearTableStructureSelection(wrap, table);
 				syncTableCellEditorSelection(view, this.data, position);
 			});
 
@@ -4463,6 +4540,7 @@ export class TableWidget extends WidgetType {
 					fillTableCellContent(cell, next, view);
 					applyRememberedWidthToCell(cell, next, position);
 					bindCellImagePersist(next);
+					notifyTableGeometryChange(cell);
 				}
 			});
 			cell.addEventListener('compositionstart', () => {
@@ -4687,9 +4765,10 @@ export class TableWidget extends WidgetType {
 
 		wrap.appendChild(table);
 		attachTableCellSelection(wrap, table, this.data, view);
-		attachTableStructureControls(wrap, table, this.data, view);
+		/** 構造ヘッダーの余白切替後にリサイズハンドルを表へ合わせ直す。 */
+		let syncResizeHandles = (): void => undefined;
 		if (columnCount > 0) {
-			attachTableResize(wrap, table, getTableLayoutKey(this.data.tableFrom, columnCount), {
+			syncResizeHandles = attachTableResize(wrap, table, getTableLayoutKey(this.data.tableFrom, columnCount), {
 				layout   : readTableLayout(this.data),
 				onPersist: view.state.readOnly
 					? undefined
@@ -4703,6 +4782,11 @@ export class TableWidget extends WidgetType {
 					},
 			});
 		}
+		const syncHorizontalOverflow = attachTableHorizontalOverflow(wrap, table);
+		attachTableStructureControls(wrap, table, this.data, view, () => {
+			syncResizeHandles();
+			syncHorizontalOverflow();
+		});
 
 		return wrap;
 	}

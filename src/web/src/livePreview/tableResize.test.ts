@@ -12,9 +12,11 @@ import {
 	computeColumnWidths,
 	forgetTableLayout,
 	getTableLayoutKey,
+	isTableHorizontallyOverflowing,
 	recallTableLayout,
 	rememberTableLayout,
 	resolveTableResizeHit,
+	resolveTableRelativeOffset,
 } from './tableResize';
 
 const livePreviewCss = readFileSync(
@@ -71,6 +73,17 @@ describe('tableResize', () => {
 		expect(clampRowHeight(40.6)).toBe(41);
 	});
 
+	it('親の余白とスクロール量を含む表位置を求める', () => {
+		expect(resolveTableRelativeOffset(64, 103, 0)).toBe(39);
+		expect(resolveTableRelativeOffset(64, 83, 20)).toBe(39);
+	});
+
+	it('表本体が表示幅を超えた場合だけ横スクロールを必要とする', () => {
+		expect(isTableHorizontallyOverflowing(26, 973, 1000)).toBe(false);
+		expect(isTableHorizontallyOverflowing(26, 974.5, 1000)).toBe(false);
+		expect(isTableHorizontallyOverflowing(26, 976, 1000)).toBe(true);
+	});
+
 	it('表に編集領域の 40% 下限を付けない', () => {
 		expect(livePreviewCss).not.toMatch(/\.cm-md-table\s*\{[^}]*min-width:\s*40%/s);
 		expect(EXPORT_PREVIEW_CSS).not.toMatch(/\.cm-md-table\s*\{[^}]*min-width:\s*40%/s);
@@ -85,7 +98,16 @@ describe('tableResize', () => {
 	it('長い表は表示中の編集領域幅で横スクロールする', () => {
 		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap,[\s\S]*?max-width:\s*var\(--tms-mde-table-max-width,\s*100%\);/);
 		expect(livePreviewCss).toMatch(/div\.cm-md-html-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s);
-		expect(livePreviewCss).not.toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
+		expect(livePreviewCss).toMatch(/div\.cm-md-html-table-wrap\s*\{[^}]*overflow-y:\s*hidden;/s);
+		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
+		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\.cm-md-table-horizontal-overflow,[\s\S]*?overflow-x:\s*auto;/s);
+	});
+
+	it('行列選択ヘッダーの余白は表示中だけ確保する', () => {
+		expect(livePreviewCss).toMatch(
+			/div\.cm-md-table-wrap\.cm-md-table-structure-controls-visible\s*\{[^}]*max-width:\s*max\(0px,\s*calc\([^}]*padding-top:\s*26px;[^}]*padding-left:\s*26px;/s,
+		);
+		expect(livePreviewCss).not.toMatch(/\.cm-md-table-has-structure-controls/);
 	});
 
 	it('HTML出力でも表本体を縮めずラッパーで横スクロールする', () => {

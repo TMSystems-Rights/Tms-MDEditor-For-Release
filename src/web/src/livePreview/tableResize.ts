@@ -23,10 +23,83 @@ export type TableResizeOptions = {
 const MIN_COLUMN_WIDTH = 32;
 const MIN_ROW_HEIGHT   = 24;
 
+const TABLE_HORIZONTAL_OVERFLOW_CLASS        = 'cm-md-table-horizontal-overflow';
+const TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX = 1;
+
 /** 列・行ハンドルのヒット幅（px） */
 export const TABLE_RESIZE_HANDLE_PX = 14;
 
 const layouts = new Map<string, TableLayout>();
+
+/**
+ * スクロールコンテナ内での要素位置を返す。
+ * offsetLeft / offsetTop が含めない親 padding と、現在のスクロール量を補正する。
+ * @param {number} containerStart コンテナの画面座標
+ * @param {number} elementStart 要素の画面座標
+ * @param {number} scrollOffset コンテナのスクロール量
+ * @returns {number} スクロール領域内の座標
+ */
+export function resolveTableRelativeOffset(
+	containerStart: number,
+	elementStart: number,
+	scrollOffset: number,
+): number {
+	return elementStart - containerStart + scrollOffset;
+}
+
+/**
+ * 表本体がラッパーの表示幅を実際に超えているかを返す。
+ * @param {number} tableLeft 表左端のスクロール領域内座標
+ * @param {number} tableWidth 表の実幅
+ * @param {number} viewportWidth ラッパーの表示幅
+ * @returns {boolean} 横スクロールが必要か
+ */
+export function isTableHorizontallyOverflowing(
+	tableLeft: number,
+	tableWidth: number,
+	viewportWidth: number,
+): boolean {
+	return tableLeft + tableWidth > viewportWidth + TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX;
+}
+
+/**
+ * 表本体の実幅に応じて横スクロールの有無を切り替える。
+ * 絶対配置のヘッダー・リサイズ要素やサブピクセル丸めは判定対象にしない。
+ * @param {HTMLElement} wrap 表ラッパー
+ * @param {HTMLTableElement} table 表
+ * @returns {() => void} 表位置・幅が変わったときの再同期処理
+ */
+export function attachTableHorizontalOverflow(
+	wrap: HTMLElement,
+	table: HTMLTableElement,
+): () => void {
+	/** 現在の表実幅から横スクロール要否を同期する。 */
+	const sync = (): void => {
+		const wrapRect  = wrap.getBoundingClientRect();
+		const tableRect = table.getBoundingClientRect();
+		const tableLeft = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
+		const overflow  = isTableHorizontallyOverflowing(tableLeft, tableRect.width, wrap.clientWidth);
+
+		wrap.classList.toggle(TABLE_HORIZONTAL_OVERFLOW_CLASS, overflow);
+		if (!overflow && wrap.scrollLeft !== 0) {
+			wrap.scrollLeft = 0;
+		}
+	};
+
+	sync();
+	requestAnimationFrame(sync);
+	const observer = new ResizeObserver(() => {
+		if (!table.isConnected) {
+			observer.disconnect();
+			return;
+		}
+
+		sync();
+	});
+	observer.observe(wrap);
+	observer.observe(table);
+	return sync;
+}
 
 /**
  * 表レイアウトの保存キーを返す。
@@ -181,14 +254,14 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
  * @param {HTMLTableElement} table 表
  * @param {string} key 保存キー
  * @param {TableResizeOptions} [options] ソースのレイアウトと確定時の書き戻し
- * @returns {void}
+ * @returns {() => void} 表位置が変わったときの再同期処理
  */
 export function attachTableResize(
 	wrap: HTMLElement,
 	table: HTMLTableElement,
 	key: string,
 	options: TableResizeOptions = {},
-): void {
+): () => void {
 	applyTableLayout(table, options.layout);
 
 	const overlay     = document.createElement('div');
@@ -225,6 +298,8 @@ export function attachTableResize(
 			image.addEventListener('load', sync, { once: true });
 		}
 	});
+
+	return sync;
 }
 
 /**
@@ -242,17 +317,26 @@ export function syncTableResizeHandles(
 	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void,
 ): void {
 	overlay.replaceChildren();
-	overlay.style.left   = `${table.offsetLeft}px`;
-	overlay.style.top    = `${table.offsetTop}px`;
-	overlay.style.width  = `${table.offsetWidth}px`;
-	overlay.style.height = `${table.offsetHeight}px`;
+	const tableRect = table.getBoundingClientRect();
+	const wrap      = overlay.parentElement;
+	const wrapRect  = wrap?.getBoundingClientRect();
+	const tableLeft = wrap && wrapRect
+		? resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft)
+		: table.offsetLeft;
+	const tableTop  = wrap && wrapRect
+		? resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop)
+		: table.offsetTop;
+
+	overlay.style.left   = `${tableLeft}px`;
+	overlay.style.top    = `${tableTop}px`;
+	overlay.style.width  = `${tableRect.width}px`;
+	overlay.style.height = `${tableRect.height}px`;
 
 	const rows = [...table.rows];
 	if (rows.length === 0) {
 		return;
 	}
 
-	const tableRect   = table.getBoundingClientRect();
 	const columnCount = getRenderedColumnCount(table);
 	const boxes       = collectTableCellBoxes(table);
 	computeColumnRightEdges(boxes, columnCount).forEach((right, index) => {
