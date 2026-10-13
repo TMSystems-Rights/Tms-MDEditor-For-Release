@@ -64,6 +64,9 @@ describe('renderExportHtml', () => {
 		const html = await render('# 見出し1\n\nこれは **太字** と *斜体* です。\n\n- 一つ\n- 二つ\n');
 		expect(html).toContain('<h1 class="cm-line cm-md-h1" id="tms-mde-h-0">見出し1</h1>');
 		expect(html).toContain('tms-mde-export-outline');
+		expect(html).toContain('tms-mde-export-heading-fold');
+		expect(html).toContain('function revealEntry(entry){entry.collapsed=false;entry.parents.forEach');
+		expect(html).toContain('source.closest("a.tms-mde-export-outline-item")');
 		expect(html).toContain('href="#tms-mde-h-0"');
 		expect(html).toContain('class="tms-mde-export-shell"');
 		expect(html).toContain('id="tms-mde-export-outline-side-left"');
@@ -243,6 +246,8 @@ describe('renderExportHtml', () => {
 		expect(heads.match(/class="cm-line cm-md-blank"/g)).toHaveLength(1);
 		expect(heads).toContain('<h1 class="cm-line cm-md-h1">見出しA</h1>');
 		expect(heads).toContain('<h1 class="cm-line cm-md-h1">見出しB</h1>');
+		expect(heads).toContain('aria-expanded","true"');
+		expect(heads).not.toContain('localStorage.setItem("tms-mde-export-heading');
 	});
 
 	it('長い文書の末尾まで出力する', async () => {
@@ -344,7 +349,8 @@ describe('renderExportHtml', () => {
 		expect(html).not.toContain('id="tms-mde-h-0"');
 		expect(html).not.toContain('data-outline-expand');
 		expect(html).not.toContain('id="tms-mde-export-outline-dock"');
-		expect(html).not.toContain('<script>');
+		expect(html).toContain('tms-mde-export-heading-fold');
+		expect(html).not.toContain('data-outline-expand');
 	});
 
 	it('ユーザ定義の下線・波下線ルールをクラス付きで出す', async () => {
@@ -393,6 +399,8 @@ describe('buildExportCss', () => {
 		expect(css).toContain('overflow: visible !important');
 		expect(css).not.toContain('background: #ffffff !important');
 		expect(css).toContain('.tms-mde-export-outline');
+		expect(css).toContain('.tms-mde-export-heading-fold-hidden');
+		expect(css).toContain('.tms-mde-export-heading-fold { display: none !important; }');
 		expect(css).toContain(':has(#tms-mde-export-outline-side-left:checked)');
 		expect(css).toContain('.tms-mde-export-outline { display: none !important; }');
 		expect(css).toContain('.tms-mde-export-outline-fold');

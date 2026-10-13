@@ -155,6 +155,8 @@ internal sealed class ContextMenuSettings
 		"unmergeTableCells",
 		"openLink",
 		"editorSeparatorView",
+		"collapseAllHeadings",
+		"expandAllHeadings",
 		"toggleViewMode",
 		"toggleOutline",
 		"editorSeparatorSplit",

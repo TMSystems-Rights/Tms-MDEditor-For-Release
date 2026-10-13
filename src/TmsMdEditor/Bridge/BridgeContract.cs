@@ -138,6 +138,10 @@ internal static class BridgeEventName
 	public const string MenuToggleViewMode    = "menu:toggleViewMode";
 	/// <summary>アウトラインの表示と非表示を切り替えるよう通知する。</summary>
 	public const string MenuToggleOutline     = "menu:toggleOutline";
+	/// <summary>現在の文書にある見出しをすべて折りたたむよう通知する。</summary>
+	public const string MenuCollapseAllHeadings = "menu:collapseAllHeadings";
+	/// <summary>現在の文書にある見出しをすべて展開するよう通知する。</summary>
+	public const string MenuExpandAllHeadings = "menu:expandAllHeadings";
 	/// <summary>現在のペインを上下に分割するよう通知する。</summary>
 	public const string MenuSplitHorizontal   = "menu:splitHorizontal";
 	/// <summary>現在のペインを左右に分割するよう通知する。</summary>

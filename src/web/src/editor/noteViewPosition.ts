@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view';
+import { getCollapsedHeadingFroms } from './headingFold';
 
-export const NOTE_VIEW_POSITION_SCHEMA_VERSION = 1;
+export const NOTE_VIEW_POSITION_SCHEMA_VERSION = 2;
 
 /** 保存するノート数の上限。古い記録から捨てる。 */
 export const NOTE_VIEW_POSITION_LIMIT = 200;
@@ -22,6 +23,7 @@ export type NoteViewPosition = {
 	scrollLeft: number;
 	selectionAnchor: number;
 	selectionHead: number;
+	collapsedHeadingFroms: number[];
 };
 
 export type NoteViewPositionRecord = NoteViewPosition & {
@@ -87,6 +89,7 @@ export function captureNoteViewPositionFromMetrics(input: {
 	selectionAnchor: number;
 	selectionHead: number;
 	docLength: number;
+	collapsedHeadingFroms?: readonly number[];
 }): NoteViewPosition {
 	const scrollTop = Number.isFinite(input.scrollTop) ? input.scrollTop : 0;
 	const blockTop  = Number.isFinite(input.blockTop) ? input.blockTop : 0;
@@ -96,6 +99,7 @@ export function captureNoteViewPositionFromMetrics(input: {
 		scrollLeft     : Number.isFinite(input.scrollLeft) ? Math.max(0, input.scrollLeft) : 0,
 		selectionAnchor: clampNoteViewOffset(input.selectionAnchor, input.docLength),
 		selectionHead  : clampNoteViewOffset(input.selectionHead, input.docLength),
+		collapsedHeadingFroms: normalizeHeadingFroms(input.collapsedHeadingFroms, input.docLength),
 	};
 }
 
@@ -157,6 +161,7 @@ export function captureNoteViewPosition(view: EditorView): NoteViewPosition | nu
 		selectionAnchor: selection.anchor,
 		selectionHead  : selection.head,
 		docLength      : view.state.doc.length,
+		collapsedHeadingFroms: readCollapsedHeadingFroms(view),
 	});
 }
 
@@ -171,6 +176,15 @@ export function computeRestoredScrollTop(blockTop: number, yMargin: number, maxS
 	const target = restoredScrollRawTarget(blockTop, yMargin);
 	const max    = Number.isFinite(maxScrollTop) ? Math.max(0, maxScrollTop) : 0;
 	return Math.min(max, Math.max(0, target));
+}
+
+/** 実EditorStateから折りたたみ状態を読み、簡易テストビューなど未構成状態では空として扱う。 */
+function readCollapsedHeadingFroms(view: EditorView): number[] {
+	try {
+		return getCollapsedHeadingFroms(view.state);
+	} catch {
+		return [];
+	}
 }
 
 /**
@@ -215,9 +229,12 @@ export function selectionFromNoteViewPosition(position: NoteViewPosition, docLen
  * @returns {NoteViewPositionRecord[]} 記録
  */
 export function normalizeNoteViewPositionDocument(value: unknown): NoteViewPositionRecord[] {
-	if (!isRecord(value) || value.schemaVersion !== NOTE_VIEW_POSITION_SCHEMA_VERSION || !Array.isArray(value.entries)) return [];
+	if (!isRecord(value)
+		|| (value.schemaVersion !== 1 && value.schemaVersion !== NOTE_VIEW_POSITION_SCHEMA_VERSION)
+		|| !Array.isArray(value.entries)) return [];
+	const includeCollapsedHeadings = value.schemaVersion >= NOTE_VIEW_POSITION_SCHEMA_VERSION;
 	return mergeNoteViewPositionRecords([], value.entries.flatMap((entry) => {
-		const record = normalizeNoteViewPositionRecord(entry);
+		const record = normalizeNoteViewPositionRecord(entry, includeCollapsedHeadings);
 		return record ? [record] : [];
 	}));
 }
@@ -289,6 +306,7 @@ export class NoteViewPositionMemory {
 			scrollLeft     : record.scrollLeft,
 			selectionAnchor: record.selectionAnchor,
 			selectionHead  : record.selectionHead,
+			collapsedHeadingFroms: [...record.collapsedHeadingFroms],
 		};
 	}
 
@@ -310,6 +328,7 @@ export class NoteViewPositionMemory {
 			scrollLeft     : position.scrollLeft,
 			selectionAnchor: position.selectionAnchor,
 			selectionHead  : position.selectionHead,
+			collapsedHeadingFroms: [...position.collapsedHeadingFroms],
 		});
 		const kept = trimNoteViewPositionRecords([...this.entries.values()]);
 		this.entries.clear();
@@ -498,7 +517,7 @@ export function restoreNoteViewScroll(
  * @param {unknown} value 候補
  * @returns {NoteViewPositionRecord | null} 記録
  */
-function normalizeNoteViewPositionRecord(value: unknown): NoteViewPositionRecord | null {
+function normalizeNoteViewPositionRecord(value: unknown, includeCollapsedHeadings: boolean): NoteViewPositionRecord | null {
 	if (!isRecord(value) || !isNonEmptyString(value.filePath) || !isNonEmptyString(value.updatedAt)) return null;
 	if (!isFiniteNumber(value.anchor) || value.anchor < 0) return null;
 	if (!isFiniteNumber(value.yMargin)) return null;
@@ -513,7 +532,20 @@ function normalizeNoteViewPositionRecord(value: unknown): NoteViewPositionRecord
 		scrollLeft     : value.scrollLeft,
 		selectionAnchor: Math.trunc(value.selectionAnchor),
 		selectionHead  : Math.trunc(value.selectionHead),
+		collapsedHeadingFroms: includeCollapsedHeadings
+			? normalizeHeadingFroms(value.collapsedHeadingFroms, Number.MAX_SAFE_INTEGER)
+			: [],
 	};
+}
+
+/** 外部入力の見出し位置を、重複のない非負整数へ正規化する。 */
+function normalizeHeadingFroms(value: unknown, docLength: number): number[] {
+	if (!Array.isArray(value)) return [];
+	const max = Number.isFinite(docLength) ? Math.max(0, Math.trunc(docLength)) : Number.MAX_SAFE_INTEGER;
+	return [...new Set(value
+		.filter((entry): entry is number => Number.isInteger(entry) && entry >= 0 && entry <= max)
+		.map((entry) => Math.trunc(entry)))]
+		.sort((left, right) => left - right);
 }
 
 /**

@@ -37,6 +37,7 @@ import { createTableMaxWidthExtension } from './tableMaxWidth';
 import { createTableHeaderPinExtension } from '../livePreview/tableHeaderPin';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
+import { createHeadingFoldExtensions, restoreCollapsedHeadings } from './headingFold';
 
 type CreateEditorOptions = {
 	text: string;
@@ -47,8 +48,10 @@ type CreateEditorOptions = {
 	customDecorations?: CompiledCustomDecorationRule[];
 	readOnly?: boolean;
 	selection?: { anchor: number; head: number };
+	collapsedHeadingFroms?: readonly number[];
 	onDocChange: (view: EditorView) => void;
 	onSelectionChange: (view: EditorView) => void;
+	onFoldChange?: (view: EditorView) => void;
 	onPaste?: (event: ClipboardEvent, view: EditorView) => boolean;
 };
 
@@ -59,7 +62,7 @@ type CreateEditorOptions = {
  */
 export function createEditorState(options: CreateEditorOptions): EditorState {
 	const docLength = options.text.length;
-	return EditorState.create({
+	const state     = EditorState.create({
 		doc       : options.text,
 		selection : options.selection
 			? {
@@ -69,6 +72,7 @@ export function createEditorState(options: CreateEditorOptions): EditorState {
 			: undefined,
 		extensions: createEditorExtensions(options),
 	});
+	return restoreCollapsedHeadings(state, options.collapsedHeadingFroms ?? []);
 }
 
 /**
@@ -143,6 +147,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		indentOnInput(),
 		...createMarkdownSyntaxHighlighting(),
 		createTmsMarkdownSupport({ addKeymap: false }),
+		...createHeadingFoldExtensions({ onFoldChange: options.onFoldChange }),
 		...createInlineCodeHighlightExtensions(),
 		EditorState.tabSize.of(options.settings.tabSize),
 		...createLineWrapperExtensions(),

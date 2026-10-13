@@ -8,7 +8,8 @@ namespace TmsMdEditor.Services;
 /// </summary>
 internal sealed class NoteViewPositionStore
 {
-	public const int CurrentSchemaVersion = 1;
+	public const int CurrentSchemaVersion = 2;
+	private const int LegacySchemaVersion = 1;
 	public const int MaxEntries = 200;
 
 	private readonly Logger _logger;
@@ -29,12 +30,12 @@ internal sealed class NoteViewPositionStore
 		try
 		{
 			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
-			if (!HasCurrentSchema(document.RootElement))
+			if (!TryReadSchemaVersion(document.RootElement, out int schemaVersion) || !IsSupportedSchema(schemaVersion))
 			{
 				throw new InvalidDataException("未対応または不正な表示位置形式です。");
 			}
 
-			return new NoteViewPositionLoadResult { Success = true, Document = document.RootElement.Clone() };
+			return new NoteViewPositionLoadResult { Success = true, Document = SerializeDocument(ReadEntries(document.RootElement, schemaVersion)) };
 		}
 		catch (Exception ex)
 		{
@@ -48,13 +49,13 @@ internal sealed class NoteViewPositionStore
 		try
 		{
 			// 壊れたクライアント入力を既存ファイルへ混ぜる前に、文書単位で形式を拒否する。
-			if (!HasCurrentSchema(incoming))
+			if (!TryReadSchemaVersion(incoming, out int incomingSchemaVersion) || !IsSupportedSchema(incomingSchemaVersion))
 			{
 				throw new InvalidDataException("未対応または不正な表示位置形式です。");
 			}
 
 			// 複数ウィンドウが別々のノート位置を送るため、上書きではなく既存内容へマージする。
-			List<NoteViewPositionEntry> merged = Merge(ReadStoredEntries(), ReadEntries(incoming));
+			List<NoteViewPositionEntry> merged = Merge(ReadStoredEntries(), ReadEntries(incoming, incomingSchemaVersion));
 			JsonFileHelper.WriteAtomic(GetPath(), new NoteViewPositionDocument
 			{
 				SchemaVersion = CurrentSchemaVersion,
@@ -77,8 +78,8 @@ internal sealed class NoteViewPositionStore
 		try
 		{
 			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
-			if (!HasCurrentSchema(document.RootElement)) return [];
-			return ReadEntries(document.RootElement);
+			if (!TryReadSchemaVersion(document.RootElement, out int schemaVersion) || !IsSupportedSchema(schemaVersion)) return [];
+			return ReadEntries(document.RootElement, schemaVersion);
 		}
 		catch (Exception ex)
 		{
@@ -120,7 +121,7 @@ internal sealed class NoteViewPositionStore
 			.ToList();
 	}
 
-	private static List<NoteViewPositionEntry> ReadEntries(JsonElement document)
+	private static List<NoteViewPositionEntry> ReadEntries(JsonElement document, int schemaVersion)
 	{
 		if (!document.TryGetProperty(StoredJsonProperty.Entries, out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
 		{
@@ -131,13 +132,13 @@ internal sealed class NoteViewPositionStore
 		foreach (JsonElement candidate in entries.EnumerateArray())
 		{
 			// 1件の破損で全履歴を失わないよう、有効なエントリだけを回収する。
-			if (TryReadEntry(candidate, out NoteViewPositionEntry entry)) result.Add(entry);
+			if (TryReadEntry(candidate, schemaVersion, out NoteViewPositionEntry entry)) result.Add(entry);
 		}
 
 		return result;
 	}
 
-	private static bool TryReadEntry(JsonElement element, out NoteViewPositionEntry entry)
+	private static bool TryReadEntry(JsonElement element, int schemaVersion, out NoteViewPositionEntry entry)
 	{
 		entry = new NoteViewPositionEntry();
 		if (element.ValueKind != JsonValueKind.Object
@@ -153,6 +154,10 @@ internal sealed class NoteViewPositionStore
 			return false;
 		}
 
+		List<int> collapsedHeadingFroms = schemaVersion >= CurrentSchemaVersion
+			? ReadCollapsedHeadingFroms(element)
+			: [];
+
 		entry = new NoteViewPositionEntry
 		{
 			FilePath        = filePath,
@@ -162,17 +167,35 @@ internal sealed class NoteViewPositionStore
 			ScrollLeft      = scrollLeft,
 			SelectionAnchor = selectionAnchor,
 			SelectionHead   = selectionHead,
+			CollapsedHeadingFroms = collapsedHeadingFroms,
 		};
 		return true;
 	}
 
-	private static bool HasCurrentSchema(JsonElement document)
+	private static bool TryReadSchemaVersion(JsonElement document, out int version)
 	{
+		version = 0;
 		return document.ValueKind == JsonValueKind.Object
 			&& document.TryGetProperty(StoredJsonProperty.SchemaVersion, out JsonElement schemaVersion)
 			&& schemaVersion.ValueKind == JsonValueKind.Number
-			&& schemaVersion.TryGetInt32(out int version)
-			&& version == CurrentSchemaVersion;
+			&& schemaVersion.TryGetInt32(out version);
+	}
+
+	private static bool IsSupportedSchema(int version) => version == LegacySchemaVersion || version == CurrentSchemaVersion;
+
+	private static List<int> ReadCollapsedHeadingFroms(JsonElement element)
+	{
+		if (!element.TryGetProperty("collapsedHeadingFroms", out JsonElement property) || property.ValueKind != JsonValueKind.Array)
+		{
+			return [];
+		}
+
+		return property.EnumerateArray()
+			.Where(item => item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out int value) && value >= 0)
+			.Select(item => item.GetInt32())
+			.Distinct()
+			.Order()
+			.ToList();
 	}
 
 	private static bool TryReadString(JsonElement element, string name, out string value)
@@ -243,10 +266,15 @@ internal sealed class NoteViewPositionStore
 
 	private static JsonElement EmptyDocument()
 	{
+		return SerializeDocument([]);
+	}
+
+	private static JsonElement SerializeDocument(List<NoteViewPositionEntry> entries)
+	{
 		return JsonSerializer.SerializeToElement(new NoteViewPositionDocument
 		{
 			SchemaVersion = CurrentSchemaVersion,
-			Entries       = [],
+			Entries       = entries,
 		}, BridgeJsonOptions());
 	}
 
@@ -279,6 +307,8 @@ internal sealed class NoteViewPositionEntry
 	public int SelectionAnchor { get; set; }
 
 	public int SelectionHead { get; set; }
+
+	public List<int> CollapsedHeadingFroms { get; set; } = [];
 
 	public string UpdatedAt { get; set; } = string.Empty;
 }

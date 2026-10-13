@@ -180,21 +180,22 @@ export async function renderExportHtml(options: RenderExportHtmlOptions): Promis
 		renderMermaid   : options.renderMermaid ?? defaultRenderMermaid,
 	};
 
-	const body        = await renderBlocks(context, tree.topNode);
-	const title       = escapeHtml(options.title?.trim() || '無題');
-	const css         = buildExportCss(options);
-	const isDark      = context.theme === 'dark';
-	const htmlClass   = isDark ? 'tms-mde-export-root tms-mde-theme-dark' : 'tms-mde-export-root';
-	const osThemeAttr = isDark ? ' data-os-theme="dark"' : '';
-	const bodyClass   = isDark ? 'tms-mde-body tms-mde-theme-dark' : 'tms-mde-body tms-mde-theme-light';
-	const article     = `<article class="tms-mde-editor-host tms-mde-export">
+	const body              = await renderBlocks(context, tree.topNode);
+	const title             = escapeHtml(options.title?.trim() || '無題');
+	const css               = buildExportCss(options);
+	const isDark            = context.theme === 'dark';
+	const htmlClass         = isDark ? 'tms-mde-export-root tms-mde-theme-dark' : 'tms-mde-export-root';
+	const osThemeAttr       = isDark ? ' data-os-theme="dark"' : '';
+	const bodyClass         = isDark ? 'tms-mde-body tms-mde-theme-dark' : 'tms-mde-body tms-mde-theme-light';
+	const article           = `<article class="tms-mde-editor-host tms-mde-export">
 <div class="cm-editor tms-mde-cm-live-preview">
 ${body}
 </div>
 </article>`;
-	const main        = outline.enabled
+	const main              = outline.enabled
 		? wrapExportWithOutline(article, outlineItems)
 		: article;
+	const headingFoldScript = `<script>${EXPORT_HEADING_FOLD_SCRIPT}</script>`;
 
 	return `<!DOCTYPE html>
 <html lang="ja" class="${htmlClass}"${osThemeAttr}>
@@ -208,6 +209,7 @@ ${css}
 </head>
 <body class="${bodyClass}">
 ${main}
+${headingFoldScript}
 </body>
 </html>
 `;
@@ -278,6 +280,67 @@ function resolveExportOutline(
 function createExportHeadingId(index: number): string {
 	return `tms-mde-h-${index}`;
 }
+
+/**
+ * エクスポート本文の見出し開閉を行う固定スクリプト。
+ * 状態は保存せず、ページ読込時は常に全展開から開始する。
+ */
+const EXPORT_HEADING_FOLD_SCRIPT = [
+	'(function(){',
+	'var editor=document.querySelector(".tms-mde-export > .cm-editor");',
+	'if(!editor)return;',
+	'var nodes=Array.prototype.slice.call(editor.children);',
+	'var headings=[];',
+	'var stack=[];',
+	'nodes.forEach(function(node){',
+	'if(!/^H[1-6]$/.test(node.tagName))return;',
+	'var level=Number(node.tagName.slice(1));',
+	'while(stack.length&&stack[stack.length-1].level>=level)stack.pop();',
+	'var button=document.createElement("button");',
+	'button.type="button";',
+	'button.className="tms-mde-export-heading-fold";',
+	'button.setAttribute("aria-expanded","true");',
+	'button.setAttribute("aria-label","見出しを折りたたむ");',
+	'button.textContent="▼";',
+	'node.insertBefore(button,node.firstChild);',
+	'var entry={heading:node,button:button,level:level,collapsed:false,parents:stack.slice()};',
+	'headings.push(entry);stack.push(entry);',
+	'});',
+	'if(headings.length===0)return;',
+	'function entryFor(node){for(var i=0;i<headings.length;i+=1)if(headings[i].heading===node)return headings[i];return null;}',
+	'function setHidden(node,hidden){',
+	'node.classList.toggle("tms-mde-export-heading-fold-hidden",hidden);',
+	'if(hidden)node.setAttribute("aria-hidden","true");else node.removeAttribute("aria-hidden");',
+	'}',
+	'function render(){',
+	'var active=[];',
+	'nodes.forEach(function(node){',
+	'var entry=entryFor(node);',
+	'if(entry){while(active.length&&active[active.length-1].level>=entry.level)active.pop();setHidden(node,active.some(function(parent){return parent.collapsed;}));active.push(entry);}',
+	'else setHidden(node,active.some(function(parent){return parent.collapsed;}));',
+	'});',
+	'headings.forEach(function(entry){entry.button.textContent=entry.collapsed?"▶":"▼";entry.button.setAttribute("aria-expanded",entry.collapsed?"false":"true");entry.button.setAttribute("aria-label",entry.collapsed?"見出しを展開":"見出しを折りたたむ");});',
+	'}',
+	'headings.forEach(function(entry){entry.button.addEventListener("click",function(ev){ev.preventDefault();entry.collapsed=!entry.collapsed;render();});});',
+	'function revealEntry(entry){entry.collapsed=false;entry.parents.forEach(function(parent){parent.collapsed=false;});render();}',
+	'var outline=document.getElementById("tms-mde-export-outline");',
+	'if(outline)outline.addEventListener("click",function(ev){',
+	'var source=ev.target;var link=source&&source.closest?source.closest("a.tms-mde-export-outline-item"):null;',
+	'if(!link)return;',
+	'var href=link.getAttribute("href")||"";var target=href.charAt(0)==="#"?document.getElementById(href.slice(1)):null;',
+	'var entry=target?entryFor(target):null;if(entry)revealEntry(entry);',
+	'});',
+	'function revealHash(){',
+	'if(!location.hash)return;',
+	'var target=document.getElementById(decodeURIComponent(location.hash.slice(1)));',
+	'var entry=target?entryFor(target):null;',
+	'if(!entry)return;',
+	'revealEntry(entry);',
+	'}',
+	'window.addEventListener("hashchange",revealHash);',
+	'render();revealHash();',
+	'})();',
+].join('');
 
 /**
  * 見出し位置と id の対応を作る

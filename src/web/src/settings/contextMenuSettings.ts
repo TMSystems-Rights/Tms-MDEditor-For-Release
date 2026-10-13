@@ -37,6 +37,8 @@ export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'moveTableColumnsRight',
 	'openLink',
 	'editorSeparatorView',
+	'collapseAllHeadings',
+	'expandAllHeadings',
 	'toggleViewMode',
 	'toggleOutline',
 	'editorSeparatorSplit',
@@ -92,6 +94,8 @@ export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 	valignTableCellMiddle   : '上下中央',
 	valignTableCellBottom   : '下詰め',
 	openLink                : 'リンクを開く',
+	collapseAllHeadings     : '見出しをすべて折りたたむ',
+	expandAllHeadings       : '見出しをすべて展開',
 	toggleViewMode          : 'ソース / ライブプレビュー切替',
 	toggleOutline           : 'アウトラインを表示 / 非表示',
 	splitHorizontal         : '上下に分割',
@@ -280,6 +284,19 @@ function insertMissingContextMenuItem(result: string[], itemId: string): void {
 		const mergeIndex = result.indexOf('mergeTableCells');
 		if (mergeIndex >= 0) {
 			result.splice(mergeIndex + 1, 0, itemId);
+			return;
+		}
+	}
+
+	const headingAfter: Record<string, string> = {
+		collapseAllHeadings: 'editorSeparatorView',
+		expandAllHeadings  : 'collapseAllHeadings',
+	};
+	const headingAfterId                       = headingAfter[itemId];
+	if (headingAfterId) {
+		const headingIndex = result.indexOf(headingAfterId);
+		if (headingIndex >= 0) {
+			result.splice(headingIndex + 1, 0, itemId);
 			return;
 		}
 	}

@@ -44,6 +44,7 @@ import { CONTEXT_MENU_ITEM_LABELS, createDefaultContextMenuSettings, isContextMe
 import { createSessionSnapshot, isEmptySessionSnapshot, normalizeSessionSnapshot, prunePaneLayout, SESSION_SCHEMA_VERSION, type SessionSnapshot } from '../session/sessionState';
 import { createCaretRedrawSpec } from '../editor/caretRedraw';
 import { captureNoteViewPosition, normalizeNoteViewPositionDocument, NoteViewPositionMemory, restoreNoteViewScroll, selectionFromNoteViewPosition, type NoteViewPosition } from '../editor/noteViewPosition';
+import { collapseAllHeadings, expandAllHeadings, expandHeadingAt, getCollapsedHeadingFroms, hasCollapsedHeadings, hasFoldableHeadings } from '../editor/headingFold';
 import {
 	buildOutlineTree,
 	collectOutlineAncestorFroms,
@@ -459,6 +460,14 @@ export class AppController {
 
 		onBridgeEvent(BRIDGE_EVENT.menuToggleOutline, () => {
 			this.toggleOutline();
+		});
+
+		onBridgeEvent(BRIDGE_EVENT.menuCollapseAllHeadings, () => {
+			if (this.editorView) collapseAllHeadings(this.editorView);
+		});
+
+		onBridgeEvent(BRIDGE_EVENT.menuExpandAllHeadings, () => {
+			if (this.editorView) expandAllHeadings(this.editorView);
 		});
 
 		onBridgeEvent(BRIDGE_EVENT.appExternalFileChanged, (payload) => {
@@ -2376,6 +2385,8 @@ export class AppController {
 				valignTableCellMiddle: { hidden: !tableMerge, disabled: !view || view.state.readOnly },
 				valignTableCellBottom: { hidden: !tableMerge, disabled: !view || view.state.readOnly },
 				openLink       : { hidden: !linkUrl || !isSupportedExternalLinkUrl(linkUrl) },
+				collapseAllHeadings: { disabled: !view || !hasFoldableHeadings(view.state) },
+				expandAllHeadings  : { disabled: !view || !hasCollapsedHeadings(view.state) },
 				toggleViewMode : { shortcut: this.settings.keybindings.toggleViewMode, disabled: !tab || tab.largeFile },
 				toggleOutline  : { shortcut: this.settings.keybindings.toggleOutline },
 				splitHorizontal: { shortcut: this.settings.keybindings.splitHorizontal, disabled: !tab },
@@ -2567,6 +2578,18 @@ export class AppController {
 
 			if (action === 'openLink' && linkUrl && isSupportedExternalLinkUrl(linkUrl)) {
 				await invokeBridge(BRIDGE_METHOD.shellOpenExternal, { url: linkUrl });
+				return;
+			}
+
+			if (action === 'collapseAllHeadings') {
+				collapseAllHeadings(view);
+				view.focus();
+				return;
+			}
+
+			if (action === 'expandAllHeadings') {
+				expandAllHeadings(view);
+				view.focus();
 				return;
 			}
 
@@ -3669,6 +3692,7 @@ export class AppController {
 	private jumpToOutlineItem(item: OutlineItem): void {
 		if (!this.editorView) return;
 
+		expandHeadingAt(this.editorView, item.from);
 		jumpToOutlineItem(this.editorView, item);
 	}
 
@@ -3689,10 +3713,13 @@ export class AppController {
 			lineEols: tab.lineEols,
 			customDecorations: this.customDecorationRules,
 			selection: { anchor: selection.anchor, head: selection.head },
+			collapsedHeadingFroms: getCollapsedHeadingFroms(tab.editorState),
 			/** 本文変更を処理する */
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
 			onSelectionChange: (view) => this.handleSelectionChange(view),
+			/** 折りたたみ状態の変更を表示位置履歴へ保存する。 */
+			onFoldChange: (view) => this.scheduleRememberNoteView(view),
 			/** 貼り付けを処理する */
 			onPaste: (event, view) => this.handleEditorPaste(event, view),
 		});
@@ -3717,6 +3744,8 @@ export class AppController {
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
 			onSelectionChange: (view) => this.handleSelectionChange(view),
+			/** 折りたたみ状態の変更を表示位置履歴へ保存する。 */
+			onFoldChange: (view) => this.scheduleRememberNoteView(view),
 			/** 貼り付けを処理する */
 			onPaste: (event, view) => this.handleEditorPaste(event, view),
 		});
@@ -3738,6 +3767,7 @@ export class AppController {
 			lineEols: options.lineEols,
 			customDecorations: this.customDecorationRules,
 			selection: savedView ? selectionFromNoteViewPosition(savedView, options.text.length) : undefined,
+			collapsedHeadingFroms: savedView?.collapsedHeadingFroms,
 			/**
 			 * ドキュメント変更時
 			 * @returns {void}
@@ -3752,6 +3782,8 @@ export class AppController {
 			onSelectionChange: (view) => {
 				this.handleSelectionChange(view);
 			},
+			/** 折りたたみ状態の変更を表示位置履歴へ保存する。 */
+			onFoldChange: (view) => this.scheduleRememberNoteView(view),
 			/**
 			 * 貼り付け時
 			 * @returns {void}

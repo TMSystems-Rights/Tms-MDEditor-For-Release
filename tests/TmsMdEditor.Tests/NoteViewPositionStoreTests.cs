@@ -55,6 +55,36 @@ public class NoteViewPositionStoreTests : IDisposable
 		Assert.Equal(120, entry.GetProperty("anchor").GetInt32());
 		Assert.Equal(-8.5, entry.GetProperty("yMargin").GetDouble());
 		Assert.Equal("C:\\docs\\one.md", entry.GetProperty("filePath").GetString());
+		Assert.Equal(NoteViewPositionStore.CurrentSchemaVersion, load.Document.GetProperty("schemaVersion").GetInt32());
+		Assert.Empty(entry.GetProperty("collapsedHeadingFroms").EnumerateArray());
+	}
+
+	[Fact]
+	public void Save_and_load_round_trips_collapsed_headings()
+	{
+		NoteViewPositionSaveResult save = Save("""
+			{
+			  "schemaVersion": 2,
+			  "entries": [
+			    {
+			      "filePath": "C:\\docs\\fold.md",
+			      "anchor": 10,
+			      "yMargin": 0,
+			      "scrollLeft": 0,
+			      "selectionAnchor": 10,
+			      "selectionHead": 10,
+			      "collapsedHeadingFroms": [40, 5, 40],
+			      "updatedAt": "2026-10-13T01:00:00.000Z"
+			    }
+			  ]
+			}
+			""");
+
+		NoteViewPositionLoadResult load = _store.Load();
+		JsonElement collapsed = load.Document.GetProperty("entries")[0].GetProperty("collapsedHeadingFroms");
+
+		Assert.True(save.Success, save.Message);
+		Assert.Equal([5, 40], collapsed.EnumerateArray().Select(item => item.GetInt32()));
 	}
 
 	[Fact]

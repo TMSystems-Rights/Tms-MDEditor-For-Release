@@ -89,6 +89,32 @@ export const EXPORT_PREVIEW_CSS = `
 	font-size: inherit;
 	font-weight: inherit;
 }
+.tms-mde-export-heading-fold {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.35em;
+	height: 1.35em;
+	margin: 0 0.2em 0 0;
+	padding: 0;
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--tms-mde-color-text-muted);
+	font: inherit;
+	font-size: 0.6em;
+	line-height: 1;
+	vertical-align: 0.15em;
+	cursor: pointer;
+}
+.tms-mde-export-heading-fold:hover,
+.tms-mde-export-heading-fold:focus-visible {
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 14%, transparent);
+	color: var(--tms-mde-color-primary);
+}
+.tms-mde-export-heading-fold-hidden {
+	display: none !important;
+}
 .tms-mde-export h1, .tms-mde-export .cm-md-h1 { color: var(--tms-mde-color-heading); font-weight: 700; font-size: 1.75em; line-height: 1.25; }
 .tms-mde-export h2, .tms-mde-export .cm-md-h2 { color: var(--tms-mde-color-heading); font-weight: 700; font-size: 1.5em; line-height: 1.3; }
 .tms-mde-export h3, .tms-mde-export .cm-md-h3 { color: var(--tms-mde-color-heading); font-weight: 700; font-size: 1.25em; line-height: 1.35; }
@@ -515,6 +541,8 @@ export const EXPORT_PRINT_CSS = `
 	print-color-adjust: exact;
 }
 @media print {
+	.tms-mde-export-heading-fold { display: none !important; }
+	.tms-mde-export-heading-fold-hidden { display: revert !important; }
 	.tms-mde-export-outline { display: none !important; }
 	.tms-mde-export-shell { display: block; }
 	.tms-mde-export { max-width: none; padding: 0; }

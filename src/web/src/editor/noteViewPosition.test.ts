@@ -26,6 +26,7 @@ function record(overrides: Partial<NoteViewPositionRecord> = {}): NoteViewPositi
 		scrollLeft     : 0,
 		selectionAnchor: 140,
 		selectionHead  : 150,
+		collapsedHeadingFroms: [],
 		...overrides,
 	};
 }
@@ -39,6 +40,7 @@ describe('noteViewPosition', () => {
 			blockTop       : 76,
 			selectionAnchor: 90,
 			selectionHead  : 94,
+			collapsedHeadingFroms: [],
 			docLength      : 200,
 		})).toEqual({
 			anchor         : 80,
@@ -46,6 +48,7 @@ describe('noteViewPosition', () => {
 			scrollLeft     : 12,
 			selectionAnchor: 90,
 			selectionHead  : 94,
+			collapsedHeadingFroms: [],
 		});
 	});
 
@@ -95,6 +98,7 @@ describe('noteViewPosition', () => {
 			scrollLeft     : 4,
 			selectionAnchor: 12,
 			selectionHead  : 18,
+			collapsedHeadingFroms: [],
 		});
 		expect(flushed).toBe(false);
 	});
@@ -120,7 +124,9 @@ describe('noteViewPosition', () => {
 
 		expect(records).toHaveLength(1);
 		expect(records[0]).toMatchObject({ filePath: 'c:/docs/note.md', anchor: 2 });
-		expect(normalizeNoteViewPositionDocument({ schemaVersion: 2, entries: [] })).toEqual([]);
+		expect(normalizeNoteViewPositionDocument({ schemaVersion: 99, entries: [] })).toEqual([]);
+		expect(normalizeNoteViewPositionDocument({ schemaVersion: 1, entries: [record({ collapsedHeadingFroms: [4] })] })[0].collapsedHeadingFroms).toEqual([]);
+		expect(normalizeNoteViewPositionDocument({ schemaVersion: 2, entries: [record({ collapsedHeadingFroms: [8, 4, 8] })] })[0].collapsedHeadingFroms).toEqual([4, 8]);
 	});
 
 	it('他ウィンドウの新しい記録を残し、上限を超えた古い記録を捨てる', () => {

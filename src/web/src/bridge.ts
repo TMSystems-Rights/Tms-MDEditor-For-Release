@@ -84,6 +84,8 @@ export const BRIDGE_EVENT = {
 	menuFindPrevious      : 'menu:findPrevious',
 	menuToggleViewMode    : 'menu:toggleViewMode',
 	menuToggleOutline     : 'menu:toggleOutline',
+	menuCollapseAllHeadings: 'menu:collapseAllHeadings',
+	menuExpandAllHeadings : 'menu:expandAllHeadings',
 	menuSplitHorizontal   : 'menu:splitHorizontal',
 	menuSplitVertical     : 'menu:splitVertical',
 	menuUnsplit           : 'menu:unsplit',

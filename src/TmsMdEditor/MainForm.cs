@@ -783,6 +783,9 @@ internal sealed class MainForm : Form
 		toggleOutlineItem.ShortcutKeyDisplayString = "Ctrl+Shift+O";
 		viewMenu.DropDownItems.Add(toggleOutlineItem);
 		viewMenu.DropDownItems.Add(new ToolStripSeparator());
+		viewMenu.DropDownItems.Add("見出しをすべて折りたたむ(&C)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuCollapseAllHeadings));
+		viewMenu.DropDownItems.Add("見出しをすべて展開(&X)", null, (_, _) => PostBridgeEvent(BridgeEventName.MenuExpandAllHeadings));
+		viewMenu.DropDownItems.Add(new ToolStripSeparator());
 
 		var splitHorizontalItem = new ToolStripMenuItem(
 			"上下に分割(&H)",
