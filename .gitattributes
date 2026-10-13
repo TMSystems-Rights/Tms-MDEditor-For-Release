@@ -1,0 +1,10 @@
+# Windows向けプロジェクトのため、テキストファイルの作業ツリー改行をCRLFへ統一する。
+* text=auto eol=crlf
+
+# Linux系シェルスクリプトは実行環境に合わせてLFを維持する。
+*.sh text eol=lf
+*.bash text eol=lf
+
+# バイナリ資産は改行変換の対象外とする。
+*.png binary
+*.ico binary

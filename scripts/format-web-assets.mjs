@@ -13,6 +13,15 @@ const CSS_SERVICE          = getCSSLanguageService();
 const PRETTIER_CONFIG_PATH = path.join(ROOT_DIR, '.prettierrc.json');
 
 /**
+ * Git属性、EditorConfig、Prettierと同じCRLFへ改行を統一する。
+ * @param {string} source 対象テキスト
+ * @returns {string} CRLFへ統一したテキスト
+ */
+function normalizeCrLf(source) {
+	return source.replace(/\r\n|\r|\n/g, '\r\n');
+}
+
+/**
  * 対象ファイルを再帰的に取得する
  * @param {string} dir ディレクトリ
  * @returns {Promise<string[]>} 対象ファイル
@@ -80,9 +89,9 @@ function formatCss(filePath, source) {
 async function formatFile(filePath) {
 	const source    = await fs.readFile(filePath, 'utf8');
 	const ext       = path.extname(filePath).toLowerCase();
-	const formatted = ext === '.html'
+	const formatted = normalizeCrLf(ext === '.html'
 		? await formatHtml(filePath, source)
-		: formatCss(filePath, source);
+		: formatCss(filePath, source));
 
 	if (formatted === source) {
 		return false;

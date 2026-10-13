@@ -1,0 +1,11 @@
+root = true
+
+# Git属性およびPrettierの設定と合わせ、Windows側の編集時もCRLFを維持する。
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+
+# Linux系シェルスクリプトはLFで保存する。
+[*.{sh,bash}]
+end_of_line = lf
