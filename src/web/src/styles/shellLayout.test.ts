@@ -43,6 +43,13 @@ describe('ペインエディタのスクロールレイアウト', () => {
 		expect(shellCss).toMatch(/\.tms-mde-tab\s*\{[^}]*flex:\s*0 0 auto;/s);
 	});
 
+	it('タブの挿入位置を左右のマーカーで表示する', () => {
+		expect(shellCss).toContain('.tms-mde-tab.is-tab-drop-before::before');
+		expect(shellCss).toContain('.tms-mde-tab.is-tab-drop-after::after');
+		expect(shellCss).toMatch(/\.tms-mde-tab\.is-tab-drop-before::before\s*\{[^}]*left:\s*-3px;/s);
+		expect(shellCss).toMatch(/\.tms-mde-tab\.is-tab-drop-after::after\s*\{[^}]*right:\s*-3px;/s);
+	});
+
 	it('タブバー空白のダブルクリック用にテキスト選択を無効化する', () => {
 		expect(shellCss).toMatch(/\.tms-mde-pane-tab-bar-wrap\s*\{[^}]*user-select:\s*none;/s);
 	});

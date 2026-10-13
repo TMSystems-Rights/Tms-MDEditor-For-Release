@@ -4,9 +4,15 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.11.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.11.1)
+最新リリース: [v1.11.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.11.2)
 
 ## 変更内容
+### v1.11.2 の主な変更
+
+- タブをドラッグして、並べ替え、ペイン分割、別ウィンドウへの移動を行えない問題を修正する
+- タブバー内の挿入位置をマーカーで表示し、ドロップ位置へタブを移動できるようにする
+- 最後のタブを別ウィンドウへ移動した際に、移動元へ無題タブが生成されてウィンドウが残る問題を修正する
+
 ### v1.11.1 の主な変更
 
 - 表の行・列選択ヘッダーを右クリックした際に、選択状態が解除されて表操作メニューが表示されない問題を修正する

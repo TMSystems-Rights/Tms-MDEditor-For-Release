@@ -287,6 +287,7 @@
 }
 
 .tms-mde-tab {
+	position: relative;
 	display: inline-flex;
 	flex: 0 0 auto;
 	align-items: center;
@@ -302,6 +303,26 @@
 	font-size: 12px;
 	line-height: 1.25;
 	cursor: pointer;
+}
+
+.tms-mde-tab.is-tab-drop-before::before,
+.tms-mde-tab.is-tab-drop-after::after {
+	position: absolute;
+	top: 1px;
+	bottom: 1px;
+	width: 3px;
+	border-radius: 2px;
+	background: var(--tms-mde-color-primary);
+	pointer-events: none;
+	content: "";
+}
+
+.tms-mde-tab.is-tab-drop-before::before {
+	left: -3px;
+}
+
+.tms-mde-tab.is-tab-drop-after::after {
+	right: -3px;
 }
 
 .tms-mde-tab.is-active {

@@ -36,6 +36,8 @@ import { createPaneLayout, findAdjacentPaneId, listPaneIds, removePane, splitPan
 import { applyTabBarWheelScroll, revealElementInHorizontalScroller } from '../split/tabBarScroll';
 import { isPointInHorizontalScrollbar, shouldOpenUntitledTabOnTabBarDoubleClick } from '../split/tabBarEmptyClick';
 import { calculatePaneDropPlacement, type PaneDropPlacement } from '../split/tabDrop';
+import { createDraggableTabElement } from '../split/tabElement';
+import { calculateTabDropIndex, shouldCloseWindowAfterTabRemoval } from '../split/tabTransfer';
 import { SettingsModal } from '../settings/SettingsModal';
 import { applyCssSnippets, getCssSnippetsReloadStatus } from '../settings/cssSnippets';
 import { CONTEXT_MENU_ITEM_LABELS, createDefaultContextMenuSettings, isContextMenuSeparator, normalizeContextMenuSettings } from '../settings/contextMenuSettings';
@@ -727,21 +729,18 @@ export class AppController {
 		const tab         = this.createDetachedTabRuntime(payload.tab);
 		const target      = document.elementFromPoint(payload.clientX, payload.clientY);
 		const element     = target instanceof HTMLElement ? target : null;
-		const tabButton   = element?.closest<HTMLElement>('.tms-mde-tab');
 		const tabBar      = element?.closest<HTMLElement>('.tms-mde-pane-tab-bar');
 		const paneElement = element?.closest<HTMLElement>('.tms-mde-editor-pane');
-		const paneId      = (tabButton?.dataset.paneId ?? tabBar?.dataset.paneId ?? paneElement?.dataset.paneId) as PaneId | undefined;
+		const paneId      = (tabBar?.dataset.paneId ?? paneElement?.dataset.paneId) as PaneId | undefined;
 
 		this.tabs.push(tab);
 		const targetPaneId = paneId && this.panes.has(paneId) ? paneId : this.activePaneId;
+		const targetIndex  = tabBar ? this.calculateTabBarDropIndex(tabBar, payload.clientX) : this.panes.get(targetPaneId)?.tabIds.length ?? 0;
 		this.addTabToPane(tab, targetPaneId);
-		if (tabButton?.dataset.tabId) {
-			const pane = this.panes.get(targetPaneId);
-			if (pane) {
-				pane.tabIds       = pane.tabIds.filter((tabId) => tabId !== tab.tabId);
-				const targetIndex = pane.tabIds.indexOf(tabButton.dataset.tabId);
-				pane.tabIds.splice(targetIndex >= 0 ? targetIndex : pane.tabIds.length, 0, tab.tabId);
-			}
+		const pane = this.panes.get(targetPaneId);
+		if (pane) {
+			pane.tabIds = pane.tabIds.filter((tabId) => tabId !== tab.tabId);
+			pane.tabIds.splice(Math.min(targetIndex, pane.tabIds.length), 0, tab.tabId);
 		}
 		this.activateTab(tab.tabId, targetPaneId);
 	}
@@ -1264,9 +1263,11 @@ export class AppController {
 	 * タブを閉じる
 	 * @param {string} tabId タブ ID
 	 * @param {PaneId} [paneId] ペイン ID
+	 * @param {boolean} [skipConfirm] 未保存確認を省略する場合true
+	 * @param {boolean} [transferred] 別ウィンドウへの転送完了後に閉じる場合true
 	 * @returns {Promise<boolean>} 閉じた場合 true
 	 */
-	public async closeTab(tabId: string, paneId: PaneId = this.activePaneId, skipConfirm = false): Promise<boolean> {
+	public async closeTab(tabId: string, paneId: PaneId = this.activePaneId, skipConfirm = false, transferred = false): Promise<boolean> {
 		const tab  = this.tabs.find((entry) => entry.tabId === tabId);
 		const pane = this.panes.get(paneId);
 		if (!tab || !pane || !pane.tabIds.includes(tabId)) {
@@ -1297,7 +1298,7 @@ export class AppController {
 		}
 
 		if (this.tabs.length === 0) {
-			if (this.settings.closeAppWhenLastTabClosed) {
+			if (shouldCloseWindowAfterTabRemoval(this.tabs.length, this.settings.closeAppWhenLastTabClosed, transferred)) {
 				await this.persistSession();
 				await this.flushNoteViewPositions();
 				await invokeBridge(BRIDGE_METHOD.appReportCloseReady, { allowClose: true });
@@ -2174,36 +2175,33 @@ export class AppController {
 
 	/** ペインのタブを1件描画する */
 	private renderPaneTab(tabBar: HTMLElement, pane: PaneRuntime, tab: TabRuntime): void {
-		const button          = document.createElement('button');
-		button.type           = 'button';
-		button.tabIndex       = -1;
-		button.className      = `tms-mde-tab${tab.tabId === pane.activeTabId ? ' is-active' : ''}${tab.dirty ? ' is-dirty' : ''}`;
-		button.draggable      = true;
-		button.dataset.tabId  = tab.tabId;
-		button.dataset.paneId = pane.paneId;
-		button.title          = tab.filePath ?? tab.title;
+		const active     = tab.tabId === pane.activeTabId;
+		const tabElement = createDraggableTabElement(document, active);
+
+		tabElement.className      = `tms-mde-tab${active ? ' is-active' : ''}${tab.dirty ? ' is-dirty' : ''}`;
+		tabElement.dataset.tabId  = tab.tabId;
+		tabElement.dataset.paneId = pane.paneId;
+		tabElement.title          = tab.filePath ?? tab.title;
 
 		const title       = document.createElement('span');
 		title.className   = 'tms-mde-tab-title';
 		title.textContent = tab.title;
-		button.appendChild(title);
+		tabElement.appendChild(title);
 
 		if (tab.dirty) {
 			const dot       = document.createElement('span');
 			dot.className   = 'tms-mde-tab-dot';
 			dot.textContent = '●';
-			button.appendChild(dot);
+			tabElement.appendChild(dot);
 		}
 
 		const close     = document.createElement('span');
 		close.className = 'tms-mde-tab-close';
 		close.setAttribute('aria-label', '閉じる');
 		close.textContent = '×';
-		button.appendChild(close);
+		tabElement.appendChild(close);
 
-		// click より先にエディタが blur すると、ブラウザがキャレット行へスクロールして保存位置を上書きする。
-		button.addEventListener('mousedown', preserveEditorFocusOnOutlineMouseDown);
-		button.addEventListener('click', (event) => {
+		tabElement.addEventListener('click', (event) => {
 			const target = event.target as HTMLElement;
 			if (target.classList.contains('tms-mde-tab-close')) {
 				void this.closeTab(tab.tabId, pane.paneId);
@@ -2213,14 +2211,14 @@ export class AppController {
 			this.activateTab(tab.tabId, pane.paneId, { recordRecent: true });
 		});
 
-		button.addEventListener('auxclick', (event) => {
+		tabElement.addEventListener('auxclick', (event) => {
 			if (event.button === 1) {
 				event.preventDefault();
 				void this.closeTab(tab.tabId, pane.paneId);
 			}
 		});
 
-		button.addEventListener('contextmenu', (event) => {
+		tabElement.addEventListener('contextmenu', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
 			this.activePaneId = pane.paneId;
@@ -2228,7 +2226,7 @@ export class AppController {
 			this.showTabContextMenu(tab.tabId, event.clientX, event.clientY);
 		});
 
-		button.addEventListener('dragstart', (event) => {
+		tabElement.addEventListener('dragstart', (event) => {
 			this.tabDragSourceId     = tab.tabId;
 			this.tabDragSourcePaneId = pane.paneId;
 			if (event.dataTransfer) {
@@ -2236,28 +2234,14 @@ export class AppController {
 				event.dataTransfer.setData('application/x-tms-mde-tab', tab.tabId);
 			}
 		});
-		button.addEventListener('dragend', (event) => {
+		tabElement.addEventListener('dragend', (event) => {
 			if (event.dataTransfer?.dropEffect === 'none') void this.detachTabToNewWindow(tab.tabId, pane.paneId, event.screenX, event.screenY);
 			this.clearTabDropIndicators();
 			this.tabDragSourceId     = null;
 			this.tabDragSourcePaneId = null;
 		});
 
-		button.addEventListener('dragover', (event) => {
-			if (!this.tabDragSourceId) return;
-			event.preventDefault();
-			if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-		});
-
-		button.addEventListener('drop', (event) => {
-			event.preventDefault();
-			this.clearTabDropIndicators();
-			if (this.tabDragSourceId && this.tabDragSourcePaneId) {
-				this.moveOrReorderTab(this.tabDragSourceId, this.tabDragSourcePaneId, pane.paneId, tab.tabId);
-			}
-		});
-
-		tabBar.appendChild(button);
+		tabBar.appendChild(tabElement);
 	}
 
 	/**
@@ -2677,7 +2661,7 @@ export class AppController {
 	}
 
 	/** タブを同一ペイン内で並べ替えるか、別ペインへ移動する */
-	private moveOrReorderTab(sourceTabId: string, sourcePaneId: PaneId, targetPaneId: PaneId, targetTabId?: string): void {
+	private moveOrReorderTab(sourceTabId: string, sourcePaneId: PaneId, targetPaneId: PaneId, targetIndex?: number): void {
 		const sourcePane = this.panes.get(sourcePaneId);
 		const targetPane = this.panes.get(targetPaneId);
 		if (!sourcePane || !targetPane) return;
@@ -2687,8 +2671,8 @@ export class AppController {
 		sourcePane.tabIds.splice(sourceIndex, 1);
 		const existingIndex = targetPane.tabIds.indexOf(sourceTabId);
 		if (existingIndex >= 0) targetPane.tabIds.splice(existingIndex, 1);
-		const targetIndex = targetTabId ? targetPane.tabIds.indexOf(targetTabId) : -1;
-		targetPane.tabIds.splice(targetIndex >= 0 ? targetIndex : targetPane.tabIds.length, 0, sourceTabId);
+		const insertionIndex = targetIndex === undefined ? targetPane.tabIds.length : Math.min(Math.max(targetIndex, 0), targetPane.tabIds.length);
+		targetPane.tabIds.splice(insertionIndex, 0, sourceTabId);
 		const state = sourcePane.editorStates.get(sourceTabId);
 		if (state) targetPane.editorStates.set(sourceTabId, state);
 		const viewMode = sourcePane.viewModes.get(sourceTabId);
@@ -2751,6 +2735,28 @@ export class AppController {
 	private clearTabDropIndicators(): void {
 		this.editorHostElement.querySelectorAll<HTMLElement>('.tms-mde-editor-pane[data-tab-drop-zone]').forEach((pane) => delete pane.dataset.tabDropZone);
 		this.editorHostElement.querySelectorAll<HTMLElement>('.tms-mde-pane-editor-surface.is-tab-drag-over').forEach((surface) => surface.classList.remove('is-tab-drag-over'));
+		this.editorHostElement.querySelectorAll<HTMLElement>('.tms-mde-pane-tab-bar[data-tab-drop-index]').forEach((tabBar) => delete tabBar.dataset.tabDropIndex);
+		this.editorHostElement.querySelectorAll<HTMLElement>('.tms-mde-tab.is-tab-drop-before, .tms-mde-tab.is-tab-drop-after').forEach((tab) => tab.classList.remove('is-tab-drop-before', 'is-tab-drop-after'));
+	}
+
+	/** タブバー上のマウス位置から、ドラッグ元を除去した後の挿入位置を算出する */
+	private calculateTabBarDropIndex(tabBar: HTMLElement, clientX: number, excludedTabId?: string): number {
+		const tabs = [...tabBar.querySelectorAll<HTMLElement>('.tms-mde-tab')]
+			.filter((element) => element.dataset.tabId !== excludedTabId);
+		return calculateTabDropIndex(tabs.map((element) => element.getBoundingClientRect()), clientX);
+	}
+
+	/** タブバーへ挿入位置マーカーを表示する */
+	private showTabBarDropIndicator(tabBar: HTMLElement, paneId: PaneId, clientX: number): number {
+		this.clearTabDropIndicators();
+		const excludedTabId         = this.tabDragSourcePaneId === paneId ? this.tabDragSourceId ?? undefined : undefined;
+		const tabs                  = [...tabBar.querySelectorAll<HTMLElement>('.tms-mde-tab')]
+			.filter((element) => element.dataset.tabId !== excludedTabId);
+		const targetIndex           = calculateTabDropIndex(tabs.map((element) => element.getBoundingClientRect()), clientX);
+		tabBar.dataset.tabDropIndex = String(targetIndex);
+		if (targetIndex < tabs.length) tabs[targetIndex].classList.add('is-tab-drop-before');
+		else tabs.at(-1)?.classList.add('is-tab-drop-after');
+		return targetIndex;
 	}
 
 	/** ウィンドウ外へドロップされたタブを新しいプロセスへ引き渡す */
@@ -2776,7 +2782,7 @@ export class AppController {
 					lineEols: tab.lineEols
 				}
 			});
-			if (result.detached) await this.closeTab(tabId, paneId, true);
+			if (result.detached) await this.closeTab(tabId, paneId, true, true);
 		} catch (error) {
 			showErrorMessage(`タブを別ウィンドウへ移動できませんでした: ${this.formatError(error)}`);
 		}
@@ -2833,11 +2839,25 @@ export class AppController {
 			if (!this.tabDragSourceId) return;
 			event.preventDefault();
 			if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+			this.showTabBarDropIndicator(tabBar, paneId, event.clientX);
+		});
+		tabBar.addEventListener('dragleave', (event) => {
+			if (event.relatedTarget instanceof Node && tabBar.contains(event.relatedTarget)) return;
+			this.clearTabDropIndicators();
 		});
 		tabBar.addEventListener('drop', (event) => {
 			event.preventDefault();
+			event.stopPropagation();
+			const targetIndex = Number.parseInt(tabBar.dataset.tabDropIndex ?? '', 10);
 			this.clearTabDropIndicators();
-			if (this.tabDragSourceId && this.tabDragSourcePaneId) this.moveOrReorderTab(this.tabDragSourceId, this.tabDragSourcePaneId, paneId);
+			if (this.tabDragSourceId && this.tabDragSourcePaneId) {
+				this.moveOrReorderTab(
+					this.tabDragSourceId,
+					this.tabDragSourcePaneId,
+					paneId,
+					Number.isFinite(targetIndex) ? targetIndex : this.calculateTabBarDropIndex(tabBar, event.clientX, this.tabDragSourcePaneId === paneId ? this.tabDragSourceId : undefined),
+				);
+			}
 		});
 		tabWrap.addEventListener('dblclick', (event) => {
 			this.handleTabBarEmptyDoubleClick(event, paneId, tabBar);
