@@ -11,8 +11,11 @@ import {
 	applyTableAlignSnapshot,
 	applyTableMergeSnapshot,
 	applyTableStructureSnapshot,
+	clearActiveTableMenuTarget,
+	snapshotActiveTableMenu,
 	snapshotTableMergeActionFromEvent,
 	snapshotTableStructureActionFromEvent,
+	TABLE_MENU_STATE_CHANGE_EVENT,
 	type TableMergeMenuSnapshot,
 	type TableStructureMenuSnapshot,
 } from '../livePreview/tableWidget';
@@ -60,6 +63,7 @@ import {
 import { calculateOutlineWidth, clampOutlineWidth, DEFAULT_OUTLINE_WIDTH, OUTLINE_KEYBOARD_RESIZE_STEP } from '../outline/outlineResize';
 import { renderExportHtml, type ExportImageRequest, type ExportMermaidResult } from '../export/renderExportHtml';
 import { renderMermaidSource } from '../livePreview/mermaidWidget';
+import { buildTableMenuEnabledState, isTableMenuAction, type TableMenuAction } from './tableMenu';
 
 type TabRuntime = TabModel & {
 	editorState: EditorState;
@@ -226,6 +230,8 @@ export class AppController {
 
 	private lastNoteViewPositionJson = '';
 
+	private lastTableMenuStateJson = '';
+
 	private readonly editorHostElement: HTMLElement;
 
 	private readonly workspaceElement: HTMLElement;
@@ -328,6 +334,17 @@ export class AppController {
 			}
 			this.showEditorContextMenu(event);
 		});
+
+		this.editorHostElement.addEventListener(TABLE_MENU_STATE_CHANGE_EVENT, () => {
+			this.syncNativeTableMenuState();
+		});
+		this.editorHostElement.addEventListener('mousedown', (event) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest('.cm-md-table-wrap')) return;
+			const paneId = target?.closest<HTMLElement>('.tms-mde-editor-pane')?.dataset.paneId as PaneId | undefined;
+			const view   = paneId ? this.editorViews.get(paneId) : null;
+			if (view) clearActiveTableMenuTarget(view);
+		}, true);
 
 		this.statusElements.zoom.addEventListener('click', () => {
 			if (getUiZoom() === 1) {
@@ -452,6 +469,11 @@ export class AppController {
 
 		onBridgeEvent(BRIDGE_EVENT.menuPrint, () => {
 			void this.printActiveTab();
+		});
+
+		onBridgeEvent(BRIDGE_EVENT.menuTableAction, (payload) => {
+			const action = (payload as { action?: unknown }).action;
+			if (isTableMenuAction(action)) void this.handleNativeTableMenuAction(action);
 		});
 
 		onBridgeEvent(BRIDGE_EVENT.menuToggleViewMode, () => {
@@ -2084,6 +2106,7 @@ export class AppController {
 		this.applyViewModeToEditor(nextMode);
 		this.persistActiveEditorState();
 		this.refreshStatusBar();
+		this.syncNativeTableMenuState();
 	}
 
 	/**
@@ -2326,6 +2349,57 @@ export class AppController {
 		);
 
 		showContextMenuAtPoint(x, y, entries, (action) => void this.handleTabContextAction(tabId, action));
+	}
+
+	/** 現在のアクティブペインから上部テーブルメニューの活性状態を同期する。 */
+	private syncNativeTableMenuState(): void {
+		const tab      = this.getActiveTab();
+		const view     = this.editorView;
+		const viewMode = tab
+			? this.panes.get(this.activePaneId)?.viewModes.get(tab.tabId) ?? tab.viewMode
+			: 'source';
+
+		const snapshot = view ? snapshotActiveTableMenu(view) : null;
+		const state    = buildTableMenuEnabledState({
+			hasView       : view !== null,
+			viewMode,
+			readOnly      : view?.state.readOnly ?? true,
+			inMarkdownTable: snapshot?.inMarkdownTable ?? false,
+			structure     : snapshot?.structure ?? null,
+			cells         : snapshot?.merge ?? null,
+		});
+
+		const json = JSON.stringify(state);
+		if (json === this.lastTableMenuStateJson) return;
+		this.lastTableMenuStateJson = json;
+		void invokeBridge(BRIDGE_METHOD.uiUpdateTableMenuState, state).catch(() => undefined);
+	}
+
+	/** ネイティブのテーブルメニューから、右クリックと共通の処理を実行する。 */
+	private async handleNativeTableMenuAction(action: TableMenuAction): Promise<void> {
+		const tab      = this.getActiveTab();
+		const view     = this.editorView;
+		if (!tab || !view) return;
+		const viewMode = this.panes.get(this.activePaneId)?.viewModes.get(tab.tabId) ?? tab.viewMode;
+		const snapshot = snapshotActiveTableMenu(view);
+		const enabled  = buildTableMenuEnabledState({
+			hasView       : true,
+			viewMode,
+			readOnly      : view.state.readOnly,
+			inMarkdownTable: snapshot.inMarkdownTable,
+			structure     : snapshot.structure,
+			cells         : snapshot.merge,
+		});
+		if (!enabled[action]) return;
+
+		await this.handleEditorContextAction(
+			action,
+			action === 'insertTable' ? view.state.selection.main.head : null,
+			null,
+			snapshot.merge,
+			snapshot.structure,
+		);
+		this.syncNativeTableMenuState();
 	}
 
 	/**
@@ -2949,6 +3023,7 @@ export class AppController {
 	 */
 	private dispatchEditorTransaction(transaction: Transaction, sourceView: EditorView): void {
 		sourceView.update([transaction]);
+		if (sourceView === this.editorView) this.syncNativeTableMenuState();
 		if (this.synchronizingSplitTransaction || !transaction.docChanged) {
 			return;
 		}
@@ -2996,6 +3071,7 @@ export class AppController {
 		this.refreshStatusBar();
 		this.renderOutline();
 		void this.updateWindowTitle();
+		this.syncNativeTableMenuState();
 	}
 
 	/**

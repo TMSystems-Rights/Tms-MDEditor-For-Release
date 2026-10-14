@@ -25,6 +25,7 @@ internal sealed class MainForm : Form
 	private readonly bool _isSessionOwner;
 	private readonly ToolStripMenuItem _recentFilesMenuItem;
 	private readonly Dictionary<string, ToolStripMenuItem> _shortcutMenuItems = [];
+	private readonly Dictionary<string, ToolStripMenuItem> _tableMenuItems = [];
 	private readonly List<string[]> _pendingExternalOpenRequests = [];
 	private readonly List<PendingDetachedTab> _pendingDetachedTabs = [];
 
@@ -261,6 +262,37 @@ internal sealed class MainForm : Form
 		{
 			item.ShortcutKeyDisplayString = shortcut;
 		}
+	}
+
+	/// <summary>Web側の現在状態に合わせて上部テーブルメニューの活性状態を更新する</summary>
+	/// <param name="state">操作IDごとの活性状態</param>
+	internal void UpdateTableMenuState(JsonElement state)
+	{
+		if (InvokeRequired)
+		{
+			JsonElement cloned = state.Clone();
+			BeginInvoke(() => UpdateTableMenuState(cloned));
+			return;
+		}
+
+		foreach ((string action, ToolStripMenuItem item) in _tableMenuItems)
+		{
+			item.Enabled = state.ValueKind == JsonValueKind.Object
+				&& state.TryGetProperty(action, out JsonElement enabledElement)
+				&& enabledElement.ValueKind is JsonValueKind.True;
+		}
+	}
+
+	private ToolStripMenuItem CreateTableMenuItem(string text, string action)
+	{
+		var item = new ToolStripMenuItem(text, null, (_, _) => PostBridgeEvent(
+			BridgeEventName.MenuTableAction,
+			new { action }))
+		{
+			Enabled = false,
+		};
+		_tableMenuItems[action] = item;
+		return item;
 	}
 
 	private void ApplyWindowStateFromConfig()
@@ -768,6 +800,44 @@ internal sealed class MainForm : Form
 		editMenu.DropDownItems.Add(findNextItem);
 		editMenu.DropDownItems.Add(findPreviousItem);
 
+		var tableMenu = new ToolStripMenuItem("テーブル(&T)");
+		tableMenu.DropDownItems.Add(CreateTableMenuItem("表を挿入(&I)...", "insertTable"));
+		tableMenu.DropDownItems.Add(new ToolStripSeparator());
+
+		var tableRowsMenu = new ToolStripMenuItem("行(&R)");
+		tableRowsMenu.DropDownItems.Add(CreateTableMenuItem("選択数と同じ行を上に追加(&A)", "insertTableRowsBefore"));
+		tableRowsMenu.DropDownItems.Add(CreateTableMenuItem("選択数と同じ行を下に追加(&B)", "insertTableRowsAfter"));
+		tableRowsMenu.DropDownItems.Add(new ToolStripSeparator());
+		tableRowsMenu.DropDownItems.Add(CreateTableMenuItem("選択した行を削除(&D)", "deleteTableRows"));
+		tableRowsMenu.DropDownItems.Add(new ToolStripSeparator());
+		tableRowsMenu.DropDownItems.Add(CreateTableMenuItem("選択した行を上へ移動(&U)", "moveTableRowsUp"));
+		tableRowsMenu.DropDownItems.Add(CreateTableMenuItem("選択した行を下へ移動(&N)", "moveTableRowsDown"));
+
+		var tableColumnsMenu = new ToolStripMenuItem("列(&C)");
+		tableColumnsMenu.DropDownItems.Add(CreateTableMenuItem("選択数と同じ列を左に追加(&L)", "insertTableColumnsBefore"));
+		tableColumnsMenu.DropDownItems.Add(CreateTableMenuItem("選択数と同じ列を右に追加(&R)", "insertTableColumnsAfter"));
+		tableColumnsMenu.DropDownItems.Add(new ToolStripSeparator());
+		tableColumnsMenu.DropDownItems.Add(CreateTableMenuItem("選択した列を削除(&D)", "deleteTableColumns"));
+		tableColumnsMenu.DropDownItems.Add(new ToolStripSeparator());
+		tableColumnsMenu.DropDownItems.Add(CreateTableMenuItem("選択した列を左へ移動(&P)", "moveTableColumnsLeft"));
+		tableColumnsMenu.DropDownItems.Add(CreateTableMenuItem("選択した列を右へ移動(&N)", "moveTableColumnsRight"));
+
+		var tableCellsMenu = new ToolStripMenuItem("セル(&L)");
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("セルを結合(&M)", "mergeTableCells"));
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("結合を解除(&U)", "unmergeTableCells"));
+		tableCellsMenu.DropDownItems.Add(new ToolStripSeparator());
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("左詰め(&L)", "alignTableCellLeft"));
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("中央揃え(&C)", "alignTableCellCenter"));
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("右詰め(&R)", "alignTableCellRight"));
+		tableCellsMenu.DropDownItems.Add(new ToolStripSeparator());
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("上詰め(&T)", "valignTableCellTop"));
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("上下中央(&E)", "valignTableCellMiddle"));
+		tableCellsMenu.DropDownItems.Add(CreateTableMenuItem("下詰め(&B)", "valignTableCellBottom"));
+
+		tableMenu.DropDownItems.Add(tableRowsMenu);
+		tableMenu.DropDownItems.Add(tableColumnsMenu);
+		tableMenu.DropDownItems.Add(tableCellsMenu);
+
 		var viewMenu = new ToolStripMenuItem("表示(&V)");
 		var toggleViewModeItem = new ToolStripMenuItem(
 			"ソース / ライブプレビュー切替(&E)",
@@ -851,6 +921,7 @@ internal sealed class MainForm : Form
 
 		menuStrip.Items.Add(fileMenu);
 		menuStrip.Items.Add(editMenu);
+		menuStrip.Items.Add(tableMenu);
 		menuStrip.Items.Add(viewMenu);
 		menuStrip.Items.Add(settingsMenu);
 		menuStrip.Items.Add(helpMenu);

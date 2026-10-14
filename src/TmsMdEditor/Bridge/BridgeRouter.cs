@@ -104,6 +104,7 @@ internal sealed class BridgeRouter
 				BridgeMethod.SessionSave             => _sessionApi.Save(paramsElement),
 				BridgeMethod.NoteViewPositionsSave   => _appContext.NoteViewPositionStore.Save(paramsElement),
 				BridgeMethod.UiDismissMenus          => _appApi.DismissMenus(),
+				BridgeMethod.UiUpdateTableMenuState  => _appApi.UpdateTableMenuState(paramsElement),
 				BridgeMethod.ClipboardReadText       => _clipboardApi.ReadText(),
 				BridgeMethod.ClipboardWriteText      => _clipboardApi.WriteText(paramsElement),
 				BridgeMethod.ClipboardPasteForEditor => _clipboardApi.PasteForEditor(paramsElement),

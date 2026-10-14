@@ -42,4 +42,15 @@ internal sealed class AppApi
 		_mainForm.DismissShellMenus();
 		return new { ok = true };
 	}
+
+	/// <summary>
+	/// Web側のテーブル選択状態を上部メニューへ反映する
+	/// </summary>
+	/// <param name="paramsElement">操作IDごとの活性状態</param>
+	/// <returns>結果</returns>
+	public object UpdateTableMenuState(JsonElement paramsElement)
+	{
+		_mainForm.UpdateTableMenuState(paramsElement);
+		return new { ok = true };
+	}
 }

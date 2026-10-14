@@ -3141,6 +3141,49 @@ function readTableSelectionRect(wrap: HTMLElement): TableSelectionRect | null {
 	};
 }
 
+export const TABLE_MENU_STATE_CHANGE_EVENT = 'tms-mde-table-menu-state-change';
+
+type ActiveTableMenuTarget = {
+	tableFrom: number;
+	cell: TableCellPosition | null;
+};
+
+const activeTableMenuTargets = new WeakMap<EditorView, ActiveTableMenuTarget>();
+
+/** 上部テーブルメニューの操作対象を、このEditorView内の1表へ固定する。 */
+function activateTableMenuTarget(
+	view: EditorView,
+	wrap: HTMLElement,
+	cell?: TableCellPosition | null,
+): void {
+	view.dom.querySelectorAll<HTMLElement>('.cm-md-table-wrap[data-table-menu-active="true"]').forEach((candidate) => {
+		if (candidate !== wrap) delete candidate.dataset.tableMenuActive;
+	});
+	wrap.dataset.tableMenuActive = 'true';
+	if (cell) wrap.dataset.tableMenuCell = `${cell.row},${cell.column}`;
+	else delete wrap.dataset.tableMenuCell;
+	const tableFrom = Number(wrap.dataset.tableFrom);
+	if (Number.isInteger(tableFrom)) activeTableMenuTargets.set(view, { tableFrom, cell: cell ?? null });
+	wrap.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
+}
+
+/** 表外へ操作対象が移ったとき、上部テーブルメニューの表対象を解除する。 */
+export function clearActiveTableMenuTarget(view: EditorView): void {
+	let changed = false;
+	if (activeTableMenuTargets.delete(view)) changed = true;
+	view.dom.querySelectorAll<HTMLElement>('.cm-md-table-wrap[data-table-menu-active="true"]').forEach((wrap) => {
+		delete wrap.dataset.tableMenuActive;
+		delete wrap.dataset.tableMenuCell;
+		changed = true;
+	});
+	if (changed) view.dom.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
+}
+
+/** 選択変更を上部テーブルメニューの状態同期へ通知する。 */
+function notifyTableMenuStateChange(wrap: HTMLElement): void {
+	wrap.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
+}
+
 /**
  * 選択範囲を表へ書き、見た目を更新する。
  * @param {HTMLElement} wrap 表ラッパー
@@ -3179,6 +3222,7 @@ function writeTableSelectionRect(
 		cell.classList.toggle('cm-md-table-sel-e', edges.east);
 		cell.classList.toggle('cm-md-table-sel-w', edges.west);
 	}
+	notifyTableMenuStateChange(wrap);
 }
 
 const TABLE_CELL_SELECTION_CLASS_NAMES = [
@@ -3196,10 +3240,12 @@ const TABLE_CELL_SELECTION_CLASS_NAMES = [
  * @returns {void}
  */
 export function clearTableSelectionRect(wrap: HTMLElement, table: HTMLTableElement): void {
+	const changed = wrap.dataset.tableSelection !== undefined;
 	delete wrap.dataset.tableSelection;
 	for (const cell of table.querySelectorAll<HTMLElement>('[data-table-row]')) {
 		cell.classList.remove(...TABLE_CELL_SELECTION_CLASS_NAMES);
 	}
+	if (changed) notifyTableMenuStateChange(wrap);
 }
 
 /**
@@ -3290,6 +3336,7 @@ function attachTableCellSelection(
 		if (!position) {
 			return;
 		}
+		activateTableMenuTarget(view, wrap, position);
 
 		if (event.shiftKey && anchor) {
 			event.preventDefault();
@@ -3493,6 +3540,7 @@ function attachTableStructureControls(
 			: null;
 		const target = button ? readTableStructureButton(button) : null;
 		if (!target) return;
+		activateTableMenuTarget(view, wrap);
 		if (event.button === 2) {
 			const selection = resolveTableStructureContextSelection(
 				readTableStructureSelection(wrap),
@@ -3585,6 +3633,7 @@ function readTableStructureSelection(wrap: HTMLElement): TableStructureSelection
 
 /** @param {HTMLElement} wrap ラッパー @param {HTMLTableElement} table 表 */
 function clearTableStructureSelection(wrap: HTMLElement, table: HTMLTableElement): void {
+	const changed = wrap.dataset.tableStructureSelection !== undefined;
 	delete wrap.dataset.tableStructureSelection;
 	wrap.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector').forEach((button) => {
 		button.classList.remove('is-selected');
@@ -3593,6 +3642,7 @@ function clearTableStructureSelection(wrap: HTMLElement, table: HTMLTableElement
 	table.querySelectorAll(`.${TABLE_STRUCTURE_SELECTION_CLASS}`).forEach((cell) => {
 		cell.classList.remove(TABLE_STRUCTURE_SELECTION_CLASS);
 	});
+	if (changed) notifyTableMenuStateChange(wrap);
 }
 
 /** @param {HTMLElement} wrap ラッパー @param {HTMLTableElement} table 表 @param {TableStructureSelection} selection 選択 */
@@ -3622,6 +3672,7 @@ function writeTableStructureSelection(
 		const selected = value >= selection.start && value + span - 1 <= selection.end;
 		cell.classList.toggle(TABLE_STRUCTURE_SELECTION_CLASS, selected);
 	});
+	notifyTableMenuStateChange(wrap);
 }
 
 export type TableStructureMenuSnapshot = TableStructureSelection & {
@@ -3678,6 +3729,57 @@ export function applyTableStructureSnapshot(
 export type TableMergeMenuSnapshot = TableMergeActionState & {
 	tableFrom: number;
 };
+
+export type TableMenuSnapshot = {
+	inMarkdownTable: boolean;
+	structure: TableStructureMenuSnapshot | null;
+	merge: TableMergeMenuSnapshot | null;
+};
+
+/** 上部メニュー用に、最後に操作した表と現在の行・列・セル選択を取得する。 */
+export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
+	const target = activeTableMenuTargets.get(view) ?? null;
+	const wrap   = view.dom.querySelector<HTMLElement>('.cm-md-table-wrap[data-table-menu-active="true"]')
+		?? Array.from(view.dom.querySelectorAll<HTMLElement>('.cm-md-table-wrap'))
+			.find((candidate) => Number(candidate.dataset.tableFrom) === target?.tableFrom)
+		?? null;
+	if (!wrap) return { inMarkdownTable: false, structure: null, merge: null };
+
+	const tableFrom = target?.tableFrom ?? Number(wrap.dataset.tableFrom);
+	if (!Number.isInteger(tableFrom)) return { inMarkdownTable: false, structure: null, merge: null };
+	const tableNode = findTableNodeAt(view.state, tableFrom);
+	if (!tableNode) return { inMarkdownTable: false, structure: null, merge: null };
+	const data      = extractTableData(view.state, tableNode);
+	const selection = readTableStructureSelection(wrap);
+	if (selection) {
+		return {
+			inMarkdownTable: true,
+			structure      : { tableFrom, ...selection, ...getTableStructureActionState(data, selection) },
+			merge          : null,
+		};
+	}
+
+	const storedCell          = target?.tableFrom === tableFrom ? target.cell : null;
+	const [rawRow, rawColumn] = (wrap.dataset.tableMenuCell ?? '').split(',');
+	const row                 = Number(rawRow);
+	const column              = Number(rawColumn);
+	const clicked             = storedCell ?? (rawRow !== '' && rawColumn !== '' && Number.isInteger(row) && Number.isInteger(column)
+		? { row, column }
+		: null);
+	const resolved            = resolveTableMergeTargetFromParts(
+		view.state,
+		tableFrom,
+		readTableSelectionRect(wrap),
+		clicked,
+	);
+	return {
+		inMarkdownTable: true,
+		structure      : null,
+		merge          : resolved
+			? { tableFrom, rect: resolved.state.rect, canMerge: resolved.state.canMerge, canUnmerge: resolved.state.canUnmerge }
+			: null,
+	};
+}
 
 /**
  * 右クリック時点の結合操作対象を残す。メニュー選択時の DOM には依存しない。

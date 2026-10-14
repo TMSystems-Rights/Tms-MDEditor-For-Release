@@ -72,6 +72,8 @@ internal static class BridgeMethod
 	public const string NoteViewPositionsSave      = "noteViewPositions:save";
 	/// <summary>ネイティブ側で開いているメニューを閉じる。</summary>
 	public const string UiDismissMenus             = "ui:dismissMenus";
+	/// <summary>Web側の選択状態をネイティブのテーブルメニューへ反映する。</summary>
+	public const string UiUpdateTableMenuState     = "ui:updateTableMenuState";
 	/// <summary>クリップボードからプレーンテキストを読み取る。</summary>
 	public const string ClipboardReadText          = "clipboard:readText";
 	/// <summary>指定されたテキストをクリップボードへ書き込む。</summary>
@@ -124,6 +126,8 @@ internal static class BridgeEventName
 	public const string MenuExportPdf         = "menu:exportPdf";
 	/// <summary>現在のタブの印刷画面を表示するよう通知する。</summary>
 	public const string MenuPrint             = "menu:print";
+	/// <summary>上部テーブルメニューで選択された操作をWeb側へ通知する。</summary>
+	public const string MenuTableAction       = "menu:tableAction";
 	/// <summary>現在のファイルを選択した文字コードで再読み込みするよう通知する。</summary>
 	public const string MenuReloadWithEncoding = "menu:reloadWithEncoding";
 	/// <summary>現在のエディタで検索パネルを開くよう通知する。</summary>
