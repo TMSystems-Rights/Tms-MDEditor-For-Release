@@ -89,6 +89,18 @@ describe('tableResize', () => {
 		expect(EXPORT_PREVIEW_CSS).not.toMatch(/\.cm-md-table\s*\{[^}]*min-width:\s*40%/s);
 	});
 
+	it('CodeMirror Widget 前後の表余白を0.5行分にする', () => {
+		expect(livePreviewCss).toMatch(
+			/div\.cm-md-table-wrap,[\s\S]*?div\.cm-md-html-table-wrap\s*\{[^}]*margin:\s*-0\.7em 0;[^}]*overflow-y:\s*hidden;/s,
+		);
+	});
+
+	it('テーブルWidgetの末尾へ重なる改行記号を非表示にする', () => {
+		expect(livePreviewCss).toMatch(
+			/\.cm-line\.cm-eol-marker-line:has\(> \.cm-md-table-wrap\)::after,[\s\S]*?\.cm-line\.cm-eol-marker-line:has\(> \.cm-md-html-table-wrap\)::after\s*\{[^}]*content:\s*none;/s,
+		);
+	});
+
 	it('列ごとの罫線ハンドルを14pxで置く', () => {
 		expect(TABLE_RESIZE_HANDLE_PX).toBe(14);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-col-resizer\s*\{[^}]*width:\s*14px;/s);

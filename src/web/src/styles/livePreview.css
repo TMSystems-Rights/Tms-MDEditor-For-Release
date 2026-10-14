@@ -345,7 +345,6 @@
 	display: block;
 	position: relative;
 	width: max-content;
-	margin: 0.35em 0;
 }
 
 /*
@@ -357,7 +356,22 @@
 .tms-mde-editor-host div.cm-md-table-wrap,
 .tms-mde-editor-host div.cm-md-html-table-wrap {
 	max-width: var(--tms-mde-table-max-width, 100%);
+	/*
+	 * 複数行を置換するインライン Widget の前後には CodeMirror が1行分の行ボックスを作る。
+	 * 行高 1.4em の半分を相殺し、表の上下にはそれぞれ0.5行分（0.7em）を残す。
+	 * CSSスニペットの表余白より確実に優先するため、div を含む詳細度で指定する。
+	 */
+	margin: -0.7em 0;
 	overflow-y: hidden;
+}
+
+/*
+ * 複数行テーブルの replace 後も、置換元の末尾行には EOL 用の行 Decoration が残る。
+ * 通常行の改行記号は維持し、テーブル Widget を含む行に重なる記号だけを隠す。
+ */
+.tms-mde-editor-host .cm-line.cm-eol-marker-line:has(> .cm-md-table-wrap)::after,
+.tms-mde-editor-host .cm-line.cm-eol-marker-line:has(> .cm-md-html-table-wrap)::after {
+	content: none;
 }
 
 .tms-mde-editor-host div.cm-md-table-wrap {
