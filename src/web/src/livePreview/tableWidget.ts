@@ -2948,6 +2948,9 @@ export function restoreTableCellFocus(
 		activateTableCell(cell, view);
 		cell.focus({ preventScroll: true });
 		setCellSelection(cell, offset, selectAll);
+		// 結合などで Widget を作り直した直後は、focusin で選択ヘッダー用の余白が付く。
+		// 編集DOMの復元前ではなく、フォーカスとキャレットを戻し終えた確定配置でも再計測する。
+		notifyTableGeometryChange(cell);
 	}, 0);
 }
 
@@ -3249,6 +3252,24 @@ export function clearTableSelectionRect(wrap: HTMLElement, table: HTMLTableEleme
 }
 
 /**
+ * 単一セルの編集位置へ同期する左クリックか判定する。
+ * Shift+左クリックは複数セル選択、右クリックは現在の選択を使うメニュー表示に任せる。
+ */
+export function shouldSyncTableCellEditorOnMouseDown(
+	event: Pick<MouseEvent, 'button' | 'shiftKey'>,
+): boolean {
+	return event.button === 0 && !event.shiftKey;
+}
+
+/** 複数セル選択中の右クリックで、ブラウザー既定のセルフォーカス移動を抑止する。 */
+export function shouldPreserveTableCellSelectionOnMouseDown(
+	event: Pick<MouseEvent, 'button'>,
+	hasSelection: boolean,
+): boolean {
+	return event.button === 2 && hasSelection;
+}
+
+/**
  * 複数セルなら塗り、1セルなら消す。
  * @param {HTMLElement} wrap 表ラッパー
  * @param {HTMLTableElement} table 表
@@ -3393,9 +3414,34 @@ export function hasTableSelectionPointerMoved(
 	return deltaX * deltaX + deltaY * deltaY >= threshold * threshold;
 }
 
-const TABLE_STRUCTURE_SELECTION_CLASS        = 'cm-md-table-structure-selected';
-const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS = 'cm-md-table-structure-controls-visible';
-const TABLE_GEOMETRY_CHANGE_EVENT            = 'tms-mde-table-geometry-change';
+const TABLE_STRUCTURE_SELECTION_CLASS         = 'cm-md-table-structure-selected';
+const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS  = 'cm-md-table-structure-controls-visible';
+const TABLE_GEOMETRY_CHANGE_EVENT             = 'tms-mde-table-geometry-change';
+const TABLE_STRUCTURE_CONTROLS_GUTTER_PX      = 26;
+
+/**
+ * 選択ヘッダーの基準となる表本体とラッパーの両方をサイズ監視する。
+ * ヘッダー表示時はラッパーへ余白が付き、表の位置だけが変わる場合がある。
+ */
+export function observeTableStructureGeometry(
+	observer: Pick<ResizeObserver, 'observe'>,
+	wrap: Element,
+	table: Element,
+): void {
+	observer.observe(wrap);
+	observer.observe(table);
+}
+
+/**
+ * 選択ヘッダー表示用の余白がレイアウト計測へ反映される前でも、表本体の基準位置を返す。
+ */
+export function resolveTableStructureOffset(
+	measuredOffset: number,
+	controlPadding: number,
+	controlsVisible: boolean,
+): number {
+	return controlsVisible ? Math.max(measuredOffset, controlPadding) : measuredOffset;
+}
 
 /**
  * セルの表示DOMを差し替えたことを、表外周の補助UIへ通知する。
@@ -3458,8 +3504,17 @@ function attachTableStructureControls(
 	const sync = (): void => {
 		const wrapRect   = wrap.getBoundingClientRect();
 		const tableRect  = table.getBoundingClientRect();
-		const tableLeft  = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
-		const tableTop   = resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop);
+		const visible    = !controls.hidden;
+		const tableLeft  = resolveTableStructureOffset(
+			resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft),
+			TABLE_STRUCTURE_CONTROLS_GUTTER_PX,
+			visible,
+		);
+		const tableTop   = resolveTableStructureOffset(
+			resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop),
+			TABLE_STRUCTURE_CONTROLS_GUTTER_PX,
+			visible,
+		);
 		const rightEdges = computeColumnRightEdges(collectTableCellBoxes(table), columnGroups.at(-1)!.end + 1);
 		controls.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector.is-column').forEach((button) => {
 			const range = readTableStructureRange(button);
@@ -3603,7 +3658,7 @@ function attachTableStructureControls(
 		}
 		sync();
 	});
-	observer.observe(table);
+	observeTableStructureGeometry(observer, wrap, table);
 	void view;
 }
 
@@ -4443,6 +4498,13 @@ export class TableWidget extends WidgetType {
 				skipEditFromImage = target instanceof Element && Boolean(target.closest('.cm-md-image-wrap'));
 				if (skipEditFromImage) {
 					event.stopPropagation();
+					return;
+				}
+				if (shouldPreserveTableCellSelectionOnMouseDown(event, Boolean(readTableSelectionRect(wrap)))) {
+					event.preventDefault();
+					return;
+				}
+				if (!shouldSyncTableCellEditorOnMouseDown(event)) {
 					return;
 				}
 

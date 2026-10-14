@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { history, undo } from '@codemirror/commands';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import {
 	collectBlockDecorationEntries,
@@ -43,6 +43,11 @@ import {
 	isBreakHtmlTag,
 	normalizeEditableCellDomText,
 	normalizeTableCellSource,
+	observeTableStructureGeometry,
+	resolveTableStructureOffset,
+	restoreTableCellFocus,
+	shouldPreserveTableCellSelectionOnMouseDown,
+	shouldSyncTableCellEditorOnMouseDown,
 	syncTableCellEditorSelection,
 	syncTableDataAfterCellChange,
 	TABLE_CELL_BREAK_CARET,
@@ -93,6 +98,101 @@ function findNode(state: EditorState, name: string) {
 }
 
 describe('blockWidgets', () => {
+	it('行列選択ヘッダーは表本体と余白が変わるラッパーの両方を監視する', () => {
+		const observed = [] as Element[];
+		const observer = {
+			/** @param {Element} element 監視対象 */
+			observe(element: Element) {
+				observed.push(element);
+			},
+		};
+		const wrap     = {} as Element;
+		const table    = {} as Element;
+
+		observeTableStructureGeometry(observer, wrap, table);
+
+		expect(observed).toEqual([wrap, table]);
+	});
+
+	it('選択ヘッダー表示直後は未反映の実測値よりCSS余白を優先する', () => {
+		expect(resolveTableStructureOffset(0, 26, true)).toBe(26);
+		expect(resolveTableStructureOffset(32, 26, true)).toBe(32);
+		expect(resolveTableStructureOffset(0, 26, false)).toBe(0);
+	});
+
+	it('複数セル選択と右クリックでは単一セル編集位置へ同期しない', () => {
+		expect(shouldSyncTableCellEditorOnMouseDown({ button: 0, shiftKey: false })).toBe(true);
+		expect(shouldSyncTableCellEditorOnMouseDown({ button: 0, shiftKey: true })).toBe(false);
+		expect(shouldSyncTableCellEditorOnMouseDown({ button: 2, shiftKey: false })).toBe(false);
+	});
+
+	it('複数セル選択中の右クリックでは既定のセルフォーカス移動を抑止する', () => {
+		expect(shouldPreserveTableCellSelectionOnMouseDown({ button: 2 }, true)).toBe(true);
+		expect(shouldPreserveTableCellSelectionOnMouseDown({ button: 2 }, false)).toBe(false);
+		expect(shouldPreserveTableCellSelectionOnMouseDown({ button: 0 }, true)).toBe(false);
+	});
+
+	it('セル結合後のフォーカス復元完了時に選択ヘッダーの配置を再計測する', () => {
+		vi.useFakeTimers();
+		try {
+			const calls: string[] = [];
+			const cell            = {
+				dataset: { editing: 'true' },
+				ownerDocument: { defaultView: { /**
+				 *
+				 */
+					getSelection: () => null } },
+				/**
+				 *
+				 */
+				closest: () => wrap,
+				/**
+				 *
+				 */
+				focus: () => calls.push('focus'),
+			};
+			const wrap            = {
+				dataset: { tableFrom: '10' },
+				/**
+				 *
+				 */
+				querySelector: () => cell,
+				/**
+				 *
+				 */
+				querySelectorAll: () => [],
+				/**
+				 *
+				 */
+				dispatchEvent: (event: Event) => {
+					calls.push(event.type);
+					return true;
+				},
+			};
+			let queryCount        = 0;
+			const view            = {
+				dom: {
+					/**
+					 *
+					 */
+					querySelector: () => {
+						queryCount += 1;
+						if (queryCount === 1) return null;
+						if (queryCount === 2) return wrap;
+						return cell;
+					},
+				},
+			};
+
+			restoreTableCellFocus(view as never, 10, { row: 1, column: 1 }, 0, false);
+			vi.runAllTimers();
+
+			expect(calls).toEqual(['focus', 'tms-mde-table-geometry-change']);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	afterEach(() => {
 		clearCellImageWidths();
 	});
