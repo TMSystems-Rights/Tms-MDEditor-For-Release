@@ -4,9 +4,17 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.11.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.11.2)
+最新リリース: [v1.12.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.12.0)
 
 ## 変更内容
+### v1.12.0 の主な変更
+
+- Markdownの見出し（h1～h6）ごとに本文を折りたたみ・展開し、その状態をファイル単位で保存できるようにする
+- HTML出力でも見出しの折りたたみとアウトラインからの展開・移動に対応し、PDF・印刷では常に全文を出力する
+- ライブプレビュー表の不要なスクロールバー、選択ヘッダーのずれ、クリック時の誤選択を修正する
+- ライブプレビュー表の上下余白を約0.5行分へ縮小し、表末尾に重なる改行記号を非表示にする
+- リポジトリ内テキストの改行ルールをCRLFへ統一する
+
 ### v1.11.2 の主な変更
 
 - タブをドラッグして、並べ替え、ペイン分割、別ウィンドウへの移動を行えない問題を修正する
