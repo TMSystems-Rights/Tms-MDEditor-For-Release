@@ -4937,12 +4937,28 @@ export class TableWidget extends WidgetType {
 				onPersist: view.state.readOnly
 					? undefined
 					: (layout, hit) => {
-						const tableFrom = resolveTableFromForPersist(view, wrap);
+						const activeCell = wrap.ownerDocument.activeElement instanceof HTMLElement
+							? wrap.ownerDocument.activeElement.closest<HTMLElement>(
+								'[data-table-row][data-table-column]',
+							)
+							: null;
+						const position   = activeCell && table.contains(activeCell)
+							? {
+								row   : Number(activeCell.dataset.tableRow),
+								column: Number(activeCell.dataset.tableColumn),
+							}
+							: null;
+						const caret      = activeCell && position
+							? getCellCaretOffset(activeCell)
+							: 0;
+						const tableFrom  = resolveTableFromForPersist(view, wrap);
 						if (tableFrom === null) {
 							return;
 						}
 
-						persistTableLayout(view, tableFrom, layout, hit);
+						if (persistTableLayout(view, tableFrom, layout, hit) && position) {
+							restoreTableCellFocus(view, tableFrom, position, caret, false);
+						}
 					},
 			});
 		}

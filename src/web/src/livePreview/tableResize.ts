@@ -26,8 +26,13 @@ const MIN_ROW_HEIGHT   = 24;
 const TABLE_HORIZONTAL_OVERFLOW_CLASS        = 'cm-md-table-horizontal-overflow';
 const TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX = 1;
 
+const TABLE_CELL_WRAP_CLASS = 'cm-md-table-cell-wrap';
+
 /** 列・行ハンドルのヒット幅（px） */
 export const TABLE_RESIZE_HANDLE_PX = 14;
+
+/** クリックとドラッグを区別する最小移動量（px） */
+export const TABLE_RESIZE_DRAG_THRESHOLD_PX = 4;
 
 const layouts = new Map<string, TableLayout>();
 
@@ -217,14 +222,17 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
 		table.style.width       = '';
 		clearColWidths(table);
 		clearRowHeights(table);
+		syncTableCellWrapping(table);
 		return;
 	}
 
-	table.classList.add('is-resized');
-	table.style.tableLayout = 'fixed';
-	const columns           = ensureColGroup(table, columnCount);
-	if (layout.widths && layout.widths.length > 0) {
-		let total = 0;
+	const hasWidths = Boolean(layout.widths?.length);
+	if (hasWidths) {
+		const columns = ensureColGroup(table, columnCount);
+
+		table.classList.add('is-resized');
+		table.style.tableLayout = 'fixed';
+		let total               = 0;
 		[...columns.children].forEach((column, index) => {
 			const width = layout.widths?.[index] ?? 0;
 			if (width > 0) {
@@ -236,6 +244,11 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
 			}
 		});
 		table.style.width = total > 0 ? `${total}px` : '';
+	} else {
+		table.classList.remove('is-resized');
+		table.style.tableLayout = '';
+		table.style.width       = '';
+		clearColWidths(table);
 	}
 
 	if (layout.heights && layout.heights.length > 0) {
@@ -245,7 +258,107 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
 				? `${clampRowHeight(height)}px`
 				: '';
 		});
+	} else {
+		clearRowHeights(table);
 	}
+
+	syncTableCellWrapping(table, hasWidths ? layout.widths : undefined);
+}
+
+/**
+ * 固定列幅から横へはみ出すセルだけを折り返す。
+ * @param {number} contentWidth セル内容の折り返し前の横幅
+ * @param {number} availableWidth セル内の利用可能幅
+ * @param {number} tolerance サブピクセル丸めの許容値
+ */
+export function shouldWrapTableCell(
+	contentWidth: number,
+	availableWidth: number,
+	tolerance = 1,
+): boolean {
+	return contentWidth > availableWidth + tolerance;
+}
+
+/** 固定列幅に収まらないセルだけへ折り返しクラスを付ける。 */
+function syncTableCellWrapping(table: HTMLTableElement, widths?: number[]): void {
+	const cells = [...table.querySelectorAll<HTMLElement>('th, td')];
+	cells.forEach((cell) => cell.classList.remove(TABLE_CELL_WRAP_CLASS));
+	if (!widths?.length) {
+		return;
+	}
+
+	cells.forEach((cell) => {
+		const tableCell       = cell as HTMLTableCellElement;
+		const column          = Number(tableCell.dataset.tableColumn) || 0;
+		const colspan         = Math.max(1, tableCell.colSpan || 1);
+		const fixedWidth      = widths
+			.slice(column, column + colspan)
+			.reduce((total, width) => total + clampColumnWidth(width), 0);
+		const style           = cell.ownerDocument.defaultView?.getComputedStyle(cell);
+		const contentWidth    = measureTableCellContentWidth(cell, style);
+		const padding         = Number.parseFloat(style?.paddingLeft ?? '0')
+			+ Number.parseFloat(style?.paddingRight ?? '0');
+		const availableWidth  = Math.max(0, fixedWidth - padding);
+		cell.classList.toggle(
+			TABLE_CELL_WRAP_CLASS,
+			shouldWrapTableCell(contentWidth, availableWidth),
+		);
+	});
+}
+
+/** セル文字列を折り返さない状態で測定する。セル内の block 要素幅には依存しない。 */
+function measureTableCellContentWidth(
+	cell: HTMLElement,
+	style: CSSStyleDeclaration | undefined,
+): number {
+	const probe = cell.ownerDocument.createElement('span');
+
+	probe.textContent           = cell.textContent ?? '';
+	probe.style.position        = 'fixed';
+	probe.style.left            = '-100000px';
+	probe.style.top             = '0';
+	probe.style.display         = 'inline-block';
+	probe.style.visibility      = 'hidden';
+	probe.style.pointerEvents   = 'none';
+	probe.style.whiteSpace      = 'pre';
+	probe.style.width           = 'max-content';
+	probe.style.maxWidth        = 'none';
+	probe.style.font            = style?.font ?? '';
+	probe.style.letterSpacing   = style?.letterSpacing ?? '';
+	probe.style.wordSpacing     = style?.wordSpacing ?? '';
+	probe.style.textTransform   = style?.textTransform ?? '';
+	cell.ownerDocument.body.appendChild(probe);
+	const width = probe.getBoundingClientRect().width;
+	probe.remove();
+	return width;
+}
+
+/**
+ * リサイズ対象の軸で、クリックではなくドラッグとみなす距離を移動したか判定する。
+ */
+export function hasTableResizePointerMoved(
+	hit: TableResizeHit,
+	start: { x: number; y: number },
+	current: { x: number; y: number },
+	threshold = TABLE_RESIZE_DRAG_THRESHOLD_PX,
+): boolean {
+	const delta = hit.kind === 'col' ? current.x - start.x : current.y - start.y;
+	return Math.abs(delta) >= threshold;
+}
+
+/**
+ * 操作対象以外の寸法は、既に保存済みの場合だけドラッグ中の固定値へ含める。
+ */
+export function resolveActiveTableResizeLayout(
+	hit: TableResizeHit,
+	measured: TableLayout,
+	hadPersistedWidths: boolean,
+	hadPersistedHeights: boolean,
+): TableLayout {
+	return {
+		widths : hit.kind === 'col' || hadPersistedWidths ? measured.widths : undefined,
+		heights: hit.kind === 'row' || hadPersistedHeights ? measured.heights : undefined,
+	};
 }
 
 /**
@@ -493,23 +606,20 @@ function startTableResize(
 	onSync: () => void,
 	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void,
 ): void {
-	const measured = measureTableLayout(table);
-	const widths   = [...(measured.widths ?? [])];
-	const heights  = [...(measured.heights ?? [])];
-	const startX   = event.clientX;
-	const startY   = event.clientY;
-	const startW   = widths[hit.index] ?? MIN_COLUMN_WIDTH;
-	const startH   = heights[hit.index] ?? MIN_ROW_HEIGHT;
-	const handle   = event.currentTarget;
+	const measured            = measureTableLayout(table);
+	const widths              = [...(measured.widths ?? [])];
+	const heights             = [...(measured.heights ?? [])];
+	const startX              = event.clientX;
+	const startY              = event.clientY;
+	const startW              = widths[hit.index] ?? MIN_COLUMN_WIDTH;
+	const startH              = heights[hit.index] ?? MIN_ROW_HEIGHT;
+	const handle              = event.currentTarget;
+	const start               = { x: startX, y: startY };
+	const hadPersistedWidths  = table.classList.contains('is-resized');
+	const hadPersistedHeights = [...table.rows].some((row) => row.style.height !== '');
 
-	if (document.activeElement instanceof HTMLElement && table.contains(document.activeElement)) {
-		document.activeElement.blur();
-	}
-
-	applyTableLayout(table, { widths, heights });
-	table.classList.add('is-resizing');
+	let resizing = false;
 	if (handle instanceof HTMLElement) {
-		handle.classList.add('is-active');
 		handle.setPointerCapture(event.pointerId);
 	}
 
@@ -518,13 +628,33 @@ function startTableResize(
 	 * @returns {void}
 	 */
 	const onMove = (moveEvent: PointerEvent): void => {
+		if (!resizing && !hasTableResizePointerMoved(hit, start, {
+			x: moveEvent.clientX,
+			y: moveEvent.clientY,
+		})) {
+			return;
+		}
+
+		if (!resizing) {
+			resizing = true;
+			table.classList.add('is-resizing');
+			if (handle instanceof HTMLElement) {
+				handle.classList.add('is-active');
+			}
+		}
+
 		if (hit.kind === 'col') {
 			widths[hit.index] = clampColumnWidth(startW + (moveEvent.clientX - startX));
 		} else {
 			heights[hit.index] = clampRowHeight(startH + (moveEvent.clientY - startY));
 		}
 
-		applyTableLayout(table, { widths, heights });
+		applyTableLayout(table, resolveActiveTableResizeLayout(
+			hit,
+			{ widths, heights },
+			hadPersistedWidths,
+			hadPersistedHeights,
+		));
 	};
 
 	/**
@@ -532,9 +662,13 @@ function startTableResize(
 	 * @returns {void}
 	 */
 	const onUp = (endEvent: PointerEvent): void => {
-		table.classList.remove('is-resizing');
+		if (resizing) {
+			table.classList.remove('is-resizing');
+		}
 		if (handle instanceof HTMLElement) {
-			handle.classList.remove('is-active');
+			if (resizing) {
+				handle.classList.remove('is-active');
+			}
 			if (handle.hasPointerCapture(endEvent.pointerId)) {
 				handle.releasePointerCapture(endEvent.pointerId);
 			}
@@ -544,8 +678,10 @@ function startTableResize(
 			handle.removeEventListener('pointercancel', onUp);
 		}
 
-		onSync();
-		onPersist?.({ widths, heights }, hit);
+		if (resizing) {
+			onSync();
+			onPersist?.({ widths, heights }, hit);
+		}
 	};
 
 	if (handle instanceof HTMLElement) {

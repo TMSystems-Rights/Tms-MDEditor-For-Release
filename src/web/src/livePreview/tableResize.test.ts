@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EXPORT_PREVIEW_CSS } from '../export/exportCss';
 import {
+	TABLE_RESIZE_DRAG_THRESHOLD_PX,
 	TABLE_RESIZE_HANDLE_PX,
 	clampColumnWidth,
 	clampRowHeight,
@@ -12,17 +13,21 @@ import {
 	computeColumnWidths,
 	forgetTableLayout,
 	getTableLayoutKey,
+	hasTableResizePointerMoved,
 	isTableHorizontallyOverflowing,
 	recallTableLayout,
 	rememberTableLayout,
+	resolveActiveTableResizeLayout,
 	resolveTableResizeHit,
 	resolveTableRelativeOffset,
+	shouldWrapTableCell,
 } from './tableResize';
 
-const livePreviewCss = readFileSync(
+const livePreviewCss    = readFileSync(
 	join(dirname(fileURLToPath(import.meta.url)), '../styles/livePreview.css'),
 	'utf8',
 );
+const tableResizeSource = readFileSync(fileURLToPath(new URL('./tableResize.ts', import.meta.url)), 'utf8');
 
 describe('tableResize', () => {
 	afterEach(() => {
@@ -89,6 +94,72 @@ describe('tableResize', () => {
 		expect(EXPORT_PREVIEW_CSS).not.toMatch(/\.cm-md-table\s*\{[^}]*min-width:\s*40%/s);
 	});
 
+	it('リサイズ対象軸を4px以上動かした場合だけドラッグとして扱う', () => {
+		expect(TABLE_RESIZE_DRAG_THRESHOLD_PX).toBe(4);
+		expect(hasTableResizePointerMoved(
+			{ kind: 'col', index: 0 },
+			{ x: 100, y: 100 },
+			{ x: 103, y: 140 },
+		)).toBe(false);
+		expect(hasTableResizePointerMoved(
+			{ kind: 'col', index: 0 },
+			{ x: 100, y: 100 },
+			{ x: 104, y: 100 },
+		)).toBe(true);
+		expect(hasTableResizePointerMoved(
+			{ kind: 'row', index: 0 },
+			{ x: 100, y: 100 },
+			{ x: 140, y: 103 },
+		)).toBe(false);
+		expect(hasTableResizePointerMoved(
+			{ kind: 'row', index: 0 },
+			{ x: 100, y: 100 },
+			{ x: 100, y: 96 },
+		)).toBe(true);
+	});
+
+	it('セル編集中のリサイズ開始時にフォーカスを外さない', () => {
+		expect(tableResizeSource).not.toMatch(/activeElement\.blur\(\)/);
+	});
+
+	it('行高変更では未保存の列幅を固定レイアウトへ取り込まない', () => {
+		const measured = { widths: [100, 120], heights: [40, 48] };
+		expect(resolveActiveTableResizeLayout(
+			{ kind: 'row', index: 1 },
+			measured,
+			false,
+			false,
+		)).toEqual({ widths: undefined, heights: [40, 48] });
+		expect(resolveActiveTableResizeLayout(
+			{ kind: 'col', index: 1 },
+			measured,
+			false,
+			false,
+		)).toEqual({ widths: [100, 120], heights: undefined });
+	});
+
+	it('既に保存済みの列幅・行高は別軸の変更中も維持する', () => {
+		const measured = { widths: [100, 120], heights: [40, 48] };
+		expect(resolveActiveTableResizeLayout(
+			{ kind: 'row', index: 1 },
+			measured,
+			true,
+			false,
+		)).toEqual({ widths: [100, 120], heights: [40, 48] });
+		expect(resolveActiveTableResizeLayout(
+			{ kind: 'col', index: 1 },
+			measured,
+			false,
+			true,
+		)).toEqual({ widths: [100, 120], heights: [40, 48] });
+	});
+
+	it('固定列幅から実際にはみ出すセルだけを折り返す', () => {
+		expect(shouldWrapTableCell(88, 88)).toBe(false);
+		expect(shouldWrapTableCell(89, 88)).toBe(false);
+		expect(shouldWrapTableCell(90, 88)).toBe(true);
+	});
+
 	it('CodeMirror Widget 前後の表余白を0.5行分にする', () => {
 		expect(livePreviewCss).toMatch(
 			/div\.cm-md-table-wrap,[\s\S]*?div\.cm-md-html-table-wrap\s*\{[^}]*margin:\s*-0\.7em 0;[^}]*overflow-y:\s*hidden;/s,
@@ -133,8 +204,9 @@ describe('tableResize', () => {
 		expect(EXPORT_PREVIEW_CSS).not.toMatch(/\.tms-mde-export\s*\{[^}]*max-width:\s*52rem;/s);
 	});
 
-	it('列幅を保存したセルはエディタの折り返しがオフでも列内で折り返す', () => {
-		expect(livePreviewCss).toMatch(/\.cm-md-table\.is-resized th,[\s\S]*?white-space:\s*pre-wrap;/);
-		expect(livePreviewCss).toMatch(/\.cm-md-table\.is-resized td\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
+	it('固定列幅からはみ出すセルだけを列内で折り返す', () => {
+		expect(livePreviewCss).not.toMatch(/\.cm-md-table\.is-resized th/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-cell-wrap\s*\{[^}]*white-space:\s*pre-wrap;/s);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-cell-wrap\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
 	});
 });

@@ -4,9 +4,17 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.12.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.12.0)
+最新リリース: [v1.12.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.12.1)
 
 ## 変更内容
+### v1.12.1 の主な変更
+
+- 上部メニューへ「テーブル」を追加し、表の挿入と行・列・セル操作を選択状態に応じて実行できるようにする
+- 複数セル選択後の右クリックおよびセル結合で、行・列選択ヘッダーの位置や選択状態が崩れる問題を修正する
+- リサイズハンドルをクリックしただけで表レイアウトや見出しの折り返しが変化する問題を修正する
+- 1列だけを変更した際に他列の見出しまで折り返される問題を修正し、内容が列幅を超えるセルだけを折り返す
+- セル編集中も列幅・行高をドラッグでき、確定後に同じセルの編集状態とキャレットを維持する
+
 ### v1.12.0 の主な変更
 
 - Markdownの見出し（h1～h6）ごとに本文を折りたたみ・展開し、その状態をファイル単位で保存できるようにする

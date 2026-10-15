@@ -505,11 +505,10 @@
 }
 
 /*
- * 列幅を保存したセルは、エディタの折り返しがオフでも列幅の中で折り返す。
+ * 固定列幅から実際にはみ出すセルは、エディタの折り返しがオフでも列幅の中で折り返す。
  * .cm-content は white-space: pre を継承し、overflow-wrap だけでは改行されない。
  */
-.tms-mde-editor-host .cm-md-table.is-resized th,
-.tms-mde-editor-host .cm-md-table.is-resized td {
+.tms-mde-editor-host .cm-md-table .cm-md-table-cell-wrap {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	word-break: break-word;
