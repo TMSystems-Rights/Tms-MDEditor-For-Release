@@ -288,17 +288,17 @@ function syncTableCellWrapping(table: HTMLTableElement, widths?: number[]): void
 	}
 
 	cells.forEach((cell) => {
-		const tableCell       = cell as HTMLTableCellElement;
-		const column          = Number(tableCell.dataset.tableColumn) || 0;
-		const colspan         = Math.max(1, tableCell.colSpan || 1);
-		const fixedWidth      = widths
+		const tableCell      = cell as HTMLTableCellElement;
+		const column         = Number(tableCell.dataset.tableColumn) || 0;
+		const colspan        = Math.max(1, tableCell.colSpan || 1);
+		const fixedWidth     = widths
 			.slice(column, column + colspan)
 			.reduce((total, width) => total + clampColumnWidth(width), 0);
-		const style           = cell.ownerDocument.defaultView?.getComputedStyle(cell);
-		const contentWidth    = measureTableCellContentWidth(cell, style);
-		const padding         = Number.parseFloat(style?.paddingLeft ?? '0')
+		const style          = cell.ownerDocument.defaultView?.getComputedStyle(cell);
+		const contentWidth   = measureTableCellContentWidth(cell, style);
+		const padding        = Number.parseFloat(style?.paddingLeft ?? '0')
 			+ Number.parseFloat(style?.paddingRight ?? '0');
-		const availableWidth  = Math.max(0, fixedWidth - padding);
+		const availableWidth = Math.max(0, fixedWidth - padding);
 		cell.classList.toggle(
 			TABLE_CELL_WRAP_CLASS,
 			shouldWrapTableCell(contentWidth, availableWidth),
@@ -313,20 +313,20 @@ function measureTableCellContentWidth(
 ): number {
 	const probe = cell.ownerDocument.createElement('span');
 
-	probe.textContent           = cell.textContent ?? '';
-	probe.style.position        = 'fixed';
-	probe.style.left            = '-100000px';
-	probe.style.top             = '0';
-	probe.style.display         = 'inline-block';
-	probe.style.visibility      = 'hidden';
-	probe.style.pointerEvents   = 'none';
-	probe.style.whiteSpace      = 'pre';
-	probe.style.width           = 'max-content';
-	probe.style.maxWidth        = 'none';
-	probe.style.font            = style?.font ?? '';
-	probe.style.letterSpacing   = style?.letterSpacing ?? '';
-	probe.style.wordSpacing     = style?.wordSpacing ?? '';
-	probe.style.textTransform   = style?.textTransform ?? '';
+	probe.textContent         = cell.textContent ?? '';
+	probe.style.position      = 'fixed';
+	probe.style.left          = '-100000px';
+	probe.style.top           = '0';
+	probe.style.display       = 'inline-block';
+	probe.style.visibility    = 'hidden';
+	probe.style.pointerEvents = 'none';
+	probe.style.whiteSpace    = 'pre';
+	probe.style.width         = 'max-content';
+	probe.style.maxWidth      = 'none';
+	probe.style.font          = style?.font ?? '';
+	probe.style.letterSpacing = style?.letterSpacing ?? '';
+	probe.style.wordSpacing   = style?.wordSpacing ?? '';
+	probe.style.textTransform = style?.textTransform ?? '';
 	cell.ownerDocument.body.appendChild(probe);
 	const width = probe.getBoundingClientRect().width;
 	probe.remove();

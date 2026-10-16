@@ -2377,8 +2377,8 @@ export class AppController {
 
 	/** ネイティブのテーブルメニューから、右クリックと共通の処理を実行する。 */
 	private async handleNativeTableMenuAction(action: TableMenuAction): Promise<void> {
-		const tab      = this.getActiveTab();
-		const view     = this.editorView;
+		const tab  = this.getActiveTab();
+		const view = this.editorView;
 		if (!tab || !view) return;
 		const viewMode = this.panes.get(this.activePaneId)?.viewModes.get(tab.tabId) ?? tab.viewMode;
 		const snapshot = snapshotActiveTableMenu(view);

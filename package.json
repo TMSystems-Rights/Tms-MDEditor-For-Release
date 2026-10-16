@@ -10,7 +10,7 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",
-		"@tms/eslint-plugin-align-assignments": "https://github.com/TMSystems-Rights/tms-eslint-plugin-align-assignments/releases/download/v1.0.2/tms-eslint-plugin-align-assignments-1.0.2.tgz",
+		"@tms/eslint-plugin-align-assignments": "https://github.com/TMSystems-Rights/tms-eslint-plugin-align-assignments/releases/download/v1.0.3/tms-eslint-plugin-align-assignments-1.0.3.tgz",
 		"@types/node": "^22.15.30",
 		"eslint": "^9.39.4",
 		"eslint-plugin-jsdoc": "^61.7.1",

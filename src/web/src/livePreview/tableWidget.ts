@@ -3319,9 +3319,9 @@ function attachTableCellSelection(
 	data: TableData,
 	view: EditorView,
 ): void {
-	let anchor: TableCellPosition | null              = null;
-	let dragging                                      = false;
-	let dragOrigin: { x: number; y: number } | null   = null;
+	let anchor: TableCellPosition | null            = null;
+	let dragging                                    = false;
+	let dragOrigin: { x: number; y: number } | null = null;
 
 	/**
 	 * @param {EventTarget | null} target 対象
@@ -3414,10 +3414,10 @@ export function hasTableSelectionPointerMoved(
 	return deltaX * deltaX + deltaY * deltaY >= threshold * threshold;
 }
 
-const TABLE_STRUCTURE_SELECTION_CLASS         = 'cm-md-table-structure-selected';
-const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS  = 'cm-md-table-structure-controls-visible';
-const TABLE_GEOMETRY_CHANGE_EVENT             = 'tms-mde-table-geometry-change';
-const TABLE_STRUCTURE_CONTROLS_GUTTER_PX      = 26;
+const TABLE_STRUCTURE_SELECTION_CLASS        = 'cm-md-table-structure-selected';
+const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS = 'cm-md-table-structure-controls-visible';
+const TABLE_GEOMETRY_CHANGE_EVENT            = 'tms-mde-table-geometry-change';
+const TABLE_STRUCTURE_CONTROLS_GUTTER_PX     = 26;
 
 /**
  * 選択ヘッダーの基準となる表本体とラッパーの両方をサイズ監視する。
