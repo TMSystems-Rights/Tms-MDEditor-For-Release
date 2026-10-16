@@ -281,7 +281,7 @@ Get-Process -Name TmsMdEditor -ErrorAction SilentlyContinue
 
 `gh` で Release に成果物をアップロードします。公開リポジトリでは自動更新用の GitHub Release 取得にトークンは不要です。
 
-AppsLauncher / GREP と同じく、通常の `GH_TOKEN` は読み取り専用、`GITHUB_RELEASE_TOKEN` は Release 作成・asset アップロード用の読み書きトークンとして使い分けます。Release 操作中だけ `GITHUB_RELEASE_TOKEN` を `GH_TOKEN` に割り当て、処理後は必ず元の値へ復元します。
+通常時は OS 環境変数 `GH_TOKEN` を設定しません。Release 作成・asset アップロードには読み書き用の `GITHUB_RELEASE_TOKEN` を使用し、Release 操作中だけ `GH_TOKEN` に割り当て、処理後は必ず元の値へ復元します（元々未設定なら削除します）。
 
 ```powershell
 $props = [xml](Get-Content Directory.Build.props)

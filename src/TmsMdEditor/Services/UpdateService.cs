@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.Win32;
 using TmsMdEditor.Models;
 
 namespace TmsMdEditor.Services;
@@ -30,7 +29,6 @@ internal sealed class UpdateService : IDisposable
 	private readonly Logger _logger;
 	private readonly HttpClient _httpClient;
 	private readonly bool _ownsHttpClient;
-	private readonly Func<string?> _tokenResolver;
 	private readonly string _currentVersion;
 	private CancellationTokenSource? _downloadCancellation;
 
@@ -39,14 +37,12 @@ internal sealed class UpdateService : IDisposable
 	/// </summary>
 	/// <param name="logger">ロガー</param>
 	/// <param name="httpClient">HTTP クライアント（テスト用に差し替え可）</param>
-	/// <param name="tokenResolver">トークン取得処理（テスト用に差し替え可）</param>
 	/// <param name="currentVersion">現行バージョン（テスト用に差し替え可）</param>
-	public UpdateService(Logger logger, HttpClient? httpClient = null, Func<string?>? tokenResolver = null, string? currentVersion = null)
+	public UpdateService(Logger logger, HttpClient? httpClient = null, string? currentVersion = null)
 	{
 		_logger         = logger;
 		_httpClient     = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 		_ownsHttpClient = httpClient is null;
-		_tokenResolver  = tokenResolver ?? ResolveGitHubToken;
 		_currentVersion = NormalizeVersion(currentVersion ?? GetAssemblyInformationalVersion());
 	}
 
@@ -60,11 +56,9 @@ internal sealed class UpdateService : IDisposable
 	{
 		// ポータブル版は自動適用しないため、資産を要求せずタグ比較だけ行う。
 		string mode = tagNameOnly ? "portable" : "installer";
-		string? token = _tokenResolver();
-
 		try
 		{
-			using HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/latest", token);
+			using HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
 			using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
 			if (!response.IsSuccessStatusCode) return Failure($"更新情報の取得に失敗しました（HTTP {(int)response.StatusCode}）。", mode);
 
@@ -108,8 +102,6 @@ internal sealed class UpdateService : IDisposable
 			return new UpdateDownloadResult { Message = "インストーラー資産が見つかりません。" };
 		}
 
-		string? token = _tokenResolver();
-
 		// 同時に複数の更新を走らせず、新しい要求が以前のダウンロードを引き継がないようにする。
 		CancelDownload();
 		using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -119,7 +111,7 @@ internal sealed class UpdateService : IDisposable
 
 		try
 		{
-			using HttpRequestMessage request = CreateDownloadRequest(release, token);
+			using HttpRequestMessage request = CreateDownloadRequest(release);
 			using HttpResponseMessage response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedCancellation.Token).ConfigureAwait(false);
 			if (!response.IsSuccessStatusCode) return new UpdateDownloadResult { Message = $"インストーラーのダウンロードに失敗しました（HTTP {(int)response.StatusCode}）。" };
 
@@ -201,17 +193,16 @@ internal sealed class UpdateService : IDisposable
 
 	private UpdateCheckResult Failure(string message, string mode = "installer") => new() { Status = "error", CurrentVersion = _currentVersion, Message = message, Mode = mode };
 
-	private static HttpRequestMessage CreateApiRequest(HttpMethod method, string relativePath, string? token)
+	private static HttpRequestMessage CreateApiRequest(HttpMethod method, string relativePath)
 	{
 		var request = new HttpRequestMessage(method, GitHubApiBase + relativePath);
-		ApplyOptionalAuthorization(request, token);
 		request.Headers.UserAgent.Add(new ProductInfoHeaderValue("TMS-MDEditor", "1.0"));
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 		request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
 		return request;
 	}
 
-	private static HttpRequestMessage CreateDownloadRequest(UpdateReleaseInfo release, string? token)
+	private static HttpRequestMessage CreateDownloadRequest(UpdateReleaseInfo release)
 	{
 		if (!string.IsNullOrWhiteSpace(release.InstallerDownloadUrl))
 		{
@@ -221,16 +212,11 @@ internal sealed class UpdateService : IDisposable
 			return publicRequest;
 		}
 
-		// 公開URLがないPrivate Releaseでは、API assetエンドポイントをトークン付きで取得する。
-		HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/assets/{release.InstallerAssetId}", token);
+		// 公開URLがない場合も、公開リポジトリのAPI assetエンドポイントから取得する。
+		HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/assets/{release.InstallerAssetId}");
 		request.Headers.Accept.Clear();
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
 		return request;
-	}
-
-	private static void ApplyOptionalAuthorization(HttpRequestMessage request, string? token)
-	{
-		if (!string.IsNullOrWhiteSpace(token)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 	}
 
 	private static UpdateReleaseInfo ParseRelease(JsonElement root)
@@ -275,20 +261,4 @@ internal sealed class UpdateService : IDisposable
 		};
 	}
 
-	private static string? ResolveGitHubToken()
-	{
-		// 実行プロセスの一時設定を優先し、なければWindowsのユーザー環境変数を参照する。
-		string? processValue = Environment.GetEnvironmentVariable("GH_TOKEN", EnvironmentVariableTarget.Process);
-		if (!string.IsNullOrWhiteSpace(processValue)) return processValue.Trim();
-
-		try
-		{
-			using RegistryKey? environmentKey = Registry.CurrentUser.OpenSubKey("Environment");
-			return environmentKey?.GetValue("GH_TOKEN") as string is { } userValue && !string.IsNullOrWhiteSpace(userValue) ? userValue.Trim() : null;
-		}
-		catch (Exception)
-		{
-			return null;
-		}
-	}
 }

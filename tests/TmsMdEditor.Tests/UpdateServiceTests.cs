@@ -16,7 +16,7 @@ public sealed class UpdateServiceTests
 	}
 
 	[Fact]
-	public async Task CheckAsync_returns_available_release_and_uses_bearer_authentication()
+	public async Task CheckAsync_returns_available_release_without_authentication()
 	{
 		var handler = new StubHttpMessageHandler(_ => JsonResponse("""
 		{
@@ -27,7 +27,7 @@ public sealed class UpdateServiceTests
 		}
 		"""));
 		using var client = new HttpClient(handler);
-		using var service = new UpdateService(new Logger(), client, () => "test-token", "1.0.0");
+		using var service = new UpdateService(new Logger(), client, "1.0.0");
 
 		UpdateCheckResult result = await service.CheckAsync();
 
@@ -35,26 +35,6 @@ public sealed class UpdateServiceTests
 		Assert.Equal("1.2.0", result.Release?.Version);
 		Assert.Equal(42, result.Release?.InstallerAssetId);
 		Assert.Equal("https://example.test/TmsMdEditor-1.2.0-setup.exe", result.Release?.InstallerDownloadUrl);
-		Assert.Equal("Bearer", handler.LastRequest?.Headers.Authorization?.Scheme);
-		Assert.Equal("test-token", handler.LastRequest?.Headers.Authorization?.Parameter);
-	}
-
-	[Fact]
-	public async Task CheckAsync_sends_request_without_authorization_when_token_is_missing()
-	{
-		var handler = new StubHttpMessageHandler(_ => JsonResponse("""
-		{
-		  "tag_name": "v1.0.0",
-		  "html_url": "https://example.test/releases/v1.0.0",
-		  "assets": [{ "id": 7, "name": "TMS-MDEditor-1.0.0-setup.exe", "size": 8, "browser_download_url": "https://example.test/TMS-MDEditor-1.0.0-setup.exe" }]
-		}
-		"""));
-		using var client = new HttpClient(handler);
-		using var service = new UpdateService(new Logger(), client, () => null, "1.0.0");
-
-		UpdateCheckResult result = await service.CheckAsync();
-
-		Assert.Equal("not-available", result.Status);
 		Assert.Null(handler.LastRequest?.Headers.Authorization);
 	}
 
@@ -69,7 +49,7 @@ public sealed class UpdateServiceTests
 		}
 		"""));
 		using var client = new HttpClient(handler);
-		using var service = new UpdateService(new Logger(), client, () => null, "1.0.0");
+		using var service = new UpdateService(new Logger(), client, "1.0.0");
 
 		UpdateCheckResult result = await service.CheckAsync(tagNameOnly: true);
 
@@ -89,7 +69,7 @@ public sealed class UpdateServiceTests
 			Content = new ByteArrayContent(content),
 		});
 		using var client = new HttpClient(handler);
-		using var service = new UpdateService(new Logger(), client, () => null, "1.0.0");
+		using var service = new UpdateService(new Logger(), client, "1.0.0");
 		var release = new UpdateReleaseInfo
 		{
 			Version              = "1.2.0",
