@@ -147,6 +147,24 @@ public class FileServiceTests : IDisposable
 	}
 
 	/// <summary>
+	/// 相対パスの画像は、バイトを読まず絶対パスだけを返す
+	/// </summary>
+	[Fact]
+	public void ResolveLocalImage_returns_path_without_data_url()
+	{
+		string notePath = Path.Combine(_tempRoot, "note.md");
+		string imagePath = Path.Combine(_tempRoot, "pic.png");
+		File.WriteAllText(notePath, "# note");
+		File.WriteAllBytes(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+		ReadImageResult result = _fileService.ResolveLocalImage("pic.png", notePath, embed: null);
+
+		Assert.True(result.Ok);
+		Assert.Null(result.DataUrl);
+		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
+	}
+
+	/// <summary>
 	/// サブディレクトリにある埋め込み画像を、ファイル名からその絶対パスへ解決する
 	/// </summary>
 	[Fact]

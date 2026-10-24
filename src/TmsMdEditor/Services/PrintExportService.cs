@@ -3,10 +3,12 @@
 // ==============================================
 
 // 印刷用の WebView2 を親コントロールの外に 1 つ所有する
-// 呼び出し元は自己完結 HTML を渡し、画面のエディタ用 WebView とはユーザーデータを分けておく
+// HTML は一時フォルダへ書き、仮想ホストから開く。画像は Data URL にせず media へコピーする
 
+using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using TmsMdEditor.Bridge;
 using TmsMdEditor.Models;
 
 namespace TmsMdEditor.Services;
@@ -22,6 +24,47 @@ internal sealed class PrintExportService : IDisposable
 	// ==============================================
 
 	/// <summary>
+	/// 印刷用文書を配信する仮想ホスト。編集用の app.tms-mdeditor とは別にする
+	/// </summary>
+	private const string PrintVirtualHost = "print.tms-mdeditor";
+
+	/// <summary>
+	/// 文書と画像の読み込みを待つ上限。秒
+	/// </summary>
+	private const int LoadTimeoutSeconds = 30;
+
+	/// <summary>
+	/// 画像の完了を再確認する間隔。ミリ秒
+	/// </summary>
+	private const int ImagePollMilliseconds = 50;
+
+	/// <summary>
+	/// ローカル画像が読めたかを返すスクリプト。結果は ready、pending、broken のいずれか
+	/// </summary>
+	private const string ImageReadyScript = """
+		(() => {
+			const images = Array.from(document.images);
+			const localBroken = images.some((img) => {
+				const src = img.getAttribute('src') || '';
+				if (!src.startsWith('media/') || !img.complete) {
+					return false;
+				}
+
+				if (src.toLowerCase().endsWith('.svg')) {
+					return false;
+				}
+
+				return img.naturalWidth === 0;
+			});
+			if (localBroken) {
+				return 'broken';
+			}
+
+			return images.every((img) => img.complete) ? 'ready' : 'pending';
+		})()
+		""";
+
+	/// <summary>
 	/// 隠し WebView を載せる親。このサービスは親を破棄しない
 	/// </summary>
 	private readonly Control _owner;
@@ -35,6 +78,11 @@ internal sealed class PrintExportService : IDisposable
 	/// 画面外に置く印刷用 WebView。未作成、または破棄後は null。2 回目以降の要求で再利用する
 	/// </summary>
 	private WebView2? _view;
+
+	/// <summary>
+	/// いま仮想ホストへ割り当てている一時フォルダ。印刷ダイアログのあいだ残し、次の出力か破棄で消す
+	/// </summary>
+	private string? _stagedDirectory;
 
 	/// <summary>
 	/// Dispose を二重に実行しない印。true のあと WebView は外してある
@@ -57,23 +105,44 @@ internal sealed class PrintExportService : IDisposable
 	// ==============================================
 
 	/// <summary>
-	/// HTML を A4 の PDF ファイルへ書く。背景色は印刷し、ヘッダーとフッターは付けない
+	/// ブリッジ要求から HTML、保存先、画像一覧を読む
 	/// </summary>
-	/// <param name="html">NavigateToString へ渡す自己完結 HTML</param>
-	/// <param name="filePath">PDF の保存先。空白だけなら失敗。親ディレクトリが無ければ作る</param>
-	/// <returns>出力の成否。失敗時は Message に理由を入れ、例外は出さない</returns>
-	public async Task<ExportActionResult> PrintToPdfAsync(string html, string filePath)
+	/// <param name="paramsElement">html、filePath、media。media が無ければ画像なし</param>
+	/// <returns>印刷または PDF へ渡す要求。html が無いときは例外</returns>
+	public static PrintDocumentRequest ReadRequest(JsonElement paramsElement)
 	{
-		if (string.IsNullOrWhiteSpace(filePath))
+		string html = paramsElement.GetProperty(BridgeProperty.Html).GetString() ?? string.Empty;
+		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
+			? filePathElement.GetString() ?? string.Empty
+			: string.Empty;
+
+		return new PrintDocumentRequest
+		{
+			Html     = html,
+			FilePath = filePath,
+			Media    = ReadMedia(paramsElement),
+		};
+	}
+
+	/// <summary>
+	/// HTML を A4 の PDF ファイルへ書く。背景色は印刷し、ヘッダーとフッターは付けない
+	/// 一時フォルダは書き終えたら消す
+	/// </summary>
+	/// <param name="request">HTML、保存先、コピーする画像。保存先が空白だけなら失敗</param>
+	/// <returns>出力の成否。失敗時は Message に理由を入れ、例外は出さない</returns>
+	public async Task<ExportActionResult> PrintToPdfAsync(PrintDocumentRequest request)
+	{
+		if (string.IsNullOrWhiteSpace(request.FilePath))
 		{
 			return new ExportActionResult { Success = false, Message = "保存先が指定されていません。" };
 		}
 
+		string? loadedDirectory = null;
 		try
 		{
-			CoreWebView2 core = await EnsureCoreAsync().ConfigureAwait(true);
-			await NavigateHtmlAsync(core, html).ConfigureAwait(true);
-			string fullPath = Path.GetFullPath(filePath);
+			CoreWebView2 core = await LoadDocumentAsync(request).ConfigureAwait(true);
+			loadedDirectory = _stagedDirectory;
+			string fullPath = Path.GetFullPath(request.FilePath);
 			string? directory = Path.GetDirectoryName(fullPath);
 			if (!string.IsNullOrWhiteSpace(directory))
 			{
@@ -100,24 +169,38 @@ internal sealed class PrintExportService : IDisposable
 			});
 			return new ExportActionResult { Success = false, Message = ex.Message };
 		}
+		finally
+		{
+			if (loadedDirectory is not null)
+			{
+				ReleaseStagedDirectory();
+			}
+		}
 	}
 
 	/// <summary>
 	/// HTML を読み、OS の印刷ダイアログを開く。印刷の完了は待たない
+	/// ダイアログが画像を読むあいだ、一時フォルダは残す
 	/// </summary>
-	/// <param name="html">NavigateToString へ渡す自己完結 HTML</param>
+	/// <param name="request">HTML とコピーする画像。保存先は見ない</param>
 	/// <returns>ダイアログを表示できれば成功。失敗時は Message に理由を入れ、例外は出さない</returns>
-	public async Task<ExportActionResult> ShowPrintUiAsync(string html)
+	public async Task<ExportActionResult> ShowPrintUiAsync(PrintDocumentRequest request)
 	{
+		bool loaded = false;
 		try
 		{
-			CoreWebView2 core = await EnsureCoreAsync().ConfigureAwait(true);
-			await NavigateHtmlAsync(core, html).ConfigureAwait(true);
+			CoreWebView2 core = await LoadDocumentAsync(request).ConfigureAwait(true);
+			loaded = true;
 			core.ShowPrintUI(CoreWebView2PrintDialogKind.System);
 			return new ExportActionResult { Success = true };
 		}
 		catch (Exception ex)
 		{
+			if (loaded)
+			{
+				ReleaseStagedDirectory();
+			}
+
 			_logger.Error(LogCategory.Export, "印刷ダイアログの表示に失敗しました", new Dictionary<string, object?>
 			{
 				[LogProperty.Error] = ex.Message,
@@ -127,7 +210,7 @@ internal sealed class PrintExportService : IDisposable
 	}
 
 	/// <summary>
-	/// 隠し WebView を親から外して破棄する。2 回目以降は何もしない
+	/// 隠し WebView を親から外して破棄し、残っている一時フォルダを消す。2 回目以降は何もしない
 	/// </summary>
 	public void Dispose()
 	{
@@ -137,6 +220,7 @@ internal sealed class PrintExportService : IDisposable
 		}
 
 		_disposed = true;
+		ReleaseStagedDirectory();
 		if (_view is not null)
 		{
 			_owner.Controls.Remove(_view);
@@ -148,6 +232,47 @@ internal sealed class PrintExportService : IDisposable
 	// ==============================================
 	// ページの読み込み
 	// ==============================================
+
+	/// <summary>
+	/// 一時フォルダを仮想ホストへ割り当て、画像の読み込み完了まで待つ
+	/// 成功したら直前の一時フォルダを消す。失敗したら今回のフォルダだけ消す
+	/// </summary>
+	/// <param name="request">書く HTML とコピーする画像</param>
+	/// <returns>文書を開いたコア</returns>
+	/// <exception cref="InvalidOperationException">読み込み、またはローカル画像の表示に失敗した</exception>
+	/// <exception cref="TimeoutException">制限時間内に読み込みが終わらない</exception>
+	private async Task<CoreWebView2> LoadDocumentAsync(PrintDocumentRequest request)
+	{
+		CoreWebView2 core = await EnsureCoreAsync().ConfigureAwait(true);
+		string root = Path.Combine(AppPaths.TempDirectory, "print-documents");
+		string directory = PrintDocumentStaging.Create(root, request.Html, request.Media);
+
+		try
+		{
+			core.SetVirtualHostNameToFolderMapping(
+				PrintVirtualHost,
+				directory,
+				CoreWebView2HostResourceAccessKind.DenyCors);
+			await NavigateAsync(core, $"https://{PrintVirtualHost}/{PrintDocumentStaging.DocumentFileName}")
+				.ConfigureAwait(true);
+			await WaitForImagesAsync(core).ConfigureAwait(true);
+		}
+		catch
+		{
+			PrintDocumentStaging.DeleteDirectory(directory);
+			RestoreStagedMapping(core);
+			throw;
+		}
+
+		string? previous = _stagedDirectory;
+		_stagedDirectory = directory;
+		if (!string.Equals(previous, directory, StringComparison.OrdinalIgnoreCase))
+		{
+			PrintDocumentStaging.DeleteDirectory(previous);
+		}
+
+		return core;
+	}
 
 	/// <summary>
 	/// 印刷用 WebView2 を画面外に 1 つ作り、専用のユーザーデータフォルダで初期化する。既存があればそれを返す
@@ -180,9 +305,9 @@ internal sealed class PrintExportService : IDisposable
 
 		CoreWebView2 core = _view.CoreWebView2
 			?? throw new InvalidOperationException("印刷用 WebView2 を初期化できませんでした。");
-		core.Settings.AreDefaultContextMenusEnabled     = false;
+		core.Settings.AreDefaultContextMenusEnabled    = false;
 		core.Settings.AreBrowserAcceleratorKeysEnabled = false;
-		core.Settings.IsStatusBarEnabled              = false;
+		core.Settings.IsStatusBarEnabled               = false;
 		return core;
 	}
 
@@ -208,13 +333,13 @@ internal sealed class PrintExportService : IDisposable
 	}
 
 	/// <summary>
-	/// HTML 文字列へ遷移し、完了か失敗まで待つ。30 秒を超えたら失敗にする
+	/// 仮想ホストの URL へ遷移し、完了か失敗まで待つ
 	/// </summary>
 	/// <param name="core">遷移させる WebView2</param>
-	/// <param name="html">NavigateToString へ渡す HTML</param>
+	/// <param name="uri">https の仮想ホスト URL</param>
 	/// <exception cref="InvalidOperationException">遷移に失敗した</exception>
-	/// <exception cref="TimeoutException">30 秒以内に遷移が完了しない</exception>
-	private static async Task NavigateHtmlAsync(CoreWebView2 core, string html)
+	/// <exception cref="TimeoutException">制限時間内に遷移が完了しない</exception>
+	private static async Task NavigateAsync(CoreWebView2 core, string uri)
 	{
 		TaskCompletionSource<bool> completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -231,13 +356,108 @@ internal sealed class PrintExportService : IDisposable
 		}
 
 		core.NavigationCompleted += Handler;
-		core.NavigateToString(html);
+		core.Navigate(uri);
 
-		using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
+		using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(LoadTimeoutSeconds));
 		using (timeout.Token.Register(() =>
 			completed.TrySetException(new TimeoutException("印刷用ページの読み込みがタイムアウトしました。"))))
 		{
 			await completed.Task.ConfigureAwait(true);
 		}
+	}
+
+	/// <summary>
+	/// 文書内の img が完了するまで待つ。media の画像が壊れていればすぐ失敗にする
+	/// </summary>
+	/// <param name="core">文書を開いている WebView2</param>
+	/// <exception cref="InvalidOperationException">ローカル画像を表示できない</exception>
+	/// <exception cref="TimeoutException">制限時間内に画像が完了しない</exception>
+	private static async Task WaitForImagesAsync(CoreWebView2 core)
+	{
+		DateTime deadline = DateTime.UtcNow.AddSeconds(LoadTimeoutSeconds);
+		while (true)
+		{
+			string status = await core.ExecuteScriptAsync(ImageReadyScript).ConfigureAwait(true);
+			string token = status.Trim().Trim('"');
+			if (string.Equals(token, "ready", StringComparison.Ordinal))
+			{
+				return;
+			}
+
+			if (string.Equals(token, "broken", StringComparison.Ordinal))
+			{
+				throw new InvalidOperationException("印刷用ページの画像を読み込めませんでした。");
+			}
+
+			if (DateTime.UtcNow >= deadline)
+			{
+				throw new TimeoutException("印刷用ページの画像の読み込みがタイムアウトしました。");
+			}
+
+			await Task.Delay(ImagePollMilliseconds).ConfigureAwait(true);
+		}
+	}
+
+	/// <summary>
+	/// 失敗した読み込みのあと、前回の一時フォルダが残っていれば仮想ホストをそこへ戻す
+	/// </summary>
+	/// <param name="core">割り当てを戻す WebView2</param>
+	private void RestoreStagedMapping(CoreWebView2 core)
+	{
+		if (string.IsNullOrWhiteSpace(_stagedDirectory) || !Directory.Exists(_stagedDirectory))
+		{
+			return;
+		}
+
+		core.SetVirtualHostNameToFolderMapping(
+			PrintVirtualHost,
+			_stagedDirectory,
+			CoreWebView2HostResourceAccessKind.DenyCors);
+	}
+
+	/// <summary>
+	/// いまの一時フォルダを消し、参照を外す
+	/// </summary>
+	private void ReleaseStagedDirectory()
+	{
+		PrintDocumentStaging.DeleteDirectory(_stagedDirectory);
+		_stagedDirectory = null;
+	}
+
+	/// <summary>
+	/// media 配列を読む。配列でなければ空
+	/// </summary>
+	/// <param name="paramsElement">media を含む要求。プロパティが無くても空で戻る</param>
+	/// <returns>名前とコピー元。欠けた要素は空文字のまま後段で失敗させる</returns>
+	private static List<PrintMediaFile> ReadMedia(JsonElement paramsElement)
+	{
+		var media = new List<PrintMediaFile>();
+		if (!paramsElement.TryGetProperty(BridgeProperty.Media, out JsonElement mediaElement)
+			|| mediaElement.ValueKind != JsonValueKind.Array)
+		{
+			return media;
+		}
+
+		foreach (JsonElement item in mediaElement.EnumerateArray())
+		{
+			if (item.ValueKind != JsonValueKind.Object)
+			{
+				continue;
+			}
+
+			string name = item.TryGetProperty(BridgeProperty.Name, out JsonElement nameElement)
+				? nameElement.GetString() ?? string.Empty
+				: string.Empty;
+			string sourcePath = item.TryGetProperty(BridgeProperty.SourcePath, out JsonElement sourceElement)
+				? sourceElement.GetString() ?? string.Empty
+				: string.Empty;
+			media.Add(new PrintMediaFile
+			{
+				Name       = name,
+				SourcePath = sourcePath,
+			});
+		}
+
+		return media;
 	}
 }

@@ -149,6 +149,28 @@ internal sealed class FileApi
 	/// <returns>成功時は Data URL。失敗時は Ok が false</returns>
 	public ReadImageResult ReadImageAsDataUrl(JsonElement paramsElement)
 	{
+		(string? path, string? documentPath, string? embed) = ReadImageArguments(paramsElement);
+		return _appContext.FileService.ReadImageAsDataUrl(path, documentPath, embed);
+	}
+
+	/// <summary>
+	/// ローカル画像か埋め込み画像の絶対パスを返す。バイトは読まない。失敗は例外にせず結果の Error に入れる
+	/// </summary>
+	/// <param name="paramsElement">path、documentPath、embed のいずれか。未指定のオブジェクトでも解決にいく</param>
+	/// <returns>成功時は絶対パス。失敗時は Ok が false。Data URL は入らない</returns>
+	public ReadImageResult ResolveLocalImage(JsonElement paramsElement)
+	{
+		(string? path, string? documentPath, string? embed) = ReadImageArguments(paramsElement);
+		return _appContext.FileService.ResolveLocalImage(path, documentPath, embed);
+	}
+
+	/// <summary>
+	/// 画像解決の引数を読む。プロパティが無いときは null
+	/// </summary>
+	/// <param name="paramsElement">path、documentPath、embed。未指定ならすべて null</param>
+	/// <returns>パス、文書パス、埋め込み名。文字列以外の値は null</returns>
+	private static (string? Path, string? DocumentPath, string? Embed) ReadImageArguments(JsonElement paramsElement)
+	{
 		string? path = null;
 		string? documentPath = null;
 		string? embed = null;
@@ -174,7 +196,7 @@ internal sealed class FileApi
 			}
 		}
 
-		return _appContext.FileService.ReadImageAsDataUrl(path, documentPath, embed);
+		return (path, documentPath, embed);
 	}
 
 	/// <summary>

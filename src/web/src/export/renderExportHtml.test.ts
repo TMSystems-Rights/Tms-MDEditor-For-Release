@@ -223,6 +223,18 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('alt="図"');
 	});
 
+	it('画像の解決結果を src にそのまま書く', async () => {
+		const html = await render('![図](a.png)\n', {
+			filePath    : 'C:\\docs\\note.md',
+			/**
+			 *
+			 */
+			resolveImage: async () => 'media/1.png',
+		});
+		expect(html).toContain('src="media/1.png"');
+		expect(html).toContain('alt="図"');
+	});
+
 	it('幅付き埋め込み画像に width を付ける', async () => {
 		const html = await render('![[C:\\\\docs\\\\a.png|240]]\n', {
 			filePath    : 'C:\\docs\\note.md',

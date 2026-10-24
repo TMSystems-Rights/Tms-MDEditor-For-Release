@@ -66,6 +66,9 @@ internal static class BridgeMethod
 	/// <summary>ローカルまたは埋め込み画像を読み込み、Data URL として返す</summary>
 	public const string FileReadImageAsDataUrl = "file:readImageAsDataUrl";
 
+	/// <summary>ローカルまたは埋め込み画像の絶対パスを解決する。バイトは返さない</summary>
+	public const string FileResolveLocalImage = "file:resolveLocalImage";
+
 	/// <summary>WebView2 の追加オブジェクトとして渡されたドロップファイルを受け取る</summary>
 	public const string FileDrop = "file:drop";
 
@@ -265,6 +268,15 @@ internal static class BridgeProperty
 
 	/// <summary>印刷またはエクスポート対象となる完成済み HTML</summary>
 	public const string Html = "html";
+
+	/// <summary>PDF と印刷で一時フォルダへコピーするローカル画像の配列</summary>
+	public const string Media = "media";
+
+	/// <summary>一時フォルダへ置く画像のファイル名。ディレクトリは含まない</summary>
+	public const string Name = "name";
+
+	/// <summary>コピー元のローカル画像の絶対パス</summary>
+	public const string SourcePath = "sourcePath";
 
 	/// <summary>読み込み、保存、またはシェル操作の対象となるファイルパス</summary>
 	public const string FilePath = "filePath";

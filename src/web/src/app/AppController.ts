@@ -67,6 +67,7 @@ import {
 } from '../outline/outline';
 import { calculateOutlineWidth, clampOutlineWidth, DEFAULT_OUTLINE_WIDTH, OUTLINE_KEYBOARD_RESIZE_STEP } from '../outline/outlineResize';
 import { renderExportHtml, type ExportImageRequest, type ExportMermaidResult } from '../export/renderExportHtml';
+import { rememberExportMedia, type ExportMediaFile } from '../export/exportMedia';
 import { renderMermaidSource } from '../livePreview/mermaidWidget';
 import { buildTableMenuEnabledState, isTableMenuAction, type TableMenuAction } from './tableMenu';
 
@@ -1522,8 +1523,8 @@ export class AppController {
 
 		const preparing = showToast('エクスポートを準備しています', 0);
 		try {
-			const html = await this.buildActiveExportHtml();
-			if (!html) {
+			const prepared = await this.buildActiveExportHtml(kind === 'html' ? 'inline' : 'file');
+			if (!prepared) {
 				return;
 			}
 
@@ -1539,7 +1540,7 @@ export class AppController {
 			if (kind === 'html') {
 				const saved = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.fileWriteUtf8, {
 					filePath: dialogResult.filePath,
-					text    : html,
+					text    : prepared.html,
 				});
 				if (!saved.success) {
 					throw new Error(saved.message ?? 'HTML の保存に失敗しました。');
@@ -1550,8 +1551,9 @@ export class AppController {
 			}
 
 			const printed = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.exportPrintToPdf, {
-				html,
+				html    : prepared.html,
 				filePath: dialogResult.filePath,
+				media   : prepared.media,
 			});
 			if (!printed.success) {
 				throw new Error(printed.message ?? 'PDF の出力に失敗しました。');
@@ -1576,12 +1578,15 @@ export class AppController {
 
 		const preparing = showToast('印刷を準備しています', 0);
 		try {
-			const html = await this.buildActiveExportHtml();
-			if (!html) {
+			const prepared = await this.buildActiveExportHtml('file');
+			if (!prepared) {
 				return;
 			}
 
-			const printed = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.exportShowPrintUi, { html });
+			const printed = await invokeBridge<{ success: boolean; message?: string }>(BRIDGE_METHOD.exportShowPrintUi, {
+				html : prepared.html,
+				media: prepared.media,
+			});
 			if (!printed.success) {
 				throw new Error(printed.message ?? '印刷ダイアログを表示できませんでした。');
 			}
@@ -1593,10 +1598,12 @@ export class AppController {
 	}
 
 	/**
-	 * アクティブタブ本文から自己完結 HTML を生成する
-	 * @returns 書けた HTML。対象タブが無いときは null
+	 * アクティブタブ本文から書き出し HTML を生成する
+	 * HTML ファイルは画像を Data URL にし、PDF と印刷は一時フォルダの相対パスにする
+	 * @param imageMode - inline は Data URL、file は media 相対パス
+	 * @returns HTML と、file のときにコピーする画像。対象タブが無いときは null
 	 */
-	private async buildActiveExportHtml(): Promise<string | null> {
+	private async buildActiveExportHtml(imageMode: 'inline' | 'file'): Promise<{ html: string; media: ExportMediaFile[] } | null> {
 		this.persistActiveEditorState();
 		const tab = this.getActiveTab();
 		if (!tab) {
@@ -1606,8 +1613,9 @@ export class AppController {
 		const snippets = this.cssSnippets.snippets
 			.filter((snippet) => snippet.enabled && !snippet.error && snippet.cssText)
 			.map((snippet) => snippet.cssText);
+		const media    = [] as ExportMediaFile[];
 
-		return renderExportHtml({
+		const html = await renderExportHtml({
 			markdown         : tab.editorState.doc.toString(),
 			title            : tab.title || '無題',
 			filePath         : tab.filePath,
@@ -1620,9 +1628,12 @@ export class AppController {
 			customDecorations: this.rawCustomDecorations,
 			loadRemoteImages : this.settings.loadRemoteImages,
 			outline          : this.settings.export.outline,
-			resolveImage     : this.resolveExportImage.bind(this),
+			resolveImage     : imageMode === 'file'
+				? (request) => this.resolvePrintImage(request, media)
+				: (request) => this.resolveExportImage(request),
 			renderMermaid    : this.renderExportMermaid.bind(this),
 		});
+		return { html, media };
 	}
 
 	/**
@@ -1642,6 +1653,34 @@ export class AppController {
 				documentPath: request.documentPath ?? undefined,
 			});
 			return result.ok && result.dataUrl ? result.dataUrl : null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * PDF と印刷用に画像の絶対パスを解決し、一時フォルダの相対パスを返す
+	 * バイトは読まない。同じパスは 1 枚にまとめる
+	 * @param request - 画像要求
+	 * @param media - ここまでに解決した画像。新しい画像はここへ加える
+	 * @returns `media/1.png` の形。未解決のときは null
+	 */
+	private async resolvePrintImage(request: ExportImageRequest, media: ExportMediaFile[]): Promise<string | null> {
+		if (request.kind === 'url') {
+			return this.settings.loadRemoteImages || request.raw.startsWith('data:') ? request.raw : null;
+		}
+
+		try {
+			const result = await invokeBridge<{ ok: boolean; resolvedPath?: string }>(BRIDGE_METHOD.fileResolveLocalImage, {
+				path        : request.embed ? undefined : request.raw,
+				embed       : request.embed ? request.raw : undefined,
+				documentPath: request.documentPath ?? undefined,
+			});
+			if (!result.ok || !result.resolvedPath) {
+				return null;
+			}
+
+			return rememberExportMedia(media, result.resolvedPath);
 		} catch {
 			return null;
 		}

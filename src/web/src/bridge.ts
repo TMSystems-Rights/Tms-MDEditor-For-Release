@@ -72,6 +72,7 @@ export const BRIDGE_METHOD = {
 	fileExportDialog      : 'file:exportDialog',
 	fileWriteUtf8         : 'file:writeUtf8',
 	fileReadImageAsDataUrl: 'file:readImageAsDataUrl',
+	fileResolveLocalImage : 'file:resolveLocalImage',
 	fileDrop              : 'file:drop',
 	exportPrintToPdf      : 'export:printToPdf',
 	exportShowPrintUi     : 'export:showPrintUI',

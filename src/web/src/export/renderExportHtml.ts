@@ -129,7 +129,7 @@ export type RenderExportHtmlOptions = {
 	loadRemoteImages?: boolean;
 	/** 書き出しのアウトライン設定。未指定の項目は既定 */
 	outline?: Partial<ExportOutlineSettings>;
-	/** 画像を Data URL などへ解決する。null は未解決。省略時は代替表示 */
+	/** 画像を Data URL などへ解決する。null は未解決。PDF では media 相対パスも返す。省略時は代替表示 */
 	resolveImage?: (request: ExportImageRequest) => Promise<string | null>;
 	/** Mermaid を SVG にする。省略時は同梱の描画 */
 	renderMermaid?: (source: string, theme: 'default' | 'dark') => Promise<ExportMermaidResult>;

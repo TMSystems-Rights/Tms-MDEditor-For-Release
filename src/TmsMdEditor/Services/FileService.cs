@@ -159,6 +159,58 @@ internal sealed class FileService
 	/// <returns>Data URL と解決した絶対パス。失敗時は Error</returns>
 	public ReadImageResult ReadImageAsDataUrl(string? path, string? documentPath, string? embed)
 	{
+		ReadImageResult located = ResolveLocalImage(path, documentPath, embed);
+		if (!located.Ok || string.IsNullOrWhiteSpace(located.ResolvedPath))
+		{
+			return located;
+		}
+
+		try
+		{
+			byte[] bytes   = File.ReadAllBytes(located.ResolvedPath);
+			string mime    = GuessMimeType(Path.GetExtension(located.ResolvedPath));
+			string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+
+			_logger.Debug(LogCategory.File, "画像を読み込みました", new Dictionary<string, object?>
+			{
+				[LogProperty.ResolvedPath] = located.ResolvedPath,
+				[LogProperty.Bytes]        = bytes.Length,
+			});
+
+			return new ReadImageResult
+			{
+				Ok           = true,
+				DataUrl      = dataUrl,
+				ResolvedPath = located.ResolvedPath,
+			};
+		}
+		catch (Exception ex)
+		{
+			_logger.Warn(LogCategory.File, "画像の読み込みに失敗しました", new Dictionary<string, object?>
+			{
+				[LogProperty.Path]         = path,
+				[LogProperty.DocumentPath] = documentPath,
+				[LogProperty.Embed]        = embed,
+				[LogProperty.Error]        = ex.Message,
+			});
+
+			return new ReadImageResult
+			{
+				Ok    = false,
+				Error = ex.Message,
+			};
+		}
+	}
+
+	/// <summary>
+	/// 画像の絶対パスだけを解決する。バイトは読まない。見つからない、上限超過、未対応形式は結果のエラーにし、例外は出さない
+	/// </summary>
+	/// <param name="path">絶対または文書相対のパス。埋め込み指定のときは null でもよい</param>
+	/// <param name="documentPath">相対パスと埋め込みの基準になる Markdown の絶対パス。null なら相対解決はしない</param>
+	/// <param name="embed">Obsidian の埋め込み名。null でなければ path より先に解決する</param>
+	/// <returns>解決した絶対パス。失敗時は Error。Data URL は入れない</returns>
+	public ReadImageResult ResolveLocalImage(string? path, string? documentPath, string? embed)
+	{
 		try
 		{
 			// 通常Markdown画像とObsidian埋め込みを共通の絶対パスへ解決してから安全性を確認する
@@ -172,7 +224,7 @@ internal sealed class FileService
 				};
 			}
 
-			// base64化でメモリ使用量が増えるため、読込み前にファイルサイズで上限を掛ける
+			// PDF へコピーする前に、Data URL 化と同じ上限で大きなファイルを弾く
 			var info = new FileInfo(resolved);
 			if (info.Length > MaxImageBytes)
 			{
@@ -193,20 +245,15 @@ internal sealed class FileService
 				};
 			}
 
-			byte[] bytes  = File.ReadAllBytes(resolved);
-			string mime   = GuessMimeType(extension);
-			string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
-
-			_logger.Debug(LogCategory.File, "画像を読み込みました", new Dictionary<string, object?>
+			_logger.Debug(LogCategory.File, "画像のパスを解決しました", new Dictionary<string, object?>
 			{
 				[LogProperty.ResolvedPath] = resolved,
-				[LogProperty.Bytes]        = bytes.Length,
+				[LogProperty.Bytes]        = info.Length,
 			});
 
 			return new ReadImageResult
 			{
 				Ok           = true,
-				DataUrl      = dataUrl,
 				ResolvedPath = resolved,
 			};
 		}

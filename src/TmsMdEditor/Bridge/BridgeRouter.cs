@@ -139,16 +139,16 @@ internal sealed class BridgeRouter
 					: _fileApi.SaveAsDialog(paramsElement),
 				BridgeMethod.FileExportDialog      => _fileApi.ExportDialog(paramsElement),
 				BridgeMethod.FileWriteUtf8         => _fileApi.WriteUtf8(paramsElement),
-				BridgeMethod.ExportPrintToPdf      => await _printExportService.PrintToPdfAsync(
-					paramsElement.GetProperty(BridgeProperty.Html).GetString() ?? string.Empty,
-					paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement pdfPath) ? pdfPath.GetString() ?? string.Empty : string.Empty)
+				BridgeMethod.ExportPrintToPdf      => await _printExportService.PrintToPdfAsync(PrintExportService.ReadRequest(paramsElement))
 					.ConfigureAwait(true),
-				BridgeMethod.ExportShowPrintUi => await _printExportService.ShowPrintUiAsync(
-					paramsElement.GetProperty(BridgeProperty.Html).GetString() ?? string.Empty)
+				BridgeMethod.ExportShowPrintUi => await _printExportService.ShowPrintUiAsync(PrintExportService.ReadRequest(paramsElement))
 					.ConfigureAwait(true),
 				BridgeMethod.FileReadImageAsDataUrl => paramsElement.ValueKind == JsonValueKind.Undefined
 					? _fileApi.ReadImageAsDataUrl(default)
 					: _fileApi.ReadImageAsDataUrl(paramsElement),
+				BridgeMethod.FileResolveLocalImage => paramsElement.ValueKind == JsonValueKind.Undefined
+					? _fileApi.ResolveLocalImage(default)
+					: _fileApi.ResolveLocalImage(paramsElement),
 				BridgeMethod.RecentList              => _recentApi.List(),
 				BridgeMethod.RecentAdd               => _recentApi.Add(paramsElement),
 				BridgeMethod.RecentRemove            => _recentApi.Remove(paramsElement),
