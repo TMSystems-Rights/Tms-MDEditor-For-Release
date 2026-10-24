@@ -4,9 +4,15 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.12.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.12.1)
+最新リリース: [v1.13.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.0)
 
 ## 変更内容
+
+### v1.13.0 の主な変更
+
+- トリプルクリックで論理行全体を選択し、キャレットをその行末に置く
+- 選択範囲に行末の改行を含めず、コピーしても改行が貼り付けられないようにする
+
 ### v1.12.1 の主な変更
 
 - 上部メニューへ「テーブル」を追加し、表の挿入と行・列・セル操作を選択状態に応じて実行できるようにする
@@ -346,26 +352,26 @@ README 等の変更で、既存ユーザーに新インストーラを配布す�
 
 ### インストーラの仕様
 
-| 項目           | 内容                                                                                         |
-| -------------- | -------------------------------------------------------------------------------------------- |
-| 形式           | Inno Setup（`.exe`）                                                                         |
+| 項目           | 内容                                                                                               |
+| -------------- | -------------------------------------------------------------------------------------------------- |
+| 形式           | Inno Setup（`.exe`）                                                                               |
 | インストール先 | 現在ユーザー: `%LOCALAPPDATA%\Programs\TMS-MDEditor` / 全ユーザー: `C:\Program Files\TMS-MDEditor` |
-| ショートカット | スタートメニュー（常時）、デスクトップ（既定 ON）                                            |
-| 関連付け       | `.md` / `.mdc` を個別に選択可能（既定 ON）                                                   |
-| 対象           | Windows 11 64bit                                                                             |
+| ショートカット | スタートメニュー（常時）、デスクトップ（既定 ON）                                                  |
+| 関連付け       | `.md` / `.mdc` を個別に選択可能（既定 ON）                                                         |
+| 対象           | Windows 11 64bit                                                                                   |
 
 インストール後、データは `%APPDATA%\tms-mdeditor\` に保存されます（開発版の `tms-mdeditor-dev` とは別です）。初回インストールではデータ保存先を指定でき、未指定時の既定値は `%APPDATA%\tms-mdeditor\data` です。
 
 ### ポータブル ZIP の仕様
 
-| 項目     | 内容                                                                 |
-| -------- | -------------------------------------------------------------------- |
-| 判定     | `app\TmsMdEditor.exe` と同じフォルダの `portable-mode.json`（削除禁止） |
+| 項目     | 内容                                                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------------------- |
+| 判定     | `app\TmsMdEditor.exe` と同じフォルダの `portable-mode.json`（削除禁止）                                     |
 | 起動     | 展開フォルダ直下の `TmsMdEditor.exe`（起動用 stub。本体は `app\TmsMdEditor.exe`。起動引数は本体へ転送する） |
-| 表示名   | Windows の既定アプリ表示は `TMS-MDEditor.portable`（インストーラ版は `TMS-MDEditor`） |
-| 保存先   | `<exeDir>\data`（通常は `app\data`。`%APPDATA%` へは書かない）        |
-| 更新     | 公式ページへ誘導。自動ダウンロードしない                             |
-| 関連付け | 登録しない。手動で既定アプリにする場合は直下の `TmsMdEditor.exe` を選ぶ |
+| 表示名   | Windows の既定アプリ表示は `TMS-MDEditor.portable`（インストーラ版は `TMS-MDEditor`）                       |
+| 保存先   | `<exeDir>\data`（通常は `app\data`。`%APPDATA%` へは書かない）                                              |
+| 更新     | 公式ページへ誘導。自動ダウンロードしない                                                                    |
+| 関連付け | 登録しない。手動で既定アプリにする場合は直下の `TmsMdEditor.exe` を選ぶ                                     |
 
 `portable-mode.json` を削除するとインストーラ版として `%APPDATA%\tms-mdeditor` へ書きます。
 
@@ -385,11 +391,11 @@ CSSスニペットの書き方の例は `css_snipets_sample/sample.css` を参�
 
 ## データ保存先
 
-| 種別                 | パス                                         |
-| -------------------- | -------------------------------------------- |
-| ブートストラップ設定 | `%APPDATA%\tms-mdeditor\app-config.json`     |
-| 実データ             | `<dataDir>\config.json` など                 |
-| ログ                 | `%APPDATA%\tms-mdeditor\logs\`               |
+| 種別                 | パス                                     |
+| -------------------- | ---------------------------------------- |
+| ブートストラップ設定 | `%APPDATA%\tms-mdeditor\app-config.json` |
+| 実データ             | `<dataDir>\config.json` など             |
+| ログ                 | `%APPDATA%\tms-mdeditor\logs\`           |
 
 開発時は `%APPDATA%\tms-mdeditor-dev\` を使用します。既定の `dataDir` は `userData\data` です。ポータブル版は `<exeDir>\data` に平坦化し、ログと WebView2 もその配下へ置きます。
 

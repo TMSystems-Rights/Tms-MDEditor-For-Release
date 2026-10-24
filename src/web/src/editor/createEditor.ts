@@ -32,6 +32,7 @@ import {
 import { createCaretBlinkExtension } from './caretBlink';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
 import { cursorStableDocEnd, selectStableDocEnd } from './documentBoundary';
+import { createTripleClickSelectionExtension } from './tripleClickSelection';
 import { createLineWrapperExtensions } from './lineWrappers';
 import { createTableMaxWidthExtension } from './tableMaxWidth';
 import { createTableHeaderPinExtension } from '../livePreview/tableHeaderPin';
@@ -140,6 +141,7 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 	const extensions: Extension[] = [
 		history(),
 		drawSelection({ cursorBlinkRate: 0 }),
+		createTripleClickSelectionExtension(),
 		createCaretVisibilityExtension(),
 		createGutterThemeExtension(),
 		createCaretBlinkExtension(),
