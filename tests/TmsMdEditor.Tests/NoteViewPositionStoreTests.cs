@@ -1,14 +1,38 @@
+// ==============================================
+// ノート表示位置の保存とマージ
+// ==============================================
+
+// 表示位置は data ディレクトリへ保存し、同じノートは新しい時刻を残し、上限を超えた分は古いものから捨てる
+
 using System.Text.Json;
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// 一時ディレクトリを AppData の代わりにして、表示位置ファイルの保存と読込を検証する
+/// 差し替えは各テストの終了時に戻す。壊れたファイルは上書きしない
+/// </summary>
 public class NoteViewPositionStoreTests : IDisposable
 {
+	/// <summary>
+	/// 表示位置ファイルを置く一時ルート。テストごとに作り、Dispose で削除する
+	/// </summary>
 	private readonly string _tempRoot;
+
+	/// <summary>
+	/// 表示位置の保存先ディレクトリを決める実設定ストア。コンストラクタで初期ファイルを作る
+	/// </summary>
 	private readonly ConfigStore _configStore;
+
+	/// <summary>
+	/// 検証対象。設定ストアが指す data ディレクトリへ表示位置を書く
+	/// </summary>
 	private readonly NoteViewPositionStore _store;
 
+	/// <summary>
+	/// AppData を一時ディレクトリへ差し替え、設定を初期化してから表示位置を操作できる状態にする
+	/// </summary>
 	public NoteViewPositionStoreTests()
 	{
 		_tempRoot = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-viewpos-test-{Guid.NewGuid():N}");
@@ -20,12 +44,18 @@ public class NoteViewPositionStoreTests : IDisposable
 		_configStore.Load();
 	}
 
+	/// <summary>
+	/// AppData の差し替えを戻し、一時ディレクトリが残っていれば削除する
+	/// </summary>
 	public void Dispose()
 	{
 		AppPaths.SetOverrideAppDataRoot(null);
 		if (Directory.Exists(_tempRoot)) Directory.Delete(_tempRoot, recursive: true);
 	}
 
+	/// <summary>
+	/// 保存したアンカー、余白、パスを読み戻し、見出しの折りたたみは空になる
+	/// </summary>
 	[Fact]
 	public void Save_and_load_round_trips_note_view_positions()
 	{
@@ -59,6 +89,9 @@ public class NoteViewPositionStoreTests : IDisposable
 		Assert.Empty(entry.GetProperty("collapsedHeadingFroms").EnumerateArray());
 	}
 
+	/// <summary>
+	/// 折りたたみ位置の重複を除き、昇順で読み戻す
+	/// </summary>
 	[Fact]
 	public void Save_and_load_round_trips_collapsed_headings()
 	{
@@ -84,9 +117,13 @@ public class NoteViewPositionStoreTests : IDisposable
 		JsonElement collapsed = load.Document.GetProperty("entries")[0].GetProperty("collapsedHeadingFroms");
 
 		Assert.True(save.Success, save.Message);
+		// 同じ見出し位置は1つにし、小さい順で保存する
 		Assert.Equal([5, 40], collapsed.EnumerateArray().Select(item => item.GetInt32()));
 	}
 
+	/// <summary>
+	/// 新しい既存エントリは残し、別パスは追加して、新しい順に並ぶ
+	/// </summary>
 	[Fact]
 	public void Save_keeps_newer_existing_entry_and_adds_new_path()
 	{
@@ -107,6 +144,7 @@ public class NoteViewPositionStoreTests : IDisposable
 			}
 			""");
 
+		// 区切り文字と大文字小文字が違っても同じファイルとみなし、古い時刻では上書きしない
 		NoteViewPositionSaveResult save = Save("""
 			{
 			  "schemaVersion": 1,
@@ -141,6 +179,9 @@ public class NoteViewPositionStoreTests : IDisposable
 		Assert.Equal(3, entries[1].GetProperty("anchor").GetInt32());
 	}
 
+	/// <summary>
+	/// 上限を超えた分は古いエントリから捨て、最新が先頭に残る
+	/// </summary>
 	[Fact]
 	public void Save_drops_entries_beyond_the_limit()
 	{
@@ -167,10 +208,14 @@ public class NoteViewPositionStoreTests : IDisposable
 		Assert.True(save.Success, save.Message);
 		JsonElement stored = load.Document.GetProperty("entries");
 		Assert.Equal(NoteViewPositionStore.MaxEntries, stored.GetArrayLength());
+		// 残すのは新しい方から上限件で、最も古い anchor 0 は落ちる
 		Assert.Equal(NoteViewPositionStore.MaxEntries, stored[0].GetProperty("anchor").GetInt32());
 		Assert.All(stored.EnumerateArray(), entry => Assert.NotEqual(0, entry.GetProperty("anchor").GetInt32()));
 	}
 
+	/// <summary>
+	/// 未対応のスキーマは保存せず、表示位置ファイルを作らない
+	/// </summary>
 	[Fact]
 	public void Save_rejects_unknown_schema_version()
 	{
@@ -182,6 +227,9 @@ public class NoteViewPositionStoreTests : IDisposable
 		Assert.False(File.Exists(AppPaths.GetNoteViewPositionsPath(AppPaths.DefaultDataDir)));
 	}
 
+	/// <summary>
+	/// 壊れた表示位置は失敗にして空のエントリを返し、ファイルの中身は壊れたまま残す
+	/// </summary>
 	[Fact]
 	public void Load_ignores_corrupt_file_without_replacing_it()
 	{
@@ -195,6 +243,11 @@ public class NoteViewPositionStoreTests : IDisposable
 		Assert.Equal("{broken", File.ReadAllText(path));
 	}
 
+	/// <summary>
+	/// JSON 文字列を表示位置の保存へ渡す
+	/// </summary>
+	/// <param name="json">保存する文書。スキーマが不正なら失敗結果になる。null は渡さない</param>
+	/// <returns>保存結果。マージ後の内容は Load で見る</returns>
 	private NoteViewPositionSaveResult Save(string json)
 	{
 		using JsonDocument document = JsonDocument.Parse(json);

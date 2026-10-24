@@ -1,7 +1,13 @@
+/**
+ * タブバーの挿入位置と、最後のタブを移したあとのウィンドウ終了判定を検証する
+ * @file
+ */
+
 import { describe, expect, it } from 'vitest';
 import { calculateTabDropIndex, shouldCloseWindowAfterTabRemoval } from './tabTransfer';
 
 describe('calculateTabDropIndex', () => {
+	/** タブ 3 つの左右端。中央を境に挿入位置が変わる */
 	const tabRects = [
 		{ left: 10, right: 110 },
 		{ left: 113, right: 213 },

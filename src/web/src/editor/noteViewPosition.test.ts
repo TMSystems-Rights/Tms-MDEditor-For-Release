@@ -1,3 +1,8 @@
+/**
+ * 表示位置の記録、マージ、スクロール復元の計算を検証する
+ * 実画面の追従ループは持たず、計算とメモリ上の記録だけを見る
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import type { EditorView } from '@codemirror/view';
 import {
@@ -14,8 +19,10 @@ import {
 } from './noteViewPosition';
 
 /**
- * @param {Partial<NoteViewPositionRecord>} overrides 上書き
- * @returns {NoteViewPositionRecord} 記録
+ * テスト用の表示位置記録を作る
+ * 上書きしない項目は、固定のパスと時刻とオフセットにする
+ * @param overrides - 差し替える項目。未指定時はすべて固定値
+ * @returns 固定値に overrides を重ねた記録
  */
 function record(overrides: Partial<NoteViewPositionRecord> = {}): NoteViewPositionRecord {
 	return {
@@ -76,14 +83,15 @@ describe('noteViewPosition', () => {
 		const view   = {
 			scrollDOM: { isConnected: true, scrollTop: 100, scrollLeft: 4 },
 			/**
-			 * @param {number} pos 文書位置
-			 * @returns {{ from: number, to: number, top: number, bottom: number }} 行塊
+			 * 文書位置を含む行塊を返す。高さの再計測はしない
+			 * @param pos - 探す文書オフセット。どの行塊にも入らなければ最後の行塊
+			 * @returns from、to、top、bottom を持つ行塊
 			 */
 			lineBlockAt(pos: number) {
 				return blocks.find((block) => pos >= block.from && pos <= block.to) ?? blocks[blocks.length - 1];
 			},
 			/**
-			 * @returns {never}
+			 * 高さからの検索は、このテストではレイアウトを走らせた印として失敗させる
 			 */
 			lineBlockAtHeight() {
 				flushed = true;

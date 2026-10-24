@@ -1,7 +1,15 @@
+/**
+ * 画像枠線の太さと色を CSS 変数へ注入する
+ * スニペットより前の style 要素に書き、設定の保存は持たない
+ * @file
+ */
 import { CSS_SNIPPET_STYLE_ATTRIBUTE } from '../settings/cssSnippets';
 import type { ImageBorderSettings } from '../types/app';
 
-/** 画像枠線の既定値 */
+/**
+ * 画像枠線の既定値
+ * 通常は 1px の `#888888`、ホバーは 3px で色未指定（テーマのアクセントへ任せる）
+ */
 export const DEFAULT_IMAGE_BORDER: ImageBorderSettings = {
 	width     : 1,
 	color     : '#888888',
@@ -9,15 +17,17 @@ export const DEFAULT_IMAGE_BORDER: ImageBorderSettings = {
 	hoverColor: '',
 };
 
-/** 画像枠線を注入する style 要素の id */
+/** 画像枠線用 style 要素の id。再適用時は同じ要素の中身だけを更新する */
 export const IMAGE_BORDER_STYLE_ID = 'tmsMdeImageBorder';
 
+/** `#RGB`、`#RRGGBB`、`#RRGGBBAA` だけを許す。色名や関数記法は不一致 */
 const CSS_HEX_COLOR = /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
 
 /**
  * `#RGB` / `#RRGGBB` / `#RRGGBBAA` か判定する
- * @param {string | null | undefined} value 入力
- * @returns {boolean}
+ * 前後の空白は除いてから見る。null や空は false
+ * @param value - 判定する色指定。null や未設定は空文字として扱う
+ * @returns 16進カラーなら true
  */
 export function isCssHexColor(value: string | null | undefined): boolean {
 	return CSS_HEX_COLOR.test((value ?? '').trim());
@@ -25,10 +35,11 @@ export function isCssHexColor(value: string | null | undefined): boolean {
 
 /**
  * CSS 注入に使う 16進カラーを返す
- * @param {string | null | undefined} value 入力
- * @param {string} fallback 不正時
- * @param {boolean} [allowEmpty] 空を許可するか
- * @returns {string}
+ * 空や不正な値は代替へ戻す。空を許す指定のときだけ、空文字をそのまま返す
+ * @param value - 入力の色。null や未設定は空文字として扱う
+ * @param fallback - 空または不正なときの代替。形式の再検証はしない
+ * @param allowEmpty - true のとき、空文字を代替へ戻さず返す。省略時は false
+ * @returns 採用する色。空を許して空だったときは空文字
  */
 export function sanitizeCssHexColor(value: string | null | undefined, fallback: string, allowEmpty = false): string {
 	const trimmed = (value ?? '').trim();
@@ -41,9 +52,10 @@ export function sanitizeCssHexColor(value: string | null | undefined, fallback: 
 
 /**
  * color input 用の `#RRGGBB` に正規化する
- * @param {string | null | undefined} value 入力
- * @param {string} fallback 代替
- * @returns {string}
+ * 3桁は各桁を重ね、8桁はアルファを落とし、どれでも小文字にする。変換できないときは代替を小文字で返す
+ * @param value - 入力の色。null や不正は代替になる
+ * @param fallback - 変換できないときの `#RRGGBB`。小文字化だけして返す
+ * @returns `#` 付き 6 桁の小文字
  */
 export function toColorInputValue(value: string | null | undefined, fallback: string): string {
 	const hex = sanitizeCssHexColor(value, fallback);
@@ -64,8 +76,9 @@ export function toColorInputValue(value: string | null | undefined, fallback: st
 
 /**
  * 枠線設定を既定値で補完する
- * @param {Partial<ImageBorderSettings> | null | undefined} settings 設定
- * @returns {ImageBorderSettings}
+ * 太さは整数だけを採用し、通常は 0〜8、ホバーは 0〜16 に収める。範囲外は既定値に戻す
+ * @param settings - 部分的な設定。null や未設定の項目は既定値
+ * @returns 注入に使える完全な枠線設定。ホバー色の空文字は「アクセント色を使う」
  */
 export function resolveImageBorder(settings: Partial<ImageBorderSettings> | null | undefined): ImageBorderSettings {
 	const width      = Number(settings?.width);
@@ -80,9 +93,10 @@ export function resolveImageBorder(settings: Partial<ImageBorderSettings> | null
 
 /**
  * 画像枠線の CSS 変数ルールを生成する
- * @param {Partial<ImageBorderSettings> | null | undefined} settings 設定
- * @param {string} [selector=':root'] 適用セレクタ
- * @returns {string}
+ * ホバー色が空のときは `--tms-mde-color-primary` を参照する
+ * @param settings - 部分的な設定。null や未設定は既定値で補う
+ * @param selector - ルールを適用するセレクタ。省略時は `:root`
+ * @returns 1 つの CSS ルール文字列。太さの単位は px
  */
 export function buildImageBorderCss(settings: Partial<ImageBorderSettings> | null | undefined, selector = ':root'): string {
 	const resolved   = resolveImageBorder(settings);
@@ -93,9 +107,9 @@ export function buildImageBorderCss(settings: Partial<ImageBorderSettings> | nul
 }
 
 /**
- * 設定の画像枠線を Web UI へ適用する
- * @param {Partial<ImageBorderSettings> | null | undefined} settings 設定
- * @returns {void}
+ * 設定の画像枠線をエディタホストへ適用する
+ * style 要素が無ければ作り、CSS スニペットより前へ置く。既存要素は位置を変えず中身だけ更新する
+ * @param settings - 部分的な設定。null や未設定は既定値で補う
  */
 export function applyImageBorder(settings: Partial<ImageBorderSettings> | null | undefined): void {
 	const css = buildImageBorderCss(settings, '.tms-mde-editor-host');

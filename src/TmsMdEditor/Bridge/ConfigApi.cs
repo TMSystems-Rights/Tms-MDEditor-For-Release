@@ -1,3 +1,10 @@
+// ==============================================
+// 設定の取得と保存
+// ==============================================
+
+// Web 層からの部分更新を ConfigStore へ渡し、成功したときだけメモリ上の設定を差し替える
+// 対象が無い、または形式が不正なときは保存せず、失敗メッセージを返す
+
 using System.Text.Json;
 using TmsMdEditor.Models;
 using TmsMdEditor.Services;
@@ -5,18 +12,25 @@ using TmsMdEditor.Services;
 namespace TmsMdEditor.Bridge;
 
 /// <summary>
-/// 設定関連ブリッジ API
+/// config:* を受けるブリッジ。ポータブル版ではデータ保存先の変更を拒否する
 /// </summary>
 internal sealed class ConfigApi
 {
+	/// <summary>
+	/// 設定の読み書き先。API より長く生きる
+	/// </summary>
 	private readonly AppContext _appContext;
+
+	/// <summary>
+	/// 設定の保存に成功したあと、メニューのショートカット表示を更新する。失敗時は呼ばない
+	/// </summary>
 	private readonly Action _onSettingsChanged;
 
 	/// <summary>
-	/// 設定 API を初期化する
+	/// 設定 API を作る。コンテキストは借用する
 	/// </summary>
-	/// <param name="appContext">アプリコンテキスト</param>
-	/// <param name="onSettingsChanged">設定変更後のコールバック</param>
+	/// <param name="appContext">設定ストアと現在の設定。null は渡さない</param>
+	/// <param name="onSettingsChanged">保存成功後に呼ぶ処理。データ保存先の変更成功時も呼ぶ。null は渡さない</param>
 	public ConfigApi(AppContext appContext, Action onSettingsChanged)
 	{
 		_appContext       = appContext;
@@ -24,9 +38,10 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// 設定を取得する
+	/// 現在の設定、データ保存先、ポータブルかどうか、添付フォルダの既定値を返す
+	/// ディスクは読み直さない
 	/// </summary>
-	/// <returns>設定応答</returns>
+	/// <returns>Web 層の起動後と設定画面が読む応答</returns>
 	public ConfigGetResponse GetConfig()
 	{
 		return new ConfigGetResponse
@@ -39,10 +54,11 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// 設定を更新する
+	/// settings、カスタム装飾、ウィンドウのいずれかを保存する
+	/// 対象が無い、または装飾の JSON が配列でないときは保存せず失敗を返す
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>保存結果</returns>
+	/// <param name="paramsElement">settings、customDecorations、window のいずれか 1 つを持つ JSON</param>
+	/// <returns>保存結果。失敗時はメモリ上の設定を変えない</returns>
 	public SaveConfigResult Update(JsonElement paramsElement)
 	{
 		if (paramsElement.TryGetProperty(BridgeProperty.Settings, out JsonElement settingsElement))
@@ -113,10 +129,10 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// 設定項目をリセットする
+	/// 指定した設定項目だけを既定値へ戻して保存する。成功したときだけメモリとメニューを更新する
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>保存結果</returns>
+	/// <param name="paramsElement">itemKey を持つ JSON。無いときは空文字としてストアへ渡し、失敗結果を返す</param>
+	/// <returns>保存結果。未知のキーはストアが失敗にする</returns>
 	public SaveConfigResult ResetItem(JsonElement paramsElement)
 	{
 		string itemKey = paramsElement.TryGetProperty(BridgeProperty.ItemKey, out JsonElement keyElement)
@@ -129,9 +145,9 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// settings をすべてリセットする
+	/// データ保存先以外の設定を既定値へ戻して保存する。成功したときだけメモリとメニューを更新する
 	/// </summary>
-	/// <returns>保存結果</returns>
+	/// <returns>保存結果。書き込みに失敗しても例外は出さない</returns>
 	public SaveConfigResult ResetAll()
 	{
 		SaveConfigResult result = _appContext.ConfigStore.ResetAllSettings();
@@ -140,19 +156,20 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// dataDir を取得する
+	/// 現在と既定のデータ保存先、ポータブルかどうかを返す。設定ファイルは読み直さない
 	/// </summary>
-	/// <returns>dataDir 情報</returns>
+	/// <returns>データ保存先の情報</returns>
 	public DataDirInfo GetDataDir()
 	{
 		return _appContext.ConfigStore.GetDataDirInfo();
 	}
 
 	/// <summary>
-	/// dataDir を変更する
+	/// データ保存先を指定パスへ移す。ポータブル版、またはパスが空のときは移さず失敗を返す
+	/// 成功したときはメモリ上の設定をストアのキャッシュで置き換える
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>移行結果</returns>
+	/// <param name="paramsElement">dataDir を持つ JSON。プロパティが無いときは失敗を返す</param>
+	/// <returns>移行結果。失敗時は保存先を変えない</returns>
 	public MigrateDataDirResult ChangeDataDir(JsonElement paramsElement)
 	{
 		if (AppPaths.IsPortable)
@@ -194,9 +211,10 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// フォルダ選択ダイアログで dataDir を変更する
+	/// フォルダ選択ダイアログでデータ保存先を選ばせ、選ばれたパスへ移す
+	/// ポータブル版とキャンセルは失敗結果にし、例外は出さない
 	/// </summary>
-	/// <returns>移行結果</returns>
+	/// <returns>移行結果。キャンセル時の Message はキャンセルされた旨</returns>
 	public MigrateDataDirResult ChangeDataDirWithDialog()
 	{
 		if (AppPaths.IsPortable)
@@ -235,9 +253,10 @@ internal sealed class ConfigApi
 	}
 
 	/// <summary>
-	/// 保存結果を AppContext へ反映する
+	/// 保存に成功した設定をメモリへ反映し、メニュー表示の更新を呼ぶ
+	/// 失敗、または Config が null のときは何もしない
 	/// </summary>
-	/// <param name="result">保存結果</param>
+	/// <param name="result">Update、ResetItem、ResetAll の保存結果</param>
 	private void ApplySavedConfig(SaveConfigResult result)
 	{
 		if (result.Success && result.Config is not null)

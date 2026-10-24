@@ -1,3 +1,8 @@
+/**
+ * 独自記法のノード名と、コールアウト種別の正規化を検証する
+ * 描画は持たず、構文木のノード名と関数の戻り値だけを見る
+ * @file
+ */
 import { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { describe, expect, it } from 'vitest';
@@ -5,9 +10,9 @@ import { createTmsMarkdownSupport } from './createTmsMarkdown';
 import { foldDefaultFromMark, normalizeCalloutType } from './markdownSyntax';
 
 /**
- * TMS Markdown 拡張付き EditorState を生成する
- * @param {string} doc ドキュメント
- * @returns {EditorState}
+ * TMS の Markdown サポートを有効にした EditorState を作る
+ * @param doc - 構文木を作る Markdown 本文
+ * @returns 言語サポートだけを付けた状態
  */
 function createState(doc: string): EditorState {
 	return EditorState.create({
@@ -17,16 +22,17 @@ function createState(doc: string): EditorState {
 }
 
 /**
- * 構文木に含まれるノード名一覧を返す
- * @param {EditorState} state 状態
- * @returns {string[]}
+ * 構文木に含まれるノード名を、出現順に返す
+ * @param state - 走査する状態
+ * @returns ノード名の配列。同じ名前が複数回出ることがある
  */
 function collectNodeNames(state: EditorState): string[] {
 	const names: string[] = [];
 	syntaxTree(state).iterate({
 		/**
-		 * @param {{ name: string }} node ノード
-		 * @returns {void}
+		 * ノード名を出現順に集める。子も続ける
+		 * @param node - 走査中のノード
+		 * @param node.name - Lezer のノード名
 		 */
 		enter(node) {
 			names.push(node.name);
@@ -104,8 +110,11 @@ describe('markdownSyntax', () => {
 		let foldText = '';
 		syntaxTree(state).iterate({
 			/**
-			 * @param {{ name: string; from: number; to: number }} node ノード
-			 * @returns {void}
+			 * CalloutMark の本文を控える
+			 * @param node - 走査中のノード
+			 * @param node.name - Lezer のノード名。CalloutMark のときだけ本文を控える
+			 * @param node.from - ノード先頭の文書オフセット（含む）
+			 * @param node.to - ノード末尾の文書オフセット（含まない）
 			 */
 			enter(node) {
 				if (node.name === 'CalloutMark') {

@@ -1,13 +1,22 @@
+/**
+ * Obsidian 相当の独自記法を、Lezer の Markdown パーサへ追加する
+ * 描画と遷移は持たず、ノード名とコールアウト種別の正規化だけを公開する
+ * @file
+ */
 import { tags } from '@lezer/highlight';
 import type { MarkdownConfig } from '@lezer/markdown';
 
+/** ハイライト記法の前後で区切りとみなす記号。空白とは別に判定する */
 const Punctuation              = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~\xA1\u2010-\u2027]/;
+/** YAML フロントマターの開始と終了行。`---` のあとは空白だけを許す */
 const YAML_FRONT_MATTER_MARKER = /^---[ \t]*$/;
 
+/** `==` のインライン区切り。開閉は前後の空白と記号で決める */
 const HighlightDelim = { resolve: 'Highlight', mark: 'HighlightMark' };
 
 /**
- * `==ハイライト==` 記法（Obsidian 相当）
+ * `==ハイライト==` 記法（Obsidian 相当）の Markdown 拡張
+ * 3 つ続く `=` は区切りにしない
  */
 export const Highlight: MarkdownConfig = {
 	defineNodes: [
@@ -25,10 +34,11 @@ export const Highlight: MarkdownConfig = {
 			name: 'Highlight',
 			/**
 			 * `==` デリミタを登録する
-			 * @param {import('@lezer/markdown').InlineContext} cx インライン文脈
-			 * @param {number} next 現在文字コード
-			 * @param {number} pos 位置
-			 * @returns {number}
+			 * 3 つ続く `=` は対象にしない
+			 * @param cx - インライン解析の文脈
+			 * @param next - 現在位置の文字コード。`=` でなければ登録しない
+			 * @param pos - 現在位置の文書オフセット
+			 * @returns 区切りを登録したあとの終端。対象外は -1
 			 */
 			parse(cx, next, pos) {
 				if (next !== 61 /* '=' */ || cx.char(pos + 1) !== 61 || cx.char(pos + 2) === 61) {
@@ -57,7 +67,7 @@ export const Highlight: MarkdownConfig = {
 
 /**
  * 文書先頭の YAML フロントマター
- * `---` を水平線または Setext 見出しの下線として解釈させない。
+ * `---` を水平線または Setext 見出しの下線として解釈させない
  */
 export const YamlFrontMatter: MarkdownConfig = {
 	defineNodes: [
@@ -69,10 +79,11 @@ export const YamlFrontMatter: MarkdownConfig = {
 		{
 			name: 'YamlFrontMatter',
 			/**
-			 * 文書先頭の `---` から対応する終了マーカーまでを 1 ブロックとして取り込む。
-			 * @param {import('@lezer/markdown').BlockContext} cx ブロック文脈
-			 * @param {import('@lezer/markdown').Line} line 現在行
-			 * @returns {boolean}
+			 * 文書先頭の `---` から、対応する終了マーカーまでを 1 ブロックとして取り込む
+			 * 終了マーカーが無いときは、読んだ行までをフロントマターにする
+			 * @param cx - ブロック解析の文脈。行頭以外では取り込まない
+			 * @param line - 現在行。インデントがあると対象外
+			 * @returns フロントマターとして取り込んだとき true
 			 */
 			parse(cx, line) {
 				if (
@@ -115,7 +126,8 @@ export const YamlFrontMatter: MarkdownConfig = {
 };
 
 /**
- * `![[埋め込み画像]]` 記法（Obsidian 埋め込み）
+ * `![[埋め込み]]` 記法（Obsidian の埋め込み）の Markdown 拡張
+ * 空の `![[]]` はノードにしない
  */
 export const WikiEmbed: MarkdownConfig = {
 	defineNodes: [
@@ -128,10 +140,11 @@ export const WikiEmbed: MarkdownConfig = {
 			name: 'WikiEmbed',
 			/**
 			 * `![[...]]` を WikiEmbed ノードとして取り込む
-			 * @param {import('@lezer/markdown').InlineContext} cx インライン文脈
-			 * @param {number} next 現在文字コード
-			 * @param {number} pos 位置
-			 * @returns {number}
+			 * 改行を含むものと、中身の無い `![[]]` は対象外
+			 * @param cx - インライン解析の文脈
+			 * @param next - 現在位置の文字コード。`!` でなければ対象外
+			 * @param pos - 現在位置の文書オフセット
+			 * @returns ノード終端。対象外は -1
 			 */
 			parse(cx, next, pos) {
 				if (
@@ -172,7 +185,8 @@ export const WikiEmbed: MarkdownConfig = {
 };
 
 /**
- * `[[内部リンク]]` 記法（見た目のみ。遷移は v1.0 対象外）
+ * `[[内部リンク]]` 記法の Markdown 拡張
+ * 見た目のノードだけを作り、遷移は持たない。空の `[[]]` はノードにしない
  */
 export const WikiLink: MarkdownConfig = {
 	defineNodes: [
@@ -185,10 +199,11 @@ export const WikiLink: MarkdownConfig = {
 			name: 'WikiLink',
 			/**
 			 * `[[...]]` を WikiLink ノードとして取り込む
-			 * @param {import('@lezer/markdown').InlineContext} cx インライン文脈
-			 * @param {number} next 現在文字コード
-			 * @param {number} pos 位置
-			 * @returns {number}
+			 * 改行を含むものと、中身の無い `[[]]` は対象外
+			 * @param cx - インライン解析の文脈
+			 * @param next - 現在位置の文字コード。`[` が続かなければ対象外
+			 * @param pos - 現在位置の文書オフセット
+			 * @returns ノード終端。対象外は -1
 			 */
 			parse(cx, next, pos) {
 				if (next !== 91 /* '[' */ || cx.char(pos + 1) !== 91) {
@@ -225,7 +240,8 @@ export const WikiLink: MarkdownConfig = {
 };
 
 /**
- * コールアウト先頭の `[!type]` / `[!type]-` / `[!type]+` マーカー
+ * コールアウト先頭の `[!type]`、`[!type]-`、`[!type]+` マーカー
+ * 折りたたみ記号が無いときは CalloutFoldMark を作らない
  */
 export const CalloutMark: MarkdownConfig = {
 	defineNodes: [
@@ -237,11 +253,11 @@ export const CalloutMark: MarkdownConfig = {
 		{
 			name: 'CalloutMark',
 			/**
-			 * `[!type]` および折りたたみ記号 `+`/`-` を取り込む
-			 * @param {import('@lezer/markdown').InlineContext} cx インライン文脈
-			 * @param {number} next 現在文字コード
-			 * @param {number} pos 位置
-			 * @returns {number}
+			 * `[!type]` および折りたたみ記号 `+` / `-` を取り込む
+			 * @param cx - インライン解析の文脈。種別は先頭 48 文字までを見る
+			 * @param next - 現在位置の文字コード。`[` でなければ対象外
+			 * @param pos - 現在位置の文書オフセット
+			 * @returns ノード終端。パターンに合わなければ -1
 			 */
 			parse(cx, next, pos) {
 				if (next !== 91 /* '[' */ || cx.char(pos + 1) !== 33 /* '!' */) {
@@ -274,7 +290,8 @@ export const CalloutMark: MarkdownConfig = {
 };
 
 /**
- * TMS-MDEditor 向け Obsidian 独自記法拡張一式
+ * TMS-MDEditor 向けの Obsidian 独自記法拡張
+ * この並びでパーサへ渡す。フロントマターをハイライトより先に解釈する
  */
 export const tmsMarkdownExtensions: MarkdownConfig[] = [
 	YamlFrontMatter,
@@ -284,7 +301,7 @@ export const tmsMarkdownExtensions: MarkdownConfig[] = [
 	CalloutMark,
 ];
 
-/** Obsidian 標準コールアウト種別（正規化後） */
+/** Obsidian 標準のコールアウト種別。正規化後の値だけを並べ、別名は含まない */
 export const CALLOUT_TYPES = [
 	'note',
 	'abstract',
@@ -301,9 +318,13 @@ export const CALLOUT_TYPES = [
 	'quote',
 ] as const;
 
+/**
+ * 正規化後のコールアウト種別
+ * 別名は CALLOUT_ALIASES を通したあと、このいずれかになる。未知は note
+ */
 export type CalloutType = typeof CALLOUT_TYPES[number];
 
-/** 別名 → 正規化種別（Obsidian Help 準拠） */
+/** 別名から正規化種別への対応。Obsidian Help に合わせ、`fnq` も question として残す */
 const CALLOUT_ALIASES: Record<string, CalloutType> = {
 	note     : 'note',
 	abstract : 'abstract',
@@ -335,20 +356,33 @@ const CALLOUT_ALIASES: Record<string, CalloutType> = {
 	cite     : 'quote',
 };
 
+/**
+ * コールアウトの初期折りたたみ
+ * `none` は記号なし、`collapsed` は `-`、`expanded` は `+`
+ */
 export type CalloutFoldDefault = 'none' | 'collapsed' | 'expanded';
 
+/**
+ * 本文中のコールアウト見出しから取り出した情報
+ * ブロックの終わりは呼び出し側が決める
+ */
 export type CalloutInfo = {
+	/** 正規化後の種別。未知の生文字列は note */
 	type: CalloutType;
+	/** `[!type]` マーカー先頭の文書オフセット（含む） */
 	markFrom: number;
+	/** マーカー末尾の文書オフセット（含まない）。折りたたみ記号があれば含む */
 	markTo: number;
+	/** `+` / `-` から決めた初期状態。記号が無ければ none */
 	foldDefault: CalloutFoldDefault;
+	/** コールアウトブロック先頭の文書オフセット */
 	calloutFrom: number;
 };
 
 /**
- * コールアウト種別を正規化する（未知は note）
- * @param {string} raw 生の種別文字列
- * @returns {CalloutType}
+ * コールアウト種別を正規化する。未知の文字列は note にする
+ * @param raw - マーカーから取り出した生の種別。大文字小文字は区別しない
+ * @returns 正規化後の種別。別名も未知も、CALLOUT_TYPES のいずれか
  */
 export function normalizeCalloutType(raw: string): CalloutType {
 	const lower = raw.toLowerCase();
@@ -356,9 +390,9 @@ export function normalizeCalloutType(raw: string): CalloutType {
 }
 
 /**
- * 折りたたみ記号からデフォルト状態を返す
- * @param {string | undefined} foldMark `+` / `-` / なし
- * @returns {CalloutFoldDefault}
+ * 折りたたみ記号から、コールアウトの初期状態を返す
+ * @param foldMark - `+`、`-`、または記号なし。未指定と空以外の文字は none
+ * @returns `-` は collapsed、`+` は expanded、それ以外は none
  */
 export function foldDefaultFromMark(foldMark: string | undefined): CalloutFoldDefault {
 	if (foldMark === '-') {

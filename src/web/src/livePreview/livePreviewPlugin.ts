@@ -1,3 +1,8 @@
+/**
+ * ライブプレビューの装飾、チェックボックス、外部リンクのクリックとホバーを一つの拡張にまとめる
+ * 文書の保存は持たず、各コレクタの結果を DecorationSet にしてエディタへ渡す
+ * @file
+ */
 import { Decoration, type DecorationSet, EditorView, ViewPlugin } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
@@ -35,8 +40,13 @@ import { collectTagDecorationEntries } from './tagDecorations';
 export { setDocumentContextEffect, setCustomDecorationsEffect, type DocumentContext };
 export type { CompiledCustomDecorationRule };
 
+// ----------------------------------------------
+// 外部リンクのホバー
+// ----------------------------------------------
+/** 外部リンク上でポインタにする、エディタ根のクラス。実行中は変えない */
 const EXTERNAL_LINK_HOVER_CLASS = 'tms-mde-cm-link-hover';
 
+/** ホバー中の外部リンク範囲。ホバーが無ければ null。文書が変わると消す */
 type HoveredExternalLinkRange = {
 	from: number;
 	to: number;
@@ -47,21 +57,23 @@ type HoveredExternalLinkRange = {
  */
 export const setViewModeEffect = StateEffect.define<ViewMode>();
 
+/** ホバー中の外部リンク範囲を置き換える Effect。null で消す */
 const setHoveredExternalLinkRangeEffect = StateEffect.define<HoveredExternalLinkRange>();
 
+/** ホバー中リンクの mark を保持する StateField。文書変更で消える */
 const hoveredExternalLinkDecorationsField = StateField.define<DecorationSet>({
 	/**
 	 * 初期 Decoration を生成する
-	 * @returns {DecorationSet}
+	 * @returns 初期 Decoration
 	 */
 	create() {
 		return Decoration.none;
 	},
 	/**
 	 * hover範囲変更をDecorationへ反映する
-	 * @param {DecorationSet} value 現在値
-	 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-	 * @returns {DecorationSet}
+	 * @param value - 現在値
+	 * @param transaction - トランザクション
+	 * @returns hover範囲変更をDecorationへ反映する
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
@@ -85,8 +97,8 @@ const hoveredExternalLinkDecorationsField = StateField.define<DecorationSet>({
 	},
 	/**
 	 * エディタへ Decoration を提供する
-	 * @param {StateField<DecorationSet>} field フィールド
-	 * @returns {Extension}
+	 * @param field - フィールド
+	 * @returns エディタへ Decoration を提供する
 	 */
 	provide: (field) => EditorView.decorations.from(field),
 });
@@ -97,16 +109,16 @@ const hoveredExternalLinkDecorationsField = StateField.define<DecorationSet>({
 export const viewModeField = StateField.define<ViewMode>({
 	/**
 	 * 初期値を生成する
-	 * @returns {ViewMode}
+	 * @returns 初期値
 	 */
 	create() {
 		return 'source';
 	},
 	/**
 	 * Effect に応じて更新する
-	 * @param {ViewMode} value 現在値
-	 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-	 * @returns {ViewMode}
+	 * @param value - 現在値
+	 * @param transaction - トランザクション
+	 * @returns Effect に応じて更新する
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
@@ -122,8 +134,8 @@ export const viewModeField = StateField.define<ViewMode>({
 /**
  * ライブプレビュー用 Decoration を構築する
  * 行構造に影響する replace を含むため、ViewPlugin ではなく StateField から供給する
- * @param {EditorState} state エディタ状態
- * @returns {DecorationSet}
+ * @param state - エディタ状態
+ * @returns ライブプレビュー用 Decoration
  */
 function buildLivePreviewDecorations(state: EditorState): DecorationSet {
 	const viewMode = state.field(viewModeField, false) ?? 'source';
@@ -168,17 +180,17 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
 const livePreviewDecorationsField = StateField.define<DecorationSet>({
 	/**
 	 * 初期 Decoration を生成する
-	 * @param {EditorState} state エディタ状態
-	 * @returns {DecorationSet}
+	 * @param state - エディタ状態
+	 * @returns 初期 Decoration
 	 */
 	create(state) {
 		return buildLivePreviewDecorations(state);
 	},
 	/**
 	 * ドキュメント・選択・モード・折りたたみ変更時に再構築する
-	 * @param {DecorationSet} value 現在値
-	 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-	 * @returns {DecorationSet}
+	 * @param value - 現在値
+	 * @param transaction - トランザクション
+	 * @returns ドキュメント・選択・モード・折りたたみ変更時に再構築する
 	 */
 	update(value, transaction) {
 		const viewModeChanged = transaction.effects.some((effect) => effect.is(setViewModeEffect));
@@ -201,18 +213,18 @@ const livePreviewDecorationsField = StateField.define<DecorationSet>({
 	},
 	/**
 	 * エディタへ Decoration を提供する
-	 * @param {StateField<DecorationSet>} field フィールド
-	 * @returns {Extension}
+	 * @param field - フィールド
+	 * @returns エディタへ Decoration を提供する
 	 */
 	provide: (field) => EditorView.decorations.from(field),
 });
 
 /**
  * キャレット補正を実行してよい更新か判定する
- * @param {boolean} docChanged 本文変更あり
- * @param {boolean} selectionSet 選択変更あり
- * @param {boolean} compositionStarted IME composition 開始中か
- * @returns {boolean} 補正可能な場合 true
+ * @param docChanged - 本文変更あり
+ * @param selectionSet - 選択変更あり
+ * @param compositionStarted - IME composition 開始中か
+ * @returns 補正可能な場合 true
  */
 export function shouldNormalizeCaretAfterUpdate(
 	docChanged: boolean,
@@ -226,9 +238,9 @@ export function shouldNormalizeCaretAfterUpdate(
  * 行末はみ出しキャレットを正規化するリスナー
  */
 const caretNormalizeListener = EditorView.updateListener.of((update) => {
-	// 文字入力直後は compositionstart より先に docChanged が届く場合がある。
+	// 文字入力直後は compositionstart より先に docChanged が届く場合がある
 	// この時点で selection を再設定すると先頭のローマ字が確定・重複するため、
-	// 本文変更を含む更新では補正しない。
+	// 本文変更を含む更新では補正しない
 	if (!shouldNormalizeCaretAfterUpdate(update.docChanged, update.selectionSet, update.view.compositionStarted)) {
 		return;
 	}
@@ -252,8 +264,8 @@ const caretNormalizeListener = EditorView.updateListener.of((update) => {
 
 /**
  * イベントターゲットから最寄りの HTMLElement を取得する
- * @param {EventTarget | null} target イベントターゲット
- * @returns {HTMLElement | null}
+ * @param target - イベントターゲット
+ * @returns イベントターゲットから最寄りの HTMLElement 。無ければ null
  */
 export function getElementFromEventTarget(target: EventTarget | null): HTMLElement | null {
 	if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
@@ -274,8 +286,8 @@ export function getElementFromEventTarget(target: EventTarget | null): HTMLEleme
 
 /**
  * イベントターゲットから標準 Markdown リンク要素を取得する
- * @param {EventTarget | null} target イベントターゲット
- * @returns {HTMLElement | null}
+ * @param target - イベントターゲット
+ * @returns イベントターゲットから標準 Markdown リンク要素。無ければ null
  */
 export function findMarkdownLinkElement(target: EventTarget | null): HTMLElement | null {
 	const element = getElementFromEventTarget(target);
@@ -293,8 +305,8 @@ export function findMarkdownLinkElement(target: EventTarget | null): HTMLElement
 
 /**
  * 外部起動対象の URL か判定する
- * @param {string} href URL
- * @returns {boolean}
+ * @param href - URL
+ * @returns 外部起動対象の URL なら true
  */
 export function isSupportedExternalLinkUrl(href: string): boolean {
 	try {
@@ -307,9 +319,9 @@ export function isSupportedExternalLinkUrl(href: string): boolean {
 
 /**
  * 文書位置から標準 Markdown リンクの URL を取得する
- * @param {EditorState} state エディタ状態
- * @param {number} pos 文書位置
- * @returns {string | null}
+ * @param state - エディタ状態
+ * @param pos - 文書位置
+ * @returns 文書位置から標準 Markdown リンクの URL 。無ければ null
  */
 export function findMarkdownLinkUrlAtPosition(state: EditorState, pos: number): string | null {
 	return findMarkdownLinkAtPosition(state, pos)?.href ?? null;
@@ -317,9 +329,9 @@ export function findMarkdownLinkUrlAtPosition(state: EditorState, pos: number): 
 
 /**
  * 文書位置から標準 Markdown リンク情報を取得する
- * @param {EditorState} state エディタ状態
- * @param {number} pos 文書位置
- * @returns {{ href: string; from: number; to: number } | null}
+ * @param state - エディタ状態
+ * @param pos - 文書位置
+ * @returns 文書位置から標準 Markdown リンク情報。無ければ null
  */
 export function findMarkdownLinkAtPosition(
 	state: EditorState,
@@ -350,9 +362,9 @@ export function findMarkdownLinkAtPosition(
 
 /**
  * マウスイベントから標準 Markdown リンクの URL を取得する
- * @param {EditorView} view エディタビュー
- * @param {MouseEvent} event マウスイベント
- * @returns {string | null}
+ * @param view - エディタビュー
+ * @param event - マウスイベント
+ * @returns マウスイベントから標準 Markdown リンクの URL 。無ければ null
  */
 export function findMarkdownLinkUrlFromMouseEvent(view: EditorView, event: MouseEvent): string | null {
 	const linkElement = findMarkdownLinkElement(event.target);
@@ -370,9 +382,9 @@ export function findMarkdownLinkUrlFromMouseEvent(view: EditorView, event: Mouse
 
 /**
  * マウスイベントから標準 Markdown リンク情報を取得する
- * @param {EditorView} view エディタビュー
- * @param {MouseEvent} event マウスイベント
- * @returns {{ href: string; from: number; to: number } | null}
+ * @param view - エディタビュー
+ * @param event - マウスイベント
+ * @returns マウスイベントから標準 Markdown リンク情報。無ければ null
  */
 export function findMarkdownLinkFromMouseEvent(
 	view: EditorView,
@@ -388,9 +400,9 @@ export function findMarkdownLinkFromMouseEvent(
 
 /**
  * Ctrl+クリックで外部リンクを開き、CodeMirrorの選択移動より先にイベントを止める
- * @param {EditorView} view エディタビュー
- * @param {MouseEvent} event マウスイベント
- * @returns {boolean}
+ * @param view - エディタビュー
+ * @param event - マウスイベント
+ * @returns Ctrl+クリックで外部リンクを開き、CodeMirrorの選択移動より先にイベントを止めるなら true
  */
 export function handleExternalLinkMouseDown(view: EditorView, event: MouseEvent): boolean {
 	if (event.button !== 0 || !event.ctrlKey) {
@@ -410,9 +422,9 @@ export function handleExternalLinkMouseDown(view: EditorView, event: MouseEvent)
 
 /**
  * マウス位置が外部リンク上なら pointer 用クラスを切り替える
- * @param {EditorView} view エディタビュー
- * @param {MouseEvent} event マウスイベント
- * @returns {boolean}
+ * @param view - エディタビュー
+ * @param event - マウスイベント
+ * @returns マウス位置が外部リンク上なら pointer 用クラスなら true
  */
 export function updateExternalLinkHoverCursor(view: EditorView, event: MouseEvent): boolean {
 	const link       = findMarkdownLinkFromMouseEvent(view, event);
@@ -424,11 +436,11 @@ export function updateExternalLinkHoverCursor(view: EditorView, event: MouseEven
 	return linkActive;
 }
 
+/** 外部リンクの押下、移動、離脱を capture で受ける ViewPlugin */
 const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 	/**
 	 * capture段階で外部リンクを処理する
-	 * @param {MouseEvent} event マウスイベント
-	 * @returns {void}
+	 * @param event - マウスイベント
 	 */
 	const onMouseDown = (event: MouseEvent): void => {
 		handleExternalLinkMouseDown(view, event);
@@ -436,8 +448,7 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 
 	/**
 	 * 外部リンク上のカーソル形状を切り替える
-	 * @param {MouseEvent} event マウスイベント
-	 * @returns {void}
+	 * @param event - マウスイベント
 	 */
 	const onMouseMove = (event: MouseEvent): void => {
 		updateExternalLinkHoverCursor(view, event);
@@ -445,7 +456,6 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 
 	/**
 	 * エディタ外へ出たらカーソル形状を戻す
-	 * @returns {void}
 	 */
 	const onMouseLeave = (): void => {
 		view.dom.classList.remove(EXTERNAL_LINK_HOVER_CLASS);
@@ -459,7 +469,6 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 	return {
 		/**
 		 * capture listener を解除する
-		 * @returns {void}
 		 */
 		destroy(): void {
 			view.dom.removeEventListener('mousedown', onMouseDown, true);
@@ -470,12 +479,15 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 	};
 });
 
+// ----------------------------------------------
+// 拡張の組み立て
+// ----------------------------------------------
 /**
  * ライブプレビュー拡張を生成する
- * @param {ViewMode} initialViewMode 初期表示モード
- * @param {DocumentContext} [documentContext] ドキュメント文脈
- * @param {CompiledCustomDecorationRule[]} [customDecorations] カスタム装飾ルール
- * @returns {Extension[]}
+ * @param initialViewMode - 初期表示モード
+ * @param documentContext - ドキュメント文脈。省略可
+ * @param customDecorations - カスタム装飾ルール。省略可
+ * @returns ライブプレビュー拡張
  */
 export function createLivePreviewExtensions(
 	initialViewMode: ViewMode,
@@ -505,9 +517,9 @@ export function createLivePreviewExtensions(
 		EditorView.domEventHandlers({
 			/**
 			 * チェックボックストグル / コールアウト折りたたみ
-			 * @param {MouseEvent} event マウスイベント
-			 * @param {EditorView} view エディタビュー
-			 * @returns {boolean}
+			 * @param event - マウスイベント
+			 * @param view - エディタビュー
+			 * @returns チェックボックストグル / コールアウト折りたたみなら true
 			 */
 			mousedown(event, view) {
 				if (event.button !== 0) {

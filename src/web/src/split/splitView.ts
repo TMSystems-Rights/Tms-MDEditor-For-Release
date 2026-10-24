@@ -1,18 +1,35 @@
+/**
+ * 分割ビューの比率と、ペイン間で本文変更だけを写すトランザクションを作る
+ * ペインの木構造は持たない
+ * @file
+ */
 import { Annotation, EditorState, Transaction } from '@codemirror/state';
 
+/**
+ * 分割の向き
+ * `horizontal` は上下、`vertical` は左右
+ */
 export type SplitDirection = 'horizontal' | 'vertical';
 
+/**
+ * 同期で作ったトランザクションであることを示す印
+ * true のトランザクションは、相手ペインへ再送しない
+ */
 export const splitSynchronization = Annotation.define<boolean>();
 
+/** 分割比率の下限。これより狭いペインは作らない */
 const MIN_SPLIT_RATIO = 0.2;
+
+/** 分割比率の上限。先のペインがこの値を超えない */
 const MAX_SPLIT_RATIO = 0.8;
 
 /**
  * 境界位置を安全な分割比率へ変換する
- * @param {number} pointerPosition ポインターの座標
- * @param {number} containerStart コンテナー開始座標
- * @param {number} containerSize コンテナー寸法
- * @returns {number} 0.2〜0.8 の分割比率
+ * 容器の寸法が有限かつ正でないときは 0.5 を返す
+ * @param pointerPosition - ポインターの座標。`containerStart` と同じ軸
+ * @param containerStart - 容器の開始座標。同じ軸
+ * @param containerSize - 容器の寸法。0 以下や非数は中央比率になる
+ * @returns 0.2〜0.8 の分割比率。先のペインが占める割合
  */
 export function calculateSplitRatio(
 	pointerPosition: number,
@@ -29,9 +46,10 @@ export function calculateSplitRatio(
 
 /**
  * 同期元トランザクションの本文変更を別ペイン用トランザクションへ変換する
- * @param {Transaction} source 同期元トランザクション
- * @param {EditorState} targetState 同期先の現在状態
- * @returns {Transaction | null} 本文変更がない場合 null
+ * 選択は写さず、履歴にも残さない。本文が変わっていなければ null
+ * @param source - 同期元のトランザクション。本文変更が無いものは写さない
+ * @param targetState - 同期先の現在状態。この状態に対する更新を返す
+ * @returns 本文変更を写したトランザクション。本文変更が無いときは null
  */
 export function createSynchronizedTransaction(
 	source: Transaction,

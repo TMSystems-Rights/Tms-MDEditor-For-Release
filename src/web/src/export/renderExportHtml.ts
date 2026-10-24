@@ -1,3 +1,8 @@
+/**
+ * Markdown を、プレビューと同じ見た目の自己完結 HTML へ変換する
+ * @file
+ */
+
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 import type { SyntaxNode } from '@lezer/common';
@@ -63,51 +68,98 @@ import {
 } from './exportCss';
 import { escapeAttribute, escapeHtml, escapeInlineHtml } from './htmlEscape';
 
+/** 構文木を末尾まで作る待ち時間（ミリ秒）。大きい文書でもここで打ち切る */
 const FULL_PARSE_TIMEOUT_MS = 20_000;
 
+/**
+ * 書き出しが画像を解決するときに渡す、文書上の画像 1 件
+ */
 export type ExportImageRequest = {
+	/** 文書に書かれた画像記法の原文 */
 	raw: string;
+	/** ローカル、リモート、埋め込みなどの種類 */
 	kind: ImageSourceKind;
+	/** 代替テキスト。幅指定を除いた表示名 */
 	alt: string;
+	/** 埋め込み記法なら true。リンク記法なら false */
 	embed: boolean;
+	/** 相対パスの基準になる文書パス。未保存なら null */
 	documentPath: string | null;
 };
 
+/**
+ * Mermaid を SVG にした結果
+ * 失敗しても HTML 変換は続け、図の代わりにエラーを出す
+ */
 export type ExportMermaidResult = {
+	/** 図を SVG にできたか */
 	ok: boolean;
+	/** 成功したときの SVG。失敗時は省略 */
 	svg?: string;
+	/** 失敗理由。成功時は省略 */
 	error?: string;
 };
 
+/**
+ * HTML 変換の入力
+ * 画像と Mermaid の解決を省略したときは、代替表示で書き出す
+ */
 export type RenderExportHtmlOptions = {
+	/** 変換する本文 */
 	markdown: string;
+	/** HTML の title。省略時は呼び出し側の既定 */
 	title?: string;
+	/** 画像の相対パスを解く文書パス。未保存なら null */
 	filePath?: string | null;
+	/** 書き出しの明暗 */
 	theme: 'light' | 'dark';
+	/** 本文フォント。省略時は CSS の既定 */
 	editorFontFamily?: string;
+	/** 本文の大きさ（px）。省略時は CSS の既定 */
 	editorFontSize?: number;
+	/** 等幅フォント。省略時は CSS の既定 */
 	codeFontFamily?: string;
+	/** 画像枠線。未指定の項目は既定 */
 	imageBorder?: Partial<ImageBorderSettings>;
+	/** 有効な CSS スニペット。並びが適用順 */
 	snippetsCss?: string[];
+	/** カスタム装飾ルール。無効なものは変換時に除く */
 	customDecorations?: CustomDecorationRule[];
+	/** リモート画像を取得するか。false なら代替表示 */
 	loadRemoteImages?: boolean;
+	/** 書き出しのアウトライン設定。未指定の項目は既定 */
 	outline?: Partial<ExportOutlineSettings>;
+	/** 画像を Data URL などへ解決する。null は未解決。省略時は代替表示 */
 	resolveImage?: (request: ExportImageRequest) => Promise<string | null>;
+	/** Mermaid を SVG にする。省略時は同梱の描画 */
 	renderMermaid?: (source: string, theme: 'default' | 'dark') => Promise<ExportMermaidResult>;
 };
 
+/**
+ * 変換のあいだ共有する、構文木と解決関数
+ */
 type ExportContext = {
+	/** 変換に使う、構文木つきの文書 */
 	state: EditorState;
+	/** 書き出しの明暗 */
 	theme: 'light' | 'dark';
+	/** コンパイル済みの装飾ルール */
 	rules: CompiledCustomDecorationRule[];
+	/** 本文上の装飾範囲 */
 	decorationRanges: CustomDecorationRange[];
+	/** リモート画像を取得するか */
 	loadRemoteImages: boolean;
+	/** 相対パスの基準。未保存なら null */
 	filePath: string | null;
+	/** 見出しの開始位置から、HTML の id */
 	headingIds: Map<number, string>;
+	/** 画像解決。失敗時は null を返す */
 	resolveImage: (request: ExportImageRequest) => Promise<string | null>;
+	/** Mermaid を SVG にする */
 	renderMermaid: (source: string, theme: 'default' | 'dark') => Promise<ExportMermaidResult>;
 };
 
+/** HTML へ文字として出さない構文マーク。記号自体は別の要素へ置き換える */
 const SKIP_MARKS = new Set([
 	'HeaderMark',
 	'SetextHeadingMark',
@@ -128,6 +180,7 @@ const SKIP_MARKS = new Set([
 	'YamlFrontMatterContent',
 ]);
 
+/** 見出しノード名から、1 始まりのレベル */
 const HEADING_LEVELS: Record<string, number> = {
 	ATXHeading1   : 1,
 	ATXHeading2   : 2,
@@ -139,6 +192,7 @@ const HEADING_LEVELS: Record<string, number> = {
 	SetextHeading2: 2,
 };
 
+/** フェンスコードへ付けるハイライトのクラス */
 const exportCodeHighlighter = tagHighlighter([
 	{ tag: tags.keyword, class: 'cm-md-syntax-keyword' },
 	{ tag: [tags.atom, tags.bool, tags.labelName], class: 'cm-md-syntax-atom' },
@@ -154,8 +208,9 @@ const exportCodeHighlighter = tagHighlighter([
 
 /**
  * Markdown を自己完結 HTML 文書へ変換する
- * @param {RenderExportHtmlOptions} options 変換オプション
- * @returns {Promise<string>}
+ * 画像と Mermaid はオプションの解決関数が終わるまで待つ
+ * @param options - 本文、テーマ、フォント、画像解決
+ * @returns スタイルとスクリプトを含む HTML 文書
  */
 export async function renderExportHtml(options: RenderExportHtmlOptions): Promise<string> {
 	const state                  = EditorState.create({
@@ -217,8 +272,8 @@ ${headingFoldScript}
 
 /**
  * エクスポート用 CSS を組み立てる
- * @param {RenderExportHtmlOptions} options オプション
- * @returns {string}
+ * @param options - オプション
+ * @returns テーマ、フォント、枠線、スニペットを連結した CSS
  */
 export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 'snippetsCss' | 'editorFontFamily' | 'editorFontSize' | 'codeFontFamily' | 'imageBorder'>): string {
 	const snippets = (options.snippetsCss ?? []).filter((item) => item.trim().length > 0);
@@ -236,10 +291,10 @@ export function buildExportCss(options: Pick<RenderExportHtmlOptions, 'theme' | 
 }
 
 /**
- * アプリのエディタフォントを HTML 出力へ反映する。
- * @param {string | undefined} fontFamily エディタフォント
- * @param {number | undefined} fontSize エディタフォントサイズ
- * @returns {string}
+ * アプリのエディタフォントを HTML 出力へ反映する
+ * @param fontFamily - エディタフォント
+ * @param fontSize - エディタフォントサイズ
+ * @returns 本文とコードのフォント指定。空なら空文字
  */
 function buildExportEditorTypographyCss(
 	fontFamily: string | undefined,
@@ -261,8 +316,8 @@ function buildExportEditorTypographyCss(
 
 /**
  * HTML 出力アウトライン設定を正規化する
- * @param {Partial<ExportOutlineSettings> | undefined} outline 指定値
- * @returns {{ enabled: boolean }}
+ * @param outline - 指定値
+ * @returns 有効フラグ。未指定は有効
  */
 function resolveExportOutline(
 	outline: Partial<ExportOutlineSettings> | undefined,
@@ -274,16 +329,16 @@ function resolveExportOutline(
 
 /**
  * 見出し位置から HTML の id を作る
- * @param {number} index 文書順の見出し番号
- * @returns {string}
+ * @param index - 文書順の見出し番号。0 始まり
+ * @returns `tms-mde-h-` に番号を付けた id
  */
 function createExportHeadingId(index: number): string {
 	return `tms-mde-h-${index}`;
 }
 
 /**
- * エクスポート本文の見出し開閉を行う固定スクリプト。
- * 状態は保存せず、ページ読込時は常に全展開から開始する。
+ * エクスポート本文の見出し開閉を行う固定スクリプト
+ * 状態は保存せず、ページ読込時は常に全展開から開始する
  */
 const EXPORT_HEADING_FOLD_SCRIPT = [
 	'(function(){',
@@ -344,8 +399,8 @@ const EXPORT_HEADING_FOLD_SCRIPT = [
 
 /**
  * 見出し位置と id の対応を作る
- * @param {OutlineItem[]} items アウトライン項目
- * @returns {Map<number, string>}
+ * @param items - アウトライン項目
+ * @returns 見出しの開始位置から HTML id
  */
 function createExportHeadingIdMap(items: OutlineItem[]): Map<number, string> {
 	return new Map(items.map((item, index) => [item.from, createExportHeadingId(index)]));
@@ -353,9 +408,9 @@ function createExportHeadingIdMap(items: OutlineItem[]): Map<number, string> {
 
 /**
  * 本文をアウトライン付きのシェルで包む
- * @param {string} article 本文 HTML
- * @param {OutlineItem[]} items 見出し
- * @returns {string}
+ * @param article - 本文 HTML
+ * @param items - 見出し
+ * @returns 本文とアウトラインを並べた HTML
  */
 function wrapExportWithOutline(article: string, items: OutlineItem[]): string {
 	return `<div class="tms-mde-export-shell">
@@ -365,8 +420,8 @@ ${renderExportOutlineNav(items)}
 }
 
 /**
- * アウトラインの開閉と本文スクロール追従を行う固定スクリプト。
- * Markdown 由来の文字列は埋め込まない。
+ * アウトラインの開閉と本文スクロール追従を行う固定スクリプト
+ * Markdown 由来の文字列は埋め込まない
  */
 const EXPORT_OUTLINE_SCRIPT = [
 	'(function(){',
@@ -494,7 +549,7 @@ const EXPORT_OUTLINE_SCRIPT = [
 
 /**
  * 閲覧者が左右を切り替えられるアウトライン見出しを描画する
- * @returns {string}
+ * @returns 左右の切り替えと見出しを含む断片
  */
 function renderExportOutlineHeader(): string {
 	return `<header class="tms-mde-export-outline-header">
@@ -515,8 +570,8 @@ function renderExportOutlineHeader(): string {
 
 /**
  * HTML 出力用のアウトラインを描画する
- * @param {OutlineItem[]} items 見出し
- * @returns {string}
+ * @param items - 見出し
+ * @returns 見出し一覧の nav
  */
 function renderExportOutlineNav(items: OutlineItem[]): string {
 	const header = renderExportOutlineHeader();
@@ -547,9 +602,9 @@ ${script}
 
 /**
  * アウトラインツリーを入れ子のノードにする
- * @param {readonly OutlineTreeNode[]} nodes ノード
- * @param {string} listClass ラッパの class
- * @returns {string}
+ * @param nodes - ノード
+ * @param listClass - ラッパの class
+ * @returns 入れ子のリスト HTML
  */
 function renderExportOutlineTree(nodes: readonly OutlineTreeNode[], listClass: string): string {
 	if (nodes.length === 0) return '';
@@ -559,8 +614,8 @@ function renderExportOutlineTree(nodes: readonly OutlineTreeNode[], listClass: s
 
 /**
  * 見出しレベルに応じたインデント縦線を描く
- * @param {number} level 見出しレベル
- * @returns {string}
+ * @param level - 見出しレベル
+ * @returns レベルの深さに応じたガイド HTML
  */
 function renderExportOutlineGuides(level: number): string {
 	const count = Math.max(0, level - 1);
@@ -574,8 +629,8 @@ function renderExportOutlineGuides(level: number): string {
 
 /**
  * アウトラインの1見出しを描画する
- * @param {OutlineTreeNode} node ノード
- * @returns {string}
+ * @param node - ノード
+ * @returns 1 見出しと、その子の HTML
  */
 function renderExportOutlineNode(node: OutlineTreeNode): string {
 	const headingId = createExportHeadingId(node.index);
@@ -592,16 +647,18 @@ function renderExportOutlineNode(node: OutlineTreeNode): string {
 
 /**
  * 画像を解決できないときの既定実装
- * @returns {Promise<null>}
+ * @returns 常に null。呼び出し側が代替表示にする
  */
 async function unresolvedExportImage(): Promise<null> {
 	return null;
 }
 
 /**
- * @param {string} source Mermaid ソース
- * @param {'default' | 'dark'} theme テーマ
- * @returns {Promise<ExportMermaidResult>}
+ * 同梱の描画で Mermaid を SVG にする
+ * 失敗しても例外にはせず、結果の ok を false にする
+ * @param source - 図のソース
+ * @param theme - 図の明暗。文書がダークのときだけ dark
+ * @returns 成功時は SVG、失敗時は理由を含む結果
  */
 async function defaultRenderMermaid(
 	source: string,
@@ -617,20 +674,20 @@ async function defaultRenderMermaid(
 
 /**
  * ブロック列を描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} parent 親ノード
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param parent - 親ノード
+ * @returns 並べたブロックの HTML
  */
 async function renderBlocks(context: ExportContext, parent: SyntaxNode): Promise<string> {
 	return renderChildBlocks(context, parent, () => false);
 }
 
 /**
- * 子ブロックを描画し、ソース上の空行を残す。
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} parent 親ノード
- * @param {(node: SyntaxNode) => boolean} shouldSkip 飛ばす子
- * @returns {Promise<string>}
+ * 子ブロックを描画し、ソース上の空行を残す
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param parent - 親ノード
+ * @param shouldSkip - 飛ばす子
+ * @returns 子ブロックと、間の空行を含む HTML
  */
 async function renderChildBlocks(
 	context: ExportContext,
@@ -661,11 +718,11 @@ async function renderChildBlocks(
 }
 
 /**
- * 範囲内の空行数を返す。直前ブロックの行の残りは数えない。
- * @param {EditorState} state 文書
- * @param {number} from 開始
- * @param {number} to 終了
- * @returns {number}
+ * 範囲内の空行数を返す。直前ブロックの行の残りは数えない
+ * @param state - 文書
+ * @param from - 開始
+ * @param to - 終了
+ * @returns 範囲内の空行数
  */
 function countBlankLines(state: EditorState, from: number, to: number): number {
 	if (from >= to) {
@@ -690,9 +747,9 @@ function countBlankLines(state: EditorState, from: number, to: number): number {
 }
 
 /**
- * 空行プレースホルダを繰り返す。
- * @param {number} count 行数
- * @returns {string[]}
+ * 空行プレースホルダを繰り返す
+ * @param count - 行数
+ * @returns 空行プレースホルダの配列。長さは count
  */
 function repeatExportBlankLines(count: number): string[] {
 	return Array.from(
@@ -703,9 +760,9 @@ function repeatExportBlankLines(count: number): string[] {
 
 /**
  * 1 ブロックを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node ノード
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - ノード
+	 * @returns そのブロックの HTML。YAML、表以外の生 HTML、出力しないマークは空文字
  */
 async function renderBlock(context: ExportContext, node: SyntaxNode): Promise<string> {
 	const headingLevel = HEADING_LEVELS[node.name];
@@ -772,9 +829,9 @@ async function renderBlock(context: ExportContext, node: SyntaxNode): Promise<st
 
 /**
  * リスト項目を描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} listNode リスト
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param listNode - リスト
+ * @returns リスト項目を含む HTML
  */
 async function renderListItems(context: ExportContext, listNode: SyntaxNode): Promise<string> {
 	const items: SyntaxNode[] = [];
@@ -804,9 +861,9 @@ async function renderListItems(context: ExportContext, listNode: SyntaxNode): Pr
 
 /**
  * リスト項目の本文を描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} item 項目
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param item - 項目
+ * @returns マーカーを除いた項目の中身
  */
 async function renderListItemContent(context: ExportContext, item: SyntaxNode): Promise<string> {
 	const parts: string[] = [];
@@ -834,9 +891,9 @@ async function renderListItemContent(context: ExportContext, item: SyntaxNode): 
 
 /**
  * リスト項目のタスク状態を返す
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} item 項目
- * @returns {{ checked: boolean } | null}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param item - 項目
+ * @returns チェック状態。タスクでなければ null
  */
 function findTaskInItem(context: ExportContext, item: SyntaxNode): { checked: boolean } | null {
 	let found: { checked: boolean } | null = null;
@@ -853,9 +910,9 @@ function findTaskInItem(context: ExportContext, item: SyntaxNode): { checked: bo
 
 /**
  * 引用またはコールアウトを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node Blockquote
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - Blockquote
+ * @returns blockquote またはコールアウトの HTML
  */
 async function renderBlockquote(context: ExportContext, node: SyntaxNode): Promise<string> {
 	const callout = findCalloutInfo(context.state, node);
@@ -872,10 +929,10 @@ async function renderBlockquote(context: ExportContext, node: SyntaxNode): Promi
 
 /**
  * コールアウトのタイトル行と本文を分ける
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node Blockquote
- * @param {number} calloutFrom コールアウト開始位置
- * @returns {Promise<{ title: string; body: string }>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - Blockquote
+ * @param calloutFrom - コールアウト開始位置
+ * @returns タイトル HTML と本文 HTML
  */
 async function splitCalloutContent(
 	context: ExportContext,
@@ -913,9 +970,9 @@ async function splitCalloutContent(
 
 /**
  * 引用の子を描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node Blockquote
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - Blockquote
+ * @returns 引用の中身の HTML
  */
 async function renderQuoteChildren(context: ExportContext, node: SyntaxNode): Promise<string> {
 	return renderChildBlocks(context, node, (child) => SKIP_MARKS.has(child.name));
@@ -923,9 +980,9 @@ async function renderQuoteChildren(context: ExportContext, node: SyntaxNode): Pr
 
 /**
  * フェンスコードまたは Mermaid を描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node FencedCode
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - FencedCode
+ * @returns ハイライトしたコード、または図の HTML
  */
 async function renderFencedCode(context: ExportContext, node: SyntaxNode): Promise<string> {
 	if (isMermaidFencedCode(context.state, node)) {
@@ -950,9 +1007,9 @@ async function renderFencedCode(context: ExportContext, node: SyntaxNode): Promi
 
 /**
  * テーブルを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node Table
- * @returns {string}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - Table
+ * @returns 結合と幅を反映した table
  */
 async function renderTable(context: ExportContext, node: SyntaxNode): Promise<string> {
 	const data      = extractTableData(context.state, node);
@@ -1008,10 +1065,11 @@ async function renderTable(context: ExportContext, node: SyntaxNode): Promise<st
 }
 
 /**
- * @param {number} colspan 列結合
- * @param {number} rowspan 行結合
- * @param {ReturnType<typeof parseCellSpan>} span 配置
- * @returns {string}
+ * セルの結合と配置を、HTML 属性の文字列にする
+ * @param colspan - 横方向の結合数。1 のときは属性を出さない
+ * @param rowspan - 縦方向の結合数。1 のときは属性を出さない
+ * @param span - 水平と垂直の配置。未指定の方向は属性を出さない
+ * @returns 先頭に空白を含む属性。何も無ければ空文字
  */
 function htmlCellAttribute(
 	colspan: number,
@@ -1036,9 +1094,9 @@ function htmlCellAttribute(
 }
 
 /**
- * 列幅の colgroup を返す。
- * @param {number[] | undefined} widths 列幅
- * @returns {string}
+ * 列幅の colgroup を返す
+ * @param widths - 列幅
+ * @returns 列幅の colgroup。幅が無ければ空文字
  */
 function htmlTableColGroup(widths: number[] | undefined): string {
 	if (!widths || widths.every((width) => width <= 0)) {
@@ -1052,9 +1110,9 @@ function htmlTableColGroup(widths: number[] | undefined): string {
 }
 
 /**
- * 行高属性を返す。
- * @param {number | undefined} height 行高
- * @returns {string}
+ * 行高属性を返す
+ * @param height - 行高
+ * @returns 行高の style 属性。高さが無ければ空文字
  */
 function htmlRowHeightAttribute(height: number | undefined): string {
 	return height && height > 0 ? ` style="height:${clampRowHeight(height)}px"` : '';
@@ -1062,9 +1120,9 @@ function htmlRowHeightAttribute(height: number | undefined): string {
 
 /**
  * セル AST を HTML にする
- * @param {ExportContext} context 文脈
- * @param {TableCellNode[]} nodes セル
- * @returns {string}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param nodes - セル
+ * @returns セルの中身の HTML
  */
 async function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): Promise<string> {
 	const parts = await Promise.all(nodes.map(async (node) => {
@@ -1118,9 +1176,9 @@ async function tableCellToHtml(context: ExportContext, nodes: TableCellNode[]): 
 
 /**
  * 表セル内画像を HTML にする
- * @param {ExportContext} context 文脈
- * @param {ImageSpec} spec 画像
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param spec - 画像
+ * @returns セル内の img または代替表示
  */
 async function renderTableCellImage(context: ExportContext, spec: ImageSpec): Promise<string> {
 	const sizedClass = spec.width ? ' cm-md-image is-sized' : ' cm-md-image';
@@ -1149,9 +1207,9 @@ async function renderTableCellImage(context: ExportContext, spec: ImageSpec): Pr
 
 /**
  * 画像または埋め込み画像を描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node Image / WikiEmbed
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - Image / WikiEmbed
+ * @returns 解決した img。未解決なら代替表示
  */
 async function renderImage(context: ExportContext, node: SyntaxNode): Promise<string> {
 	const embed                       = node.name === 'WikiEmbed';
@@ -1194,9 +1252,9 @@ async function renderImage(context: ExportContext, node: SyntaxNode): Promise<st
 
 /**
  * 指定幅があるとき img の style を返す
- * @param {number | null} width 幅
- * @param {number | null} height 高さ
- * @returns {string}
+ * @param width - 幅
+ * @param height - 高さ
+	 * @returns 幅の style。幅が無いときは空文字で、高さは幅があるときだけ付ける
  */
 function imageWidthStyle(width: number | null, height: number | null): string {
 	if (!width || width <= 0) {
@@ -1209,8 +1267,8 @@ function imageWidthStyle(width: number | null, height: number | null): string {
 
 /**
  * 画像プレースホルダを返す
- * @param {string} raw 元パス
- * @returns {string}
+ * @param raw - 元パス
+ * @returns 未解決画像の代替 HTML
  */
 function imageFallback(raw: string): string {
 	return `<span class="cm-md-image-fallback">画像を読み込めません: ${escapeHtml(raw)}</span>`;
@@ -1218,11 +1276,11 @@ function imageFallback(raw: string): string {
 
 /**
  * ノード配下のインラインを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node ノード
- * @param {number} [clipFrom] 切り出し開始
- * @param {number} [clipTo] 切り出し終了
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - ノード
+ * @param clipFrom - 切り出し開始
+ * @param clipTo - 切り出し終了
+ * @returns 切り出した範囲のインライン HTML
  */
 async function renderCovered(
 	context: ExportContext,
@@ -1304,9 +1362,9 @@ async function renderCovered(
 
 /**
  * インラインノードを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node ノード
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - ノード
+ * @returns そのインラインの HTML
  */
 async function renderInline(context: ExportContext, node: SyntaxNode): Promise<string> {
 	if (node.name === 'Emphasis') {
@@ -1383,9 +1441,9 @@ async function renderInline(context: ExportContext, node: SyntaxNode): Promise<s
 
 /**
  * インラインコードを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node InlineCode
- * @returns {string}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - InlineCode
+ * @returns 言語指定を除いた code 要素
  */
 function renderInlineCode(context: ExportContext, node: SyntaxNode): string {
 	const raw   = context.state.doc.sliceString(node.from, node.to);
@@ -1397,9 +1455,9 @@ function renderInlineCode(context: ExportContext, node: SyntaxNode): string {
 
 /**
  * リンクを描画する
- * @param {ExportContext} context 文脈
- * @param {SyntaxNode} node Link / URL
- * @returns {Promise<string>}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param node - Link / URL
+ * @returns アンカーの HTML
  */
 async function renderLink(context: ExportContext, node: SyntaxNode): Promise<string> {
 	if (node.name === 'URL') {
@@ -1419,8 +1477,8 @@ async function renderLink(context: ExportContext, node: SyntaxNode): Promise<str
 
 /**
  * 許可タグだけを HTML として出す
- * @param {string} raw 生タグ
- * @returns {string}
+ * @param raw - 生タグ
+ * @returns 許可したタグ。それ以外はエスケープした文字
  */
 function renderHtmlTag(raw: string): string {
 	const parsed = parseHtmlTag(raw);
@@ -1443,10 +1501,10 @@ function renderHtmlTag(raw: string): string {
 
 /**
  * 属性文字列を組み立てる
- * @param {string | undefined} className クラス
- * @param {string | undefined} style スタイル
- * @param {string} extraClass 追加クラス
- * @returns {string}
+ * @param className - クラス
+ * @param style - スタイル
+ * @param extraClass - 追加クラス
+ * @returns class と style を連結した属性。空なら空文字
  */
 function htmlAttributeString(
 	className: string | undefined,
@@ -1464,9 +1522,9 @@ function htmlAttributeString(
 
 /**
  * フェンスコードをトークン色付き HTML にする
- * @param {string} code コード
- * @param {string} languageName 言語
- * @returns {string}
+ * @param code - コード
+ * @param languageName - 言語
+ * @returns 色クラスを付けた code の中身
  */
 function highlightCodeHtml(code: string, languageName: string): string {
 	if (!code) {
@@ -1501,9 +1559,9 @@ function highlightCodeHtml(code: string, languageName: string): string {
 
 /**
  * ハイライト範囲を span にする
- * @param {string} code コード
- * @param {Array<{ from: number; to: number; className: string }>} ranges 範囲
- * @returns {string}
+ * @param code - コード
+ * @param ranges - 範囲
+ * @returns 範囲ごとの span を連結した HTML
  */
 function emitHighlighted(
 	code: string,
@@ -1529,10 +1587,10 @@ function emitHighlighted(
 
 /**
  * ドキュメント絶対座標でカスタム装飾を適用する
- * @param {ExportContext} context 文脈
- * @param {number} from 開始
- * @param {number} to 終了
- * @returns {string}
+ * @param context - 変換中の構文木、装飾、画像解決
+ * @param from - 開始
+ * @param to - 終了
+ * @returns 装飾クラスを付けた HTML
  */
 function emitDecorated(context: ExportContext, from: number, to: number): string {
 	if (from >= to) {
@@ -1544,9 +1602,9 @@ function emitDecorated(context: ExportContext, from: number, to: number): string
 
 /**
  * カスタム装飾をテキストへ適用する
- * @param {string} text 生テキスト
- * @param {CompiledCustomDecorationRule[]} rules ルール
- * @returns {string}
+ * @param text - 生テキスト
+ * @param rules - ルール
+ * @returns 装飾を反映した HTML
  */
 export function decorateText(text: string, rules: CompiledCustomDecorationRule[]): string {
 	return decorateSlice(text, 0, collectCustomDecorationRangesFromText(text, rules, 0));
@@ -1554,10 +1612,10 @@ export function decorateText(text: string, rules: CompiledCustomDecorationRule[]
 
 /**
  * スライスへ絶対座標の装飾を載せる
- * @param {string} text スライス
- * @param {number} origin スライス先頭のドキュメント座標
- * @param {CustomDecorationRange[]} ranges 装飾範囲
- * @returns {string}
+ * @param text - スライス
+ * @param origin - スライス先頭のドキュメント座標
+ * @param ranges - 装飾範囲
+ * @returns スライス上の装飾を反映した HTML
  */
 function decorateSlice(text: string, origin: number, ranges: CustomDecorationRange[]): string {
 	if (!text) {
@@ -1640,8 +1698,8 @@ function decorateSlice(text: string, origin: number, ranges: CustomDecorationRan
 
 /**
  * SVG に script が無いか
- * @param {string} svg SVG
- * @returns {boolean}
+ * @param svg - SVG
+	 * @returns svg 要素があり、script を含まなければ true
  */
 function isSafeSvg(svg: string): boolean {
 	return /<svg[\s>]/i.test(svg) && !/<script/i.test(svg);

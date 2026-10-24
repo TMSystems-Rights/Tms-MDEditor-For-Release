@@ -1,3 +1,8 @@
+/**
+ * セル結合、配置、占有グリッドが文書変更へどう出るかを検証する
+ * EditorState はヘルパーが都度作り、画面への dispatch はモックで受ける
+ * @file
+ */
 import { EditorSelection, EditorState, type TransactionSpec } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
@@ -32,8 +37,9 @@ import {
 import { syntaxTree } from '@codemirror/language';
 
 /**
- * @param {string} doc 文書
- * @returns {EditorState}
+ * ノートパス付きの Markdown 状態を、文書先頭のカーソルで作る
+ * @param doc - ドキュメント全文
+ * @returns 文書文脈と TMS Markdown を載せた状態
  */
 function createState(doc: string): EditorState {
 	return EditorState.create({
@@ -50,15 +56,16 @@ function createState(doc: string): EditorState {
 }
 
 /**
- * @param {EditorState} state 状態
- * @returns {import('./tableWidget').TableData}
+ * 文書中の最初の表から、表示用データを取り出す
+ * @param state - 構文木を読む状態
+ * @returns 最初の表。無ければ null
  */
 function tableData(state: EditorState) {
 	let found: import('@lezer/common').SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
-		 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-		 * @returns {boolean | void}
+		 * @param ref - ノード
+		 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 		 */
 		enter(ref) {
 			if (ref.name === 'Table') {
@@ -246,13 +253,12 @@ describe('tableMerge', () => {
 		const view = {
 			state,
 			/**
-			 * @param {TransactionSpec} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: TransactionSpec) {
 				this.state = this.state.update(spec).state;
 			},
-			dom: { /**
+			dom: {				/**
 			 *
 			 */
 				querySelector: () => null },
@@ -287,14 +293,13 @@ describe('tableMerge', () => {
 		const view                          = {
 			state,
 			/**
-			 * @param {TransactionSpec} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: TransactionSpec) {
 				dispatched.push(spec);
 				this.state = this.state.update(spec).state;
 			},
-			dom: { /**
+			dom: {				/**
 			 *
 			 */
 				querySelector: () => null },
@@ -324,14 +329,13 @@ describe('tableMerge', () => {
 			style    : { textAlign: '', verticalAlign: '' },
 			classList: {
 				/**
-				 * @returns {IterableIterator<string>} クラス
+				 * @returns クラス
 				 */
 				[Symbol.iterator](): IterableIterator<string> {
 					return names.values();
 				},
 				/**
-				 * @param {string[]} next 追加
-				 * @returns {void}
+				 * @param next - 追加
 				 */
 				add(...next: string[]) {
 					for (const name of next) {
@@ -339,8 +343,7 @@ describe('tableMerge', () => {
 					}
 				},
 				/**
-				 * @param {string[]} next 削除
-				 * @returns {void}
+				 * @param next - 削除
 				 */
 				remove(...next: string[]) {
 					for (const name of next) {
@@ -350,13 +353,13 @@ describe('tableMerge', () => {
 			},
 		};
 		const wrap  = {
-			classList      : { /**
+			classList      : {				/**
 			 *
 			 */
 				contains: (name: string) => name === 'cm-md-table-wrap' },
 			dataset        : { tableFrom: '0', tableTo: '0' },
 			/**
-			 * @returns {typeof cell[]} セル
+			 * @returns セル
 			 */
 			querySelectorAll() {
 				return [cell];
@@ -374,13 +377,13 @@ describe('tableMerge', () => {
 			state,
 			dom: {
 				/**
-				 * @returns {typeof wrap} 表
+				 * @returns 表
 				 */
 				querySelector() {
 					return wrap;
 				},
 				/**
-				 * @returns {typeof wrap[]} 表
+				 * @returns 表
 				 */
 				querySelectorAll() {
 					return [wrap];
@@ -388,13 +391,13 @@ describe('tableMerge', () => {
 			},
 			contentDOM: {
 				/**
-				 * @returns {typeof wrap} 表
+				 * @returns 表
 				 */
 				querySelector() {
 					return wrap;
 				},
 				/**
-				 * @returns {typeof wrap[]} 表
+				 * @returns 表
 				 */
 				querySelectorAll() {
 					return [wrap];
@@ -561,8 +564,7 @@ describe('tableMerge', () => {
 		const view     = {
 			state,
 			/**
-			 * @param {TransactionSpec} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: TransactionSpec) {
 				this.state = this.state.update(spec).state;
@@ -571,7 +573,7 @@ describe('tableMerge', () => {
 			 *
 			 */
 			focus() {},
-			dom: { /**
+			dom: {				/**
 			 *
 			 */
 				querySelector: () => null },

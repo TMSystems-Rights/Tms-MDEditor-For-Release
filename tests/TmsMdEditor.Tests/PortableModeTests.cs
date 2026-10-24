@@ -1,11 +1,27 @@
+// ==============================================
+// マーカーでポータブル判定とパスを分ける
+// ==============================================
+
+// マーカーの有無でポータブルを判定し、data、更新確認、アプリ ID、書き込み失敗時の扱いを版ごとに固定する
+
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// 一時ディレクトリを exe の位置にして、ポータブル判定とパス解決を検証する
+/// プロセスのポータブル状態は各テストの前後で戻す
+/// </summary>
 public sealed class PortableModeTests : IDisposable
 {
+	/// <summary>
+	/// exe やマーカーを置く一時ルート。テストごとに作り、Dispose で削除する
+	/// </summary>
 	private readonly string _tempRoot;
 
+	/// <summary>
+	/// ポータブル状態を戻し、空の一時ディレクトリを作る
+	/// </summary>
 	public PortableModeTests()
 	{
 		PortableRuntime.ResetForTests();
@@ -13,6 +29,9 @@ public sealed class PortableModeTests : IDisposable
 		Directory.CreateDirectory(_tempRoot);
 	}
 
+	/// <summary>
+	/// ポータブル状態を戻し、一時ディレクトリが残っていれば削除する
+	/// </summary>
 	public void Dispose()
 	{
 		PortableRuntime.ResetForTests();
@@ -22,6 +41,9 @@ public sealed class PortableModeTests : IDisposable
 		}
 	}
 
+	/// <summary>
+	/// マーカーが exe の隣にあるときだけポータブルとし、カレントディレクトリの位置では判定しない
+	/// </summary>
 	[Fact]
 	public void DetectPortableMode_uses_exec_path_not_cwd()
 	{
@@ -44,6 +66,9 @@ public sealed class PortableModeTests : IDisposable
 		}
 	}
 
+	/// <summary>
+	/// マーカーの中身が JSON でなくても、ファイルがあればポータブルとする
+	/// </summary>
 	[Fact]
 	public void DetectPortableMode_treats_broken_json_as_portable()
 	{
@@ -52,6 +77,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.True(PortableMode.DetectPortableMode(execPath));
 	}
 
+	/// <summary>
+	/// マーカーが無い exe はポータブルにしない
+	/// </summary>
 	[Fact]
 	public void DetectPortableMode_is_false_without_marker()
 	{
@@ -60,6 +88,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.False(PortableMode.DetectPortableMode(execPath));
 	}
 
+	/// <summary>
+	/// ポータブルの data は exe の隣の data で、その中に data を重ねない
+	/// </summary>
 	[Fact]
 	public void ResolvePortableDataPaths_flattens_data_dir()
 	{
@@ -75,6 +106,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.Equal(Path.Combine(exeDir, "data", "temp"), paths.Temp);
 	}
 
+	/// <summary>
+	/// インストーラ版は userData の下の data、ポータブル版は userData そのものを data にする
+	/// </summary>
 	[Fact]
 	public void ResolveDefaultDataDir_keeps_installer_nested_layout()
 	{
@@ -83,6 +117,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.Equal(userData, PortableMode.ResolveDefaultDataDir(userData, isPortable: true));
 	}
 
+	/// <summary>
+	/// ポータブルはタグ名だけの更新確認、インストーラ版はインストーラのダウンロード確認にする
+	/// </summary>
 	[Fact]
 	public void ResolveUpdateCheckMode_uses_tag_only_for_portable()
 	{
@@ -90,6 +127,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.Equal(UpdateCheckMode.InstallerDownload, PortableMode.ResolveUpdateCheckMode(false));
 	}
 
+	/// <summary>
+	/// ポータブル、インストーラ、開発でアプリ ID を分け、ポータブルのコピーごとにインスタンス範囲も分ける
+	/// </summary>
 	[Fact]
 	public void ResolveAppUserModelId_and_instance_scope_separate_editions()
 	{
@@ -105,6 +145,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.Equal("dev-v1", PortableMode.ResolveInstanceScope(false, null, "tms-mdeditor-dev"));
 	}
 
+	/// <summary>
+	/// 書けるディレクトリは成功し、親がファイルのパスは失敗理由を返して別の場所は作らない
+	/// </summary>
 	[Fact]
 	public void ProbeWritableDirectory_reports_failure_without_fallback()
 	{
@@ -118,9 +161,13 @@ public sealed class PortableModeTests : IDisposable
 		WritableProbeResult failed = PortableMode.ProbeWritableDirectory(blocked);
 		Assert.False(failed.Ok);
 		Assert.False(string.IsNullOrWhiteSpace(failed.Error));
+		// 書けないパスの失敗で、探していない未作成ディレクトリは作らない
 		Assert.False(Directory.Exists(missingParent));
 	}
 
+	/// <summary>
+	/// ポータブルを有効にすると、設定もログも WebView2 も exe 隣の data 配下を向く
+	/// </summary>
 	[Fact]
 	public void EnablePortable_switches_app_paths_to_flattened_data()
 	{
@@ -138,6 +185,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.False(AppPaths.GetConfigPath(AppPaths.DefaultDataDir).Contains(Path.Combine("data", "data"), StringComparison.OrdinalIgnoreCase));
 	}
 
+	/// <summary>
+	/// ポータブルを戻すと、設定は LocalAppData 配下、一時領域はシステムの一時ディレクトリを向く
+	/// </summary>
 	[Fact]
 	public void AppPaths_without_portable_keeps_appdata_layout()
 	{

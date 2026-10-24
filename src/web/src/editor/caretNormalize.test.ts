@@ -1,3 +1,8 @@
+/**
+ * キャレット正規化が、行末のクランプ、assoc、goalColumn、IME 中のスキップを守ることを検証する
+ * エディタの描画は持たず、EditorState 上の選択だけを見る
+ * @file
+ */
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { normalizeCaretRange, normalizeCaretSelection } from './caretNormalize';

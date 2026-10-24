@@ -1,7 +1,13 @@
 /**
- * エディタ本文以外（表セル・検索・ダイアログ）の貼り付けを横取りしない
- * @param {ClipboardEvent} event 貼り付けイベント
- * @returns {boolean}
+ * エディタ本文以外で起きた貼り付けを、本文用の取り込みから外す判定を持つ
+ * 貼り付けの実行は持たず、呼び出し側がスキップするかどうかだけを返す
+ * @file
+ */
+
+/**
+ * 表セル、検索欄、ダイアログ、input、textarea への貼り付けなら、本文用の取り込みをスキップする
+ * @param event - 判定対象の貼り付け。target がフォーム部品か、既知の UI の内側かを見る
+ * @returns 本文用の取り込みを行わないとき true
  */
 export function shouldSkipEditorPasteCapture(event: ClipboardEvent): boolean {
 	const target = event.target;
@@ -23,9 +29,10 @@ export function shouldSkipEditorPasteCapture(event: ClipboardEvent): boolean {
 }
 
 /**
- * input / textarea への貼り付けか判定する
- * @param {EventTarget | null} target イベント対象
- * @returns {boolean}
+ * input または textarea への貼り付けかを判定する
+ * ホストに HTMLInputElement が無いときは instanceof を使わず、フォーム部品ではないとする
+ * @param target - 貼り付けイベントの対象。null のときはフォーム部品ではない
+ * @returns input または textarea のとき true
  */
 function isFormFieldTarget(target: EventTarget | null): boolean {
 	if (typeof HTMLInputElement !== 'undefined' && target instanceof HTMLInputElement) {

@@ -1,3 +1,8 @@
+/**
+ * 見出し、コード、引用、リスト、水平線、コールアウトの行装飾を集める
+ * 折りたたみ状態は calloutFold から読み、このファイルは装飾配列を返すだけである
+ * @file
+ */
 import { Decoration } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
@@ -21,6 +26,10 @@ import { pushBulletMarkerReplace } from './listMarkers';
 import type { DecorationEntry } from './inlineDecorations';
 import { isMermaidFencedCode } from './mermaidWidget';
 
+// ----------------------------------------------
+// 見出し
+// ----------------------------------------------
+/** ATX 見出しノード名から行クラスへの対応。実行中は変えない */
 const ATX_HEADING_CLASSES: Record<string, string> = {
 	ATXHeading1: 'cm-md-h1',
 	ATXHeading2: 'cm-md-h2',
@@ -30,6 +39,7 @@ const ATX_HEADING_CLASSES: Record<string, string> = {
 	ATXHeading6: 'cm-md-h6',
 };
 
+/** Setext 見出しノード名から行クラスへの対応。実行中は変えない */
 const SETEXT_HEADING_CLASSES: Record<string, string> = {
 	SetextHeading1: 'cm-md-h1',
 	SetextHeading2: 'cm-md-h2',
@@ -37,12 +47,11 @@ const SETEXT_HEADING_CLASSES: Record<string, string> = {
 
 /**
  * プレビュー行のみ非表示 replace を追加する
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} from 開始位置
- * @param {number} to 終了位置
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param from - 開始位置
+ * @param to - 終了位置
+ * @param sourceLineNumbers - ソース行集合
  */
 function pushHiddenMarkIfPreview(
 	state: EditorState,
@@ -61,13 +70,12 @@ function pushHiddenMarkIfPreview(
 
 /**
  * 行 Decoration エントリを追加する（プレビュー行限定）
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {EditorState} state エディタ状態
- * @param {number} lineNumber 行番号
- * @param {string} className CSS クラス
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @param {Record<string, string>} [attributes] 行属性
- * @returns {void}
+ * @param entries - エントリ配列
+ * @param state - エディタ状態
+ * @param lineNumber - 行番号
+ * @param className - CSS クラス
+ * @param sourceLineNumbers - ソース行集合
+ * @param attributes - 行属性。省略可
  */
 function pushLineClass(
 	entries: DecorationEntry[],
@@ -86,12 +94,11 @@ function pushLineClass(
 
 /**
  * 行 Decoration エントリを追加する（アクティブ行も含む）
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {EditorState} state エディタ状態
- * @param {number} lineNumber 行番号
- * @param {string} className CSS クラス
- * @param {Record<string, string>} [attributes] 行属性
- * @returns {void}
+ * @param entries - エントリ配列
+ * @param state - エディタ状態
+ * @param lineNumber - 行番号
+ * @param className - CSS クラス
+ * @param attributes - 行属性。省略可
  */
 function pushLineClassAlways(
 	entries: DecorationEntry[],
@@ -114,12 +121,11 @@ function pushLineClassAlways(
 /**
  * ATX 見出しの装飾を追加する
  * 行スタイルはアクティブ行でも維持し、`#` + 空白だけプレビュー時に隠す（ソース位置 (a) を不変に保つ）
- * @param {SyntaxNode} node 見出しノード
- * @param {string} className CSS クラス
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param node - 見出しノード
+ * @param className - CSS クラス
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
  */
 function decorateAtxHeading(
 	node: SyntaxNode,
@@ -153,12 +159,11 @@ function decorateAtxHeading(
 
 /**
  * Setext 見出しの装飾を追加する
- * @param {SyntaxNode} node 見出しノード
- * @param {string} className CSS クラス
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param node - 見出しノード
+ * @param className - CSS クラス
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
  */
 function decorateSetextHeading(
 	node: SyntaxNode,
@@ -173,10 +178,10 @@ function decorateSetextHeading(
 
 	/*
 	 * `aaa` の直後へ箇条書き入力を始めた時点の `-` / `- ` は、
-	 * Markdown パーサ上は SetextHeading2 と解釈されることがある。
+	 * Markdown パーサ上は SetextHeading2 と解釈されることがある
 	 * ただし編集途中の単独ハイフンを見出しとして装飾すると、前行が h2
-	 * へ伸縮し、続く本文入力・Backspace 時にキャレット座標が揺れる。
-	 * 2 個以上の `-` は通常どおり Setext 見出しとして扱う。
+	 * へ伸縮し、続く本文入力・Backspace 時にキャレット座標が揺れる
+	 * 2 個以上の `-` は通常どおり Setext 見出しとして扱う
 	 */
 	if (/^\s*-\s*$/.test(underline.text)) {
 		pushLineClassAlways(entries, state, startLine, 'cm-md-pending-list-source');
@@ -200,9 +205,9 @@ function decorateSetextHeading(
 
 /**
  * Blockquote 内のコールアウト情報を取得する
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} node Blockquote ノード
- * @returns {CalloutInfo | null}
+ * @param state - エディタ状態
+ * @param node - Blockquote ノード
+ * @returns Blockquote 内のコールアウト情報。無ければ null
  */
 export function findCalloutInfo(state: EditorState, node: SyntaxNode): CalloutInfo | null {
 	let found: CalloutInfo | null = null;
@@ -246,10 +251,10 @@ export function findCalloutInfo(state: EditorState, node: SyntaxNode): CalloutIn
 
 /**
  * 指定範囲を本文内に含むコールアウト情報を取得する
- * @param {EditorState} state エディタ状態
- * @param {number} from 範囲開始位置
- * @param {number} to 範囲終了位置
- * @returns {CalloutInfo | null} コールアウト情報
+ * @param state - エディタ状態
+ * @param from - 範囲開始位置
+ * @param to - 範囲終了位置
+ * @returns コールアウト情報
  */
 export function findCalloutContainingRange(
 	state: EditorState,
@@ -265,8 +270,7 @@ export function findCalloutContainingRange(
 	syntaxTree(state).iterate({
 		/**
 		 * Blockquote ノードから指定範囲を含むコールアウトを探す
-		 * @param {SyntaxNodeRef} ref ノード参照
-		 * @returns {void}
+		 * @param ref - ノード参照
 		 */
 		enter(ref) {
 			if (ref.name !== 'Blockquote' || ref.from > position || ref.to < position) {
@@ -296,10 +300,10 @@ export function findCalloutContainingRange(
 
 /**
  * 指定範囲を含む折りたたみ中コールアウト情報を取得する
- * @param {EditorState} state エディタ状態
- * @param {number} from 範囲開始位置
- * @param {number} to 範囲終了位置
- * @returns {CalloutInfo | null} 折りたたみ中コールアウト情報
+ * @param state - エディタ状態
+ * @param from - 範囲開始位置
+ * @param to - 範囲終了位置
+ * @returns 折りたたみ中コールアウト情報
  */
 export function findCollapsedCalloutContainingRange(
 	state: EditorState,
@@ -320,11 +324,10 @@ export function findCollapsedCalloutContainingRange(
 /**
  * Fence コードブロックの装飾を追加する
  * 行スタイル（等幅フォント等）はアクティブ行でも維持し、CodeMark / CodeInfo だけプレビュー時に隠す
- * @param {SyntaxNode} node FencedCode ノード
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param node - FencedCode ノード
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
  */
 function decorateFencedCode(
 	node: SyntaxNode,
@@ -355,13 +358,13 @@ function decorateFencedCode(
 /**
  * コールアウトタイトル行の `>` / 空白 / `[!type]` を隠し、ウィジェット挿入位置を返す
  * `>[!success]` のように `>` 直後スペース無しでもトグル位置がずれないようにする
- * @param {SyntaxNode} node Blockquote ノード
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @param {number} titleLineNumber タイトル行番号
- * @param {CalloutInfo} callout コールアウト情報
- * @returns {number}
+ * @param node - Blockquote ノード
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
+ * @param titleLineNumber - タイトル行番号
+ * @param callout - コールアウト情報
+ * @returns コールアウトタイトル行の `>` / 空白 / `[!type]` を隠し、ウィジェット挿入位置
  */
 function hideCalloutTitleMarkup(
 	node: SyntaxNode,
@@ -412,11 +415,10 @@ function hideCalloutTitleMarkup(
 
 /**
  * 引用ブロックの装飾を追加する（コールアウトを含む）
- * @param {SyntaxNode} node Blockquote ノード
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param node - Blockquote ノード
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
  */
 function decorateBlockquote(
 	node: SyntaxNode,
@@ -525,11 +527,10 @@ function decorateBlockquote(
 
 /**
  * 水平線の装飾を追加する
- * @param {SyntaxNode} node HorizontalRule ノード
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param node - HorizontalRule ノード
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
  */
 function decorateHorizontalRule(
 	node: SyntaxNode,
@@ -550,11 +551,10 @@ function decorateHorizontalRule(
  * リスト項目の装飾を追加する
  * プレビュー行ではマーカー文字のみ置換し、インデント等のレイアウトはソースと同一に保つ
  * タスク項目は ListMark（`•`）を出さず、チェックボックスのみ表示する
- * @param {SyntaxNode} node ListItem ノード
- * @param {EditorState} state エディタ状態
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {void}
+ * @param node - ListItem ノード
+ * @param state - エディタ状態
+ * @param entries - エントリ配列
+ * @param sourceLineNumbers - ソース行集合
  */
 function decorateListItem(
 	node: SyntaxNode,
@@ -612,11 +612,14 @@ function decorateListItem(
 	pushBulletMarkerReplace(entries, listMarkFrom, listMarkTo);
 }
 
+// ----------------------------------------------
+// 行装飾の収集
+// ----------------------------------------------
 /**
  * ライブプレビュー行の行装飾エントリを収集する
- * @param {EditorState} state エディタ状態
- * @param {Set<number>} [sourceLineNumbers] ソース行集合
- * @returns {DecorationEntry[]}
+ * @param state - エディタ状態
+ * @param sourceLineNumbers - ソース行集合。省略可
+ * @returns 集めたライブプレビュー行の行装飾エントリ。該当が無ければ空
  */
 export function collectLineDecorationEntries(
 	state: EditorState,
@@ -627,8 +630,8 @@ export function collectLineDecorationEntries(
 	syntaxTree(state).iterate({
 		/**
 		 * 構文木を走査して行装飾エントリを収集する
-		 * @param {{ name: string; node: SyntaxNode }} ref ノード参照
-		 * @returns {boolean | void}
+		 * @param ref - ノード参照
+		 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 		 */
 		enter(ref) {
 			switch (ref.name) {

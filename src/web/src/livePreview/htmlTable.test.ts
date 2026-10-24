@@ -1,3 +1,8 @@
+/**
+ * HTML 表ブロックの判定と、表示前のサニタイズ結果を検証する
+ * 本番の isHtmlTableBlock と sanitizeHtmlTable だけを呼び、DOM は作らない
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { isHtmlTableBlock, sanitizeHtmlTable } from './htmlTable';
 

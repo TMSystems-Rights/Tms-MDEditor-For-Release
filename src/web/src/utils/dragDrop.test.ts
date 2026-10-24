@@ -1,3 +1,7 @@
+/**
+ * ドラッグデータがファイルを含むかの判定を確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { isFileDrag } from './dragDrop';
 

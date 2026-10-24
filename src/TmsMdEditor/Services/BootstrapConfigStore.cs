@@ -1,29 +1,42 @@
+// ==============================================
+// ブートストラップ設定の読み書き
+// ==============================================
+
+// app-config.json の dataDir だけを所有する。config.json 本体は ConfigStore が読み、ここは起動位置を決める境界に留める
+
 using TmsMdEditor.Models;
 
 namespace TmsMdEditor.Services;
 
 /// <summary>
-/// ブートストラップ設定（app-config.json）の読み書き
+/// AppData ルートの app-config.json を読み書きし、ポータブルでは dataDir を exe 隣の data に固定する
+/// ファイルが無い、または壊れているときは既定を作って保存し、起動は続ける
 /// </summary>
 internal sealed class BootstrapConfigStore
 {
+	/// <summary>
+	/// このストアが書く schemaVersion。古い版も読み込み時にこの値へ揃える
+	/// </summary>
 	public const int CurrentSchemaVersion = 1;
 
+	/// <summary>
+	/// 読み込み失敗と、ポータブルで無視した dataDir を記録するログ。設定ファイルは所有しない
+	/// </summary>
 	private readonly Logger _logger;
 
 	/// <summary>
-	/// ブートストラップ設定ストアを初期化する
+	/// ログを受け取る。ライフタイムは呼び出し元が持つ
 	/// </summary>
-	/// <param name="logger">ロガー</param>
+	/// <param name="logger">読み込み失敗と dataDir の固定を記録するログ</param>
 	public BootstrapConfigStore(Logger logger)
 	{
 		_logger = logger;
 	}
 
 	/// <summary>
-	/// ブートストラップ設定を読み込む（存在しなければ作成）
+	/// app-config.json を読む。無ければ既定を作って保存し、壊れていても既定へ戻して保存する
 	/// </summary>
-	/// <returns>設定</returns>
+	/// <returns>正規化済みの設定。ポータブルでは dataDir が exe 隣の data になる</returns>
 	public BootstrapConfigDocument Load()
 	{
 		string path = AppPaths.BootstrapConfigPath;
@@ -64,24 +77,24 @@ internal sealed class BootstrapConfigStore
 	}
 
 	/// <summary>
-	/// ブートストラップ設定を保存する
+	/// 正規化した設定を app-config.json へ原子的に書く。呼び出し元には成否を返さない
 	/// </summary>
-	/// <param name="config">設定</param>
+	/// <param name="config">保存する設定。dataDir は正規化で絶対パスになる</param>
 	public void Save(BootstrapConfigDocument config)
 	{
 		JsonFileHelper.WriteAtomic(AppPaths.BootstrapConfigPath, Normalize(config));
 	}
 
 	/// <summary>
-	/// 既定 dataDir を取得する
+	/// 今の実行形態における既定 dataDir を返す。フォルダは作らない
 	/// </summary>
-	/// <returns>既定 dataDir</returns>
+	/// <returns>ポータブルでは exe 隣の data、それ以外は AppData 配下の data</returns>
 	public static string GetDefaultDataDir() => AppPaths.DefaultDataDir;
 
 	/// <summary>
-	/// 既定設定を生成する
+	/// schemaVersion と既定 dataDir だけを持つ設定を作る。ファイルにはまだ書かない
 	/// </summary>
-	/// <returns>既定設定</returns>
+	/// <returns>未保存の既定設定。PendingMigrationSourceDir は空のまま</returns>
 	private static BootstrapConfigDocument CreateDefault()
 	{
 		return new BootstrapConfigDocument
@@ -92,10 +105,10 @@ internal sealed class BootstrapConfigStore
 	}
 
 	/// <summary>
-	/// 設定を正規化する
+	/// dataDir を絶対パスへ揃え、ポータブルでは exe 隣の data で上書きする
 	/// </summary>
-	/// <param name="config">設定</param>
-	/// <returns>正規化後設定</returns>
+	/// <param name="config">読み込んだ、または保存直前の設定。null プロパティは空として扱う</param>
+	/// <returns>現行 schemaVersion の新しい設定。引数は変更しない</returns>
 	private static BootstrapConfigDocument Normalize(BootstrapConfigDocument config)
 	{
 		if (AppPaths.IsPortable)

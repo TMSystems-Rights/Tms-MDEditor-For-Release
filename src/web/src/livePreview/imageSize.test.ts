@@ -1,3 +1,8 @@
+/**
+ * 画像サイズの解釈と、記法へ幅を書き戻す結果を検証する
+ * 本番の純粋関数だけを呼び、画像の読み込みや DOM は使わない
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import {
 	formatMarkdownImage,

@@ -1,3 +1,8 @@
+/**
+ * 表、画像、Mermaid、HTML 表を、プレビュー行のウィジェット装飾へ集める
+ * エディタ状態は持たず、各ウィジェットの生成は対応するモジュールへ渡す
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import type { SyntaxNode } from '@lezer/common';
@@ -15,13 +20,18 @@ import { extractTableData, pushTableReplace } from './tableWidget';
 import { isHtmlTableBlock } from './htmlTable';
 import { pushHtmlTableReplace } from './htmlTableWidget';
 
+// ----------------------------------------------
+// 範囲と画像記法の読み取り
+// ----------------------------------------------
+
 /**
- * ノード範囲の全行がプレビュー行か判定する
- * @param {EditorState} state エディタ状態
- * @param {number} from 開始
- * @param {number} to 終了
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {boolean}
+ * ノード範囲のすべての行がプレビュー行かを判定する
+ * 1 行でもソース表示なら、ブロック全体をウィジェットにしない
+ * @param state - 行境界を読むエディタ状態
+ * @param from - 範囲の開始位置。この位置の行から見る
+ * @param to - 範囲の終端。終端ちょうどは手前の行までを見る
+ * @param sourceLineNumbers - ソース表示の行番号。1 始まり
+ * @returns 範囲内の全行がプレビューなら true
  */
 function isFullyPreviewRange(
 	state: EditorState,
@@ -41,10 +51,11 @@ function isFullyPreviewRange(
 }
 
 /**
- * Image ノードから alt / URL を取得する
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} imageNode Image ノード
- * @returns {{ alt: string; url: string }}
+ * Image ノードから alt と URL を取り出す
+ * 開きと閉じの LinkMark が 2 つ無ければ alt は空。URL ノードが無ければ url は空
+ * @param state - ノード範囲の文字列を読むエディタ状態
+ * @param imageNode - alt と URL を含む Image ノード
+ * @returns alt はサイズ指定を含み得る文面、url はトリム済みの参照
  */
 export function extractImageAltAndUrl(
 	state: EditorState,
@@ -85,10 +96,11 @@ export function extractImageAltAndUrl(
 }
 
 /**
- * WikiEmbed からパスを取得する
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} node WikiEmbed ノード
- * @returns {string}
+ * WikiEmbed から、サイズ指定を含み得るパスを取り出す
+ * WikiEmbedPath が無ければ空文字を返す
+ * @param state - ノード範囲の文字列を読むエディタ状態
+ * @param node - パスを含む WikiEmbed ノード
+ * @returns トリム済みのパス。見つからなければ空文字
  */
 export function extractWikiEmbedPath(state: EditorState, node: SyntaxNode): string {
 	let path = '';
@@ -100,11 +112,16 @@ export function extractWikiEmbedPath(state: EditorState, node: SyntaxNode): stri
 	return path;
 }
 
+// ----------------------------------------------
+// ブロック装飾の収集
+// ----------------------------------------------
+
 /**
- * テーブル・画像・Mermaid のブロック / インライン widget 装飾を収集する
- * @param {EditorState} state エディタ状態
- * @param {Set<number>} [sourceLineNumbers] ソース行集合
- * @returns {DecorationEntry[]}
+ * 表、画像、Mermaid、HTML 表のウィジェット装飾を集める
+ * 画像のパス解決に必要な文脈は documentContextFacet から読む。状態は変えない
+ * @param state - 構文木と文書文脈を読むエディタ状態
+ * @param sourceLineNumbers - ソース表示の行番号。省略時は選択から作る
+ * @returns ブロックウィジェットの装飾。空の表やソース行の画像は含めない
  */
 export function collectBlockDecorationEntries(
 	state: EditorState,
@@ -115,8 +132,9 @@ export function collectBlockDecorationEntries(
 
 	syntaxTree(state).iterate({
 		/**
-		 * @param {{ name: string; from: number; to: number; node: SyntaxNode }} ref ノード
-		 * @returns {boolean | void}
+		 * 表、画像、Mermaid、HTML 表を装飾へ置き、対象にしたノードの子は走査しない
+		 * @param ref - 構文木のノード。name で種別、from と to で文書上の範囲を見る
+		 * @returns 子を走査しないとき false。対象外は undefined
 		 */
 		enter(ref) {
 			if (ref.name === 'FencedCode') {

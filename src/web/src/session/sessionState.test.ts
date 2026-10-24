@@ -1,3 +1,7 @@
+/**
+ * 未保存タブの除外と、壊れたセッション JSON の正規化を確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { createSessionSnapshot, isEmptySessionSnapshot, normalizeSessionSnapshot } from './sessionState';
 import { createPaneLayout, splitPane } from '../split/paneLayout';

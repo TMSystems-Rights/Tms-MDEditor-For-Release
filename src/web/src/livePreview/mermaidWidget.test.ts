@@ -1,3 +1,8 @@
+/**
+ * Mermaid フェンスの抽出と、描画結果のキャッシュを検証する
+ * 描画モジュールはテスト用の差し替えを使い、本番の遅延ロードには依存しない
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,9 +23,10 @@ import {
 } from './mermaidWidget';
 
 /**
- * @param {string} doc ドキュメント
- * @param {number} [cursor] カーソル
- * @returns {EditorState}
+ * Mermaid 判定用の Markdown 状態を作る
+ * @param doc - ドキュメント全文
+ * @param cursor - カーソル位置。省略時は文書先頭
+ * @returns TMS Markdown だけを載せた状態
  */
 function createState(doc: string, cursor: number = 0): EditorState {
 	return EditorState.create({
@@ -31,9 +37,10 @@ function createState(doc: string, cursor: number = 0): EditorState {
 }
 
 /**
- * @param {EditorState} state 状態
- * @param {string} name ノード名
- * @returns {import('@lezer/common').SyntaxNode | null}
+ * 構文木から、指定名の最初のノードを探す
+ * @param state - 構文木を読む状態
+ * @param name - 探すノード名
+ * @returns 最初のノード。無ければ null
  */
 function findNode(state: EditorState, name: string) {
 	let found: import('@lezer/common').SyntaxNode | null = null;

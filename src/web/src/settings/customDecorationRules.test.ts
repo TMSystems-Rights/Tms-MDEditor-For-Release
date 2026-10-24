@@ -1,3 +1,7 @@
+/**
+ * カスタム装飾ルールの検証、追加、保存前の正規化を確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import {
 	createNewCustomDecorationRule,

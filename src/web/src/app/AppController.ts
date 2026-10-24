@@ -1,3 +1,8 @@
+/**
+ * ウィンドウ内のタブ、分割、設定、保存をまとめて動かす
+ * ファイルの実読み書きは C# ブリッジへ渡し、このクラスは画面とエディタ状態を持つ
+ * @file
+ */
 import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands';
 import { EditorState, Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
@@ -65,26 +70,53 @@ import { renderExportHtml, type ExportImageRequest, type ExportMermaidResult } f
 import { renderMermaidSource } from '../livePreview/mermaidWidget';
 import { buildTableMenuEnabledState, isTableMenuAction, type TableMenuAction } from './tableMenu';
 
+/**
+ * 画面が保持する 1 タブ
+ * 保存比較用の `TabModel` に、まだマウントしていないエディタ状態を足す
+ */
 type TabRuntime = TabModel & {
+	/** このタブの CodeMirror 状態。表示中でなくても本文と選択を持つ */
 	editorState: EditorState;
 };
 
+/**
+ * 1 つの分割ペインが持つタブと表示
+ * レイアウト木とは別に、ペイン ID から引く
+ */
 type PaneRuntime = {
+	/** レイアウト上のペイン ID */
 	paneId: PaneId;
+	/** このペインのタブ ID。左から表示する順 */
 	tabIds: string[];
+	/** 選択中のタブ。タブが無いときは null */
 	activeTabId: string | null;
+	/** タブ ID から、非表示中も含むエディタ状態 */
 	editorStates: Map<string, EditorState>;
+	/** タブ ID から表示モード */
 	viewModes: Map<string, ViewMode>;
 };
 
+/**
+ * C# へ保存を頼んだ結果
+ * 失敗時もパスと文字コードは、試みた値を返す
+ */
 type SaveFileResult = {
+	/** ディスクへ書けたか */
 	success: boolean;
+	/** 書いた、または書こうとしたパス */
 	filePath: string;
+	/** 保存に使った文字コード */
 	encoding: EncodingKind;
+	/** 保存後の主要な改行 */
 	primaryEol: EolKind;
+	/** 保存後も改行が混在しているか */
 	eolMixed: boolean;
 };
 
+/**
+ * 設定を読む前に使う初期値
+ * 起動後は `mergeSettingsWithDefaults` で欠落を補い、このオブジェクト自体は変えない
+ */
 const DEFAULT_SETTINGS: AppSettings = {
 	theme: 'system',
 	editorFontFamily: '"Consolas", "BIZ UDゴシック", monospace',
@@ -159,47 +191,65 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 /**
- * アプリケーション全体を制御する
+ * ウィンドウ 1 つの編集セッション
+ * DOM の取得、ブリッジ購読、タブとペインの状態をコンストラクタで始め、破棄はアプリ終了に任せる
  */
 export class AppController {
+	/** 最初からあるペインの ID。分割をすべて畳んだときもこの ID に戻す */
 	private static readonly INITIAL_PANE_ID = 'pane-initial';
 
+	/** 表示位置の保存をまとめる待ち時間。単位はミリ秒。入力のたびにディスクへ書かない */
 	private static readonly NOTE_VIEW_POSITION_SAVE_DELAY_MS = 400;
 
+	/** 適用中の画面設定。起動時は既定値で、準備完了後に読み込んだ設定へ置き換わる */
 	private settings: AppSettings = DEFAULT_SETTINGS;
 
+	/** エディタへ渡す、コンパイル済みのカスタム装飾。無効なルールは含めない */
 	private customDecorationRules: CompiledCustomDecorationRule[] = [];
 
+	/** 設定画面へ返す、保存形式のカスタム装飾。無効なルールも含む */
 	private rawCustomDecorations: CustomDecorationRule[] = [];
 
+	/** データディレクトリの場所。未取得のあいだは空文字 */
 	private dataDirInfo: DataDirInfo = {
 		dataDir: '',
 		defaultDataDir: ''
 	};
 
+	/** ポータブル起動か。準備完了の通知で更新する */
 	private isPortable = false;
 
+	/** 最後に読んだ CSS スニペット。未取得のあいだは空 */
 	private cssSnippets: CssSnippetsResponse = {
 		directoryPath: '',
 		snippets: []
 	};
 
+	/** このウィンドウのタブ。ペインをまたいで 1 つの配列に置く */
 	private tabs: TabRuntime[] = [];
 
+	/** アクティブペインで選択中のタブ。タブが無いときは null */
 	private activeTabId: string | null = null;
 
+	/** アクティブペインのエディタ。ペインが無い描画前は null */
 	private editorView: EditorView | null = null;
 
+	/** 次の貼り付けを書式なしにするか。プレーン貼り付けの直前だけ true */
 	private suppressSmartPaste = false;
 
+	/** 更新ダウンロード中の通知。表示していなければ null */
 	private updateDownloadToast: ToastHandle | null = null;
 
+	/** ペイン ID から、いま DOM に載っているエディタ */
 	private readonly editorViews = new Map<PaneId, EditorView>();
 
+	/** フォーカスしているペイン。初期値は分割前の単一ペイン */
 	private activePaneId: PaneId = AppController.INITIAL_PANE_ID;
 
+	/** 分割の木。初期値は単一ペイン */
 	private paneLayout: PaneLayoutNode = createPaneLayout(AppController.INITIAL_PANE_ID);
 
+	/** ペイン ID から、そのペインのタブ一覧。初期ペインは空で入れておく */
 	private readonly panes = new Map<PaneId, PaneRuntime>([[AppController.INITIAL_PANE_ID, {
 		paneId: AppController.INITIAL_PANE_ID,
 		tabIds: [],
@@ -208,65 +258,105 @@ export class AppController {
 		viewModes: new Map()
 	}]]);
 
+	/** 分割先へ本文を写している最中か。true のあいだ再帰的な同期はしない */
 	private synchronizingSplitTransaction = false;
 
+	/** ドラッグ中のタブ ID。ドラッグ外は null */
 	private tabDragSourceId: string | null = null;
 
+	/** ドラッグを始めたペイン。ドラッグ外は null */
 	private tabDragSourcePaneId: PaneId | null = null;
 
+	/** このウィンドウがセッションを保存する側か。準備完了まで false */
 	private isSessionOwner = false;
 
+	/** 保存済みノートの表示位置。キーはファイルパス */
 	private readonly noteViewPositions = new NoteViewPositionMemory();
 
+	/** 未保存タブの表示位置。キーはタブ ID。ファイルが無いあいだだけ使う */
 	private readonly untitledNoteViewPositions = new Map<string, NoteViewPosition>();
 
+	/** 表示位置を読んでよいビュー。マウント直後の空計測を避ける */
 	private readonly noteViewCaptureReady = new WeakSet<EditorView>();
 
+	/** 表示位置の記録をすでに予約したビュー。二重予約を防ぐ */
 	private readonly noteViewRememberScheduled = new WeakSet<EditorView>();
 
+	/** 表示位置保存の待ちタイマー。未予約は null */
 	private noteViewSaveTimer: number | null = null;
 
+	/** 表示位置の保存を直列化する Promise。前の保存が終わってから次を送る */
 	private noteViewSaveChain: Promise<void> = Promise.resolve();
 
+	/** 最後に保存した表示位置 JSON。同じ内容の再送を省く */
 	private lastNoteViewPositionJson = '';
 
+	/** 最後にネイティブメニューへ伝えた表操作の活性 JSON。同じ内容の再送を省く */
 	private lastTableMenuStateJson = '';
 
+	/** エディタペインを置くホスト。コンストラクタで取得し、その後は変えない */
 	private readonly editorHostElement: HTMLElement;
 
+	/** アウトラインとエディタを含む作業領域。幅の計算に使う */
 	private readonly workspaceElement: HTMLElement;
 
+	/** アウトラインの枠 */
 	private readonly outlinePanelElement: HTMLElement;
 
+	/** アウトライン幅を変える境界 */
 	private readonly outlineResizerElement: HTMLElement;
 
+	/** 見出し一覧を描く要素 */
 	private readonly outlineListElement: HTMLElement;
 
+	/** 見出しが無いときに出す案内 */
 	private readonly outlineEmptyElement: HTMLElement;
 
+	/** アウトラインを表示しているか。設定適用前は false */
 	private outlineVisible = false;
 
+	/** 幅変更中のポインター ID。ドラッグ外は null */
 	private outlineResizePointerId: number | null = null;
 
+	/** ドラッグ開始時のアウトライン幅。単位は CSS ピクセル */
 	private outlineResizeStartWidth = DEFAULT_OUTLINE_WIDTH;
 
+	/** 直前に描いた見出し。キャレット移動で現在位置を更新する */
 	private outlineItems: OutlineItem[] = [];
 
+	/** 折りたたんでいる見出しの文書位置 */
 	private outlineCollapsedFroms = new Set<number>();
 
+	/**
+	 * ステータスバーの表示要素
+	 * コンストラクタで id から取得し、その後は差し替えない
+	 */
 	private readonly statusElements: {
+		/** キャレットの行と列 */
 		cursor: HTMLElement;
+		/** 文字数 */
 		charCount: HTMLElement;
+		/** 文字コード。クリックで変更メニューを開く */
 		encoding: HTMLElement;
+		/** 改行。クリックで変換メニューを開く */
 		eol: HTMLElement;
+		/** 表示モード。クリックで切り替える */
 		viewMode: HTMLElement;
+		/** UI ズーム。100% 以外のクリックで戻す */
 		zoom: HTMLElement;
+		/** 大ファイルであることの表示 */
 		largeFile: HTMLElement;
+		/** アプリの版 */
 		version: HTMLElement;
 	};
 
+	// ----------------------------------------------
+	// 起動と更新確認
+	// ----------------------------------------------
+
 	/**
-	 * AppController を初期化する
+	 * DOM を取得し、メニュー、ドロップ、ブリッジの購読を始める
+	 * ファイルを開くのは準備完了の通知を受けてから
 	 */
 	public constructor() {
 		this.editorHostElement     = document.getElementById('tmsMdeEditorHost') as HTMLElement;
@@ -563,7 +653,7 @@ export class AppController {
 			if (!this.updateDownloadToast) {
 				this.updateDownloadToast = showActionToast(message, [{
 					label  : 'キャンセル',
-					/** ネイティブ側で共有しているダウンロード用キャンセルトークンを停止する。 */
+					/** ネイティブ側で共有しているダウンロード用キャンセルトークンを停止する */
 					onClick: () => void invokeBridge(BRIDGE_METHOD.updateCancelDownload)
 				}]);
 			} else {
@@ -575,9 +665,9 @@ export class AppController {
 			this.dismissUpdateDownloadToast();
 			const version = (payload as { version?: string }).version ?? '';
 			showActionToast(`バージョン ${version} の更新をダウンロードしました。`, [
-				{ label: '今すぐ更新', /** アプリを閉じた後に検証済みインストーラーを起動する。 */
+				{ label: '今すぐ更新', /** アプリを閉じた後に検証済みインストーラーを起動する */
 					onClick: () => void invokeBridge(BRIDGE_METHOD.updateApplyNow) },
-				{ label: '後で', /** インストーラーを起動せず通知だけ閉じる。 */
+				{ label: '後で', /** インストーラーを起動せず通知だけ閉じる */
 					onClick: () => undefined }
 			]);
 		});
@@ -590,7 +680,6 @@ export class AppController {
 
 	/**
 	 * 手動で更新を確認する
-	 * @returns {Promise<void>}
 	 */
 	private async checkForUpdates(): Promise<void> {
 		try {
@@ -607,23 +696,22 @@ export class AppController {
 
 	/**
 	 * 更新検出を操作付き Toast で通知する
-	 * @param {UpdateReleaseInfo} release 更新情報
-	 * @param {'installer' | 'portable'} [mode] 配布形態
-	 * @returns {void}
+	 * @param release - 更新情報
+	 * @param mode - 配布形態
 	 */
 	private showUpdateAvailableToast(release: UpdateReleaseInfo, mode?: 'installer' | 'portable'): void {
 		if (mode === 'portable' || this.isPortable) {
 			showActionToast(`新しいバージョン v${release.version} があります。公式ページからポータブル ZIP 版をダウンロードしてください。`, [
 				{
 					label  : '公式ダウンロードページを開く',
-					/** ポータブル版は自動更新できないため、手動取得先へ案内する。 */
+					/** ポータブル版は自動更新できないため、手動取得先へ案内する */
 					onClick: () => void invokeBridge(BRIDGE_METHOD.updateOpenOfficialPage)
 				},
-				{ label: '後で', /** 今回の通知だけを閉じ、次回以降の確認は維持する。 */
+				{ label: '後で', /** 今回の通知だけを閉じ、次回以降の確認は維持する */
 					onClick: () => undefined },
 				{
 					label  : 'このバージョンをスキップ',
-					/** 同じリリースを次回の起動時チェックで再通知しない。 */
+					/** 同じリリースを次回の起動時チェックで再通知しない */
 					onClick: () => void invokeBridge(BRIDGE_METHOD.updateSkipVersion, { version: release.version })
 				}
 			]);
@@ -631,16 +719,15 @@ export class AppController {
 		}
 
 		showActionToast(`新しいバージョン v${release.version} があります。`, [
-			{ label: 'ダウンロード', /** UIを塞がず、進捗通知付きで取得を開始する。 */
+			{ label: 'ダウンロード', /** UIを塞がず、進捗通知付きで取得を開始する */
 				onClick: () => void this.downloadUpdate() },
-			{ label: 'このバージョンをスキップ', /** 同じリリースを以後の自動確認から除外する。 */
+			{ label: 'このバージョンをスキップ', /** 同じリリースを以後の自動確認から除外する */
 				onClick: () => void invokeBridge(BRIDGE_METHOD.updateSkipVersion, { version: release.version }) }
 		]);
 	}
 
 	/**
 	 * 検出済み更新をダウンロードする
-	 * @returns {Promise<void>}
 	 */
 	private async downloadUpdate(): Promise<void> {
 		try {
@@ -659,7 +746,6 @@ export class AppController {
 
 	/**
 	 * 更新ダウンロード中 Toast を閉じる
-	 * @returns {void}
 	 */
 	private dismissUpdateDownloadToast(): void {
 		this.updateDownloadToast?.dismiss();
@@ -668,8 +754,7 @@ export class AppController {
 
 	/**
 	 * アプリ起動イベントを処理する
-	 * @param {AppReadyPayload} payload 起動情報
-	 * @returns {Promise<void>}
+	 * @param payload - 起動情報
 	 */
 	private async handleAppReady(payload: AppReadyPayload): Promise<void> {
 		this.statusElements.version.textContent = `v${payload.version ?? 'unknown'}`;
@@ -729,7 +814,10 @@ export class AppController {
 		await writeLog('INFO', 'Editor shell initialized.');
 	}
 
-	/** 別ウィンドウから引き渡されたタブ状態を復元する */
+	/**
+	 * 別ウィンドウから引き渡されたタブ状態を復元する
+	 * @param payload - 別ウィンドウから渡されたタブの本文と表示状態
+	 */
 	private openDetachedTab(payload: DetachedTabPayload): void {
 		const tab = this.createDetachedTabRuntime(payload);
 		this.tabs.push(tab);
@@ -737,7 +825,11 @@ export class AppController {
 		this.activateTab(tab.tabId, this.activePaneId);
 	}
 
-	/** 引き渡しペイロードからタブ実行状態を生成する */
+	/**
+	 * 引き渡しペイロードからタブ実行状態を生成する
+	 * @param payload - 復元するタブの本文、パス、表示モード
+	 * @returns 実行中のタブ。文書は渡された本文で作る
+	 */
 	private createDetachedTabRuntime(payload: DetachedTabPayload): TabRuntime {
 		const tab     = this.createTabRuntime({
 			filePath: payload.filePath,
@@ -755,7 +847,10 @@ export class AppController {
 		return tab;
 	}
 
-	/** 既存ウィンドウへ渡されたタブをドロップ位置へ配置する */
+	/**
+	 * 既存ウィンドウへ渡されたタブをドロップ位置へ配置する
+	 * @param payload - ドロップ先の画面座標と、移すタブの状態
+	 */
 	private receiveDetachedTab(payload: DetachedTabDropPayload): void {
 		const tab         = this.createDetachedTabRuntime(payload.tab);
 		const target      = document.elementFromPoint(payload.clientX, payload.clientY);
@@ -776,9 +871,12 @@ export class AppController {
 		this.activateTab(tab.tabId, targetPaneId);
 	}
 
+	// ----------------------------------------------
+	// 設定と外観
+	// ----------------------------------------------
+
 	/**
-	 * 設定モーダルを開く。
-	 * @returns {Promise<void>}
+	 * 設定モーダルを開く
 	 */
 	private async openSettings(): Promise<void> {
 		if (document.querySelector('.tms-mde-settings-backdrop')) {
@@ -797,11 +895,11 @@ export class AppController {
 				isPortable: this.isPortable,
 				cssSnippets: this.cssSnippets,
 				defaultAttachmentFolder: config.defaultAttachmentFolder ?? '',
-				/** 保存済み設定を実行中のテーマ・エディタ構成へ即時反映する。 */
+				/** 保存済み設定を実行中のテーマ・エディタ構成へ即時反映する */
 				onSettingsApplied: (settings) => this.applySettings(settings),
-				/** 正規表現ルールを再コンパイルし、開いている全ペインへ配布する。 */
+				/** 正規表現ルールを再コンパイルし、開いている全ペインへ配布する */
 				onCustomDecorationsApplied: (rules) => this.applyCustomDecorations(rules),
-				/** CSS差し替え後に計測を要求し、装飾による高さ変更を再計算させる。 */
+				/** CSS差し替え後に計測を要求し、装飾による高さ変更を再計算させる */
 				onCssSnippetsApplied: (response) => {
 					this.cssSnippets = response;
 					applyCssSnippets(response);
@@ -815,9 +913,8 @@ export class AppController {
 	}
 
 	/**
-	 * 保存済み設定を既存タブ・全ペインへ反映する。
-	 * @param {AppSettings} settings 保存済み設定
-	 * @returns {void}
+	 * 保存済み設定を既存タブ・全ペインへ反映する
+	 * @param settings - 保存済み設定
 	 */
 	private applySettings(settings: AppSettings): void {
 		this.persistActiveEditorState();
@@ -844,8 +941,7 @@ export class AppController {
 	}
 
 	/**
-	 * アウトラインパネルの左右配置と幅を設定へ反映する。
-	 * @returns {void}
+	 * アウトラインパネルの左右配置と幅を設定へ反映する
 	 */
 	private applyOutlineLayout(): void {
 		if (!this.workspaceElement) {
@@ -860,9 +956,8 @@ export class AppController {
 	}
 
 	/**
-	 * アウトライン境界のドラッグを開始する。
-	 * @param {PointerEvent} event ポインターイベント
-	 * @returns {void}
+	 * アウトライン境界のドラッグを開始する
+	 * @param event - ポインターイベント
 	 */
 	private startOutlineResize(event: PointerEvent): void {
 		if (event.button !== 0 || this.outlineResizePointerId !== null) return;
@@ -875,9 +970,8 @@ export class AppController {
 	}
 
 	/**
-	 * ドラッグ位置をアウトライン幅へ反映する。
-	 * @param {PointerEvent} event ポインターイベント
-	 * @returns {void}
+	 * ドラッグ位置をアウトライン幅へ反映する
+	 * @param event - ポインターイベント
 	 */
 	private resizeOutline(event: PointerEvent): void {
 		if (event.pointerId !== this.outlineResizePointerId) return;
@@ -888,10 +982,9 @@ export class AppController {
 	}
 
 	/**
-	 * アウトライン境界のドラッグを終了する。
-	 * @param {PointerEvent} event ポインターイベント
-	 * @param {boolean} save 最終幅を保存するか
-	 * @returns {void}
+	 * アウトライン境界のドラッグを終了する
+	 * @param event - ポインターイベント
+	 * @param save - 最終幅を保存するか
 	 */
 	private finishOutlineResize(event: PointerEvent, save: boolean): void {
 		if (event.pointerId !== this.outlineResizePointerId) return;
@@ -911,9 +1004,8 @@ export class AppController {
 	}
 
 	/**
-	 * キーボードでアウトライン幅を調整する。
-	 * @param {KeyboardEvent} event キーボードイベント
-	 * @returns {void}
+	 * キーボードでアウトライン幅を調整する
+	 * @param event - キーボードイベント
 	 */
 	private resizeOutlineWithKeyboard(event: KeyboardEvent): void {
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -928,9 +1020,8 @@ export class AppController {
 	}
 
 	/**
-	 * アウトライン幅を画面へ反映する。
-	 * @param {number} width 幅（px）
-	 * @returns {void}
+	 * アウトライン幅を画面へ反映する
+	 * @param width - 幅（px）
 	 */
 	private applyOutlineWidth(width: number): void {
 		const normalized = clampOutlineWidth(width, this.workspaceElement.getBoundingClientRect().width);
@@ -939,9 +1030,8 @@ export class AppController {
 	}
 
 	/**
-	 * 調整後のアウトライン幅を設定へ保存する。
-	 * @param {number} width 幅（px）
-	 * @returns {Promise<void>}
+	 * 調整後のアウトライン幅を設定へ保存する
+	 * @param width - 幅（px）
 	 */
 	private async persistOutlineWidth(width: number): Promise<void> {
 		const normalized = clampOutlineWidth(width, this.workspaceElement.getBoundingClientRect().width);
@@ -959,9 +1049,8 @@ export class AppController {
 	}
 
 	/**
-	 * 保存済みカスタム装飾ルールを既存タブ・全ペインへ反映する。
-	 * @param {CustomDecorationRule[]} rules 保存済みルール
-	 * @returns {void}
+	 * 保存済みカスタム装飾ルールを既存タブ・全ペインへ反映する
+	 * @param rules - 保存済みルール
 	 */
 	private applyCustomDecorations(rules: CustomDecorationRule[]): void {
 		const compiled             = compileCustomDecorationRules(rules);
@@ -974,9 +1063,8 @@ export class AppController {
 	}
 
 	/**
-	 * CSSスニペットを再読込し、Web UIへ適用する。
-	 * @param {boolean} notify 完了通知を表示するか
-	 * @returns {Promise<void>}
+	 * CSSスニペットを再読込し、Web UIへ適用する
+	 * @param notify - 完了通知を表示するか
 	 */
 	private async refreshCssSnippets(notify: boolean): Promise<void> {
 		try {
@@ -999,8 +1087,7 @@ export class AppController {
 	}
 
 	/**
-	 * CSS変更後、全ペインのCodeMirror高さ情報を次フレームで再計測する。
-	 * @returns {void}
+	 * CSS変更後、全ペインのCodeMirror高さ情報を次フレームで再計測する
 	 */
 	private requestEditorMeasure(): void {
 		window.requestAnimationFrame(() => {
@@ -1009,8 +1096,7 @@ export class AppController {
 	}
 
 	/**
-	 * CSSスニペットフォルダを開く。
-	 * @returns {Promise<void>}
+	 * CSSスニペットフォルダを開く
 	 */
 	private async openSnippetsFolder(): Promise<void> {
 		try {
@@ -1021,9 +1107,9 @@ export class AppController {
 	}
 
 	/**
-	 * 欠落したネスト設定を既定値で補完する。
-	 * @param {AppSettings} settings 設定
-	 * @returns {AppSettings} 補完後設定
+	 * 欠落したネスト設定を既定値で補完する
+	 * @param settings - 設定
+	 * @returns 補完後設定
 	 */
 	private mergeSettingsWithDefaults(settings: AppSettings): AppSettings {
 		return {
@@ -1071,9 +1157,12 @@ export class AppController {
 		};
 	}
 
+	// ----------------------------------------------
+	// タブとファイル
+	// ----------------------------------------------
+
 	/**
 	 * 新規タブを作成する
-	 * @returns {Promise<void>}
 	 */
 	public async createNewTab(): Promise<void> {
 		const defaultEol = this.parseDefaultEol(this.settings.newFileEol);
@@ -1097,7 +1186,6 @@ export class AppController {
 
 	/**
 	 * ファイル選択ダイアログで開く
-	 * @returns {Promise<void>}
 	 */
 	public async openFileDialog(): Promise<void> {
 		try {
@@ -1114,8 +1202,7 @@ export class AppController {
 
 	/**
 	 * パス指定でファイルを開く
-	 * @param {string[]} filePaths ファイルパス一覧
-	 * @returns {Promise<void>}
+	 * @param filePaths - ファイルパス一覧
 	 */
 	public async openFilePaths(filePaths: string[]): Promise<void> {
 		for (const filePath of filePaths) {
@@ -1132,8 +1219,7 @@ export class AppController {
 	/**
 	 * 読み込み済みファイル情報からタブを開く
 	 * 既に開いているタブでも、開く操作なら recentFiles の先頭へ書き出す
-	 * @param {TextFileInfo} file ファイル情報
-	 * @returns {Promise<void>}
+	 * @param file - ファイル情報
 	 */
 	private async openTextFileInfo(file: TextFileInfo): Promise<void> {
 		const existing = this.tabs.find((tab) => tab.filePath && tab.filePath.toLowerCase() === file.filePath.toLowerCase());
@@ -1152,7 +1238,11 @@ export class AppController {
 		await invokeBridge(BRIDGE_METHOD.recentAdd, { filePath: file.filePath });
 	}
 
-	/** 保存済みセッションをディスク上の最新ファイル内容で復元する。 */
+	/**
+	 * 保存済みセッションをディスク上の最新ファイル内容で復元する
+	 * @param value - session.json から読んだ未検証の値
+	 * @returns タブを 1 件以上開けたとき true。形式が壊れている、または全部開けないときは false
+	 */
 	private async restoreSession(value: unknown): Promise<boolean> {
 		const session = normalizeSessionSnapshot(value);
 		if (!session) return false;
@@ -1225,7 +1315,12 @@ export class AppController {
 		return this.tabs.length > 0;
 	}
 
-	/** セッション内で最初に指定された表示モードを返す。 */
+	/**
+	 * セッション内で最初に指定された表示モードを返す
+	 * @param session - 復元中のセッション
+	 * @param tabId - 表示モードを探すタブ ID
+	 * @returns そのタブを含む最初のペインに記録された表示モード。無ければ設定の既定
+	 */
 	private findSessionViewMode(session: SessionSnapshot, tabId: string): ViewMode {
 		for (const pane of session.panes) {
 			if (pane.tabIds.includes(tabId)) return pane.viewModes[tabId] ?? this.settings.defaultViewMode;
@@ -1233,7 +1328,12 @@ export class AppController {
 		return this.settings.defaultViewMode;
 	}
 
-	/** ファイル読込結果をタブランタイムへ変換する。 */
+	/**
+	 * ファイル読込結果をタブランタイムへ変換する
+	 * @param file - C# が読んだファイル
+	 * @param preferredViewMode - セッションが覚えていた表示モード。省略時は設定の既定
+	 * @returns 読込結果から作ったタブ
+	 */
 	private createTabRuntimeFromTextFile(file: TextFileInfo, preferredViewMode: ViewMode = this.settings.defaultViewMode): TabRuntime {
 		const sizeBytes      = file.fileSizeBytes ?? new TextEncoder().encode(file.text).length;
 		const thresholdBytes = this.settings.largeFileThresholdMb * 1024 * 1024;
@@ -1255,10 +1355,9 @@ export class AppController {
 
 	/**
 	 * タブをアクティブ化する
-	 * @param {string} tabId タブ ID
-	 * @param {PaneId} [paneId] ペイン ID
-	 * @param {{ recordRecent?: boolean }} [options] ユーザ操作なら recentFiles を更新する
-	 * @returns {void}
+	 * @param tabId - タブ ID
+	 * @param paneId - ペイン ID
+	 * @param options - ユーザ操作なら recentFiles を更新する
 	 */
 	public activateTab(
 		tabId: string,
@@ -1273,7 +1372,7 @@ export class AppController {
 
 		const alreadyActive = pane.activeTabId === tabId && this.activePaneId === paneId;
 
-		// タブを離れる操作は、復元追従中でも現在画面の実測位置を残す意思表示になる。
+		// タブを離れる操作は、復元追従中でも現在画面の実測位置を残す意思表示になる
 		this.persistActiveEditorState(true);
 		void this.flushNoteViewPositions();
 		if (!pane.tabIds.includes(tabId)) this.addTabToPane(nextTab, paneId);
@@ -1292,11 +1391,11 @@ export class AppController {
 
 	/**
 	 * タブを閉じる
-	 * @param {string} tabId タブ ID
-	 * @param {PaneId} [paneId] ペイン ID
-	 * @param {boolean} [skipConfirm] 未保存確認を省略する場合true
-	 * @param {boolean} [transferred] 別ウィンドウへの転送完了後に閉じる場合true
-	 * @returns {Promise<boolean>} 閉じた場合 true
+	 * @param tabId - タブ ID
+	 * @param paneId - ペイン ID
+	 * @param skipConfirm - 未保存確認を省略する場合true
+	 * @param transferred - 別ウィンドウへの転送完了後に閉じる場合true
+	 * @returns 閉じた場合 true
 	 */
 	public async closeTab(tabId: string, paneId: PaneId = this.activePaneId, skipConfirm = false, transferred = false): Promise<boolean> {
 		const tab  = this.tabs.find((entry) => entry.tabId === tabId);
@@ -1361,7 +1460,7 @@ export class AppController {
 
 	/**
 	 * アクティブタブを保存する
-	 * @returns {Promise<boolean>} 保存成功時 true
+	 * @returns 保存成功時 true
 	 */
 	public async saveActiveTab(): Promise<boolean> {
 		if (!this.activeTabId) {
@@ -1373,7 +1472,7 @@ export class AppController {
 
 	/**
 	 * 名前を付けて保存する
-	 * @returns {Promise<boolean>} 保存成功時 true
+	 * @returns 保存成功時 true
 	 */
 	public async saveAsActiveTab(): Promise<boolean> {
 		const tab = this.getActiveTab();
@@ -1412,8 +1511,7 @@ export class AppController {
 
 	/**
 	 * アクティブタブを HTML または PDF へエクスポートする
-	 * @param {'html' | 'pdf'} kind 出力種別
-	 * @returns {Promise<void>}
+	 * @param kind - 出力種別
 	 */
 	private async exportActiveTab(kind: 'html' | 'pdf'): Promise<void> {
 		const tab = this.getActiveTab();
@@ -1469,7 +1567,6 @@ export class AppController {
 
 	/**
 	 * アクティブタブを印刷する
-	 * @returns {Promise<void>}
 	 */
 	private async printActiveTab(): Promise<void> {
 		if (!this.getActiveTab()) {
@@ -1497,7 +1594,7 @@ export class AppController {
 
 	/**
 	 * アクティブタブ本文から自己完結 HTML を生成する
-	 * @returns {Promise<string | null>}
+	 * @returns 書けた HTML。対象タブが無いときは null
 	 */
 	private async buildActiveExportHtml(): Promise<string | null> {
 		this.persistActiveEditorState();
@@ -1530,8 +1627,8 @@ export class AppController {
 
 	/**
 	 * エクスポート用に画像を Data URL へ解決する
-	 * @param {ExportImageRequest} request 画像要求
-	 * @returns {Promise<string | null>}
+	 * @param request - 画像要求
+	 * @returns 画像の Data URL。未解決のときは null
 	 */
 	private async resolveExportImage(request: ExportImageRequest): Promise<string | null> {
 		if (request.kind === 'url') {
@@ -1552,9 +1649,9 @@ export class AppController {
 
 	/**
 	 * エクスポート用に Mermaid を SVG 化する
-	 * @param {string} source ソース
-	 * @param {'default' | 'dark'} theme テーマ
-	 * @returns {Promise<ExportMermaidResult>}
+	 * @param source - ソース
+	 * @param theme - テーマ
+	 * @returns 成功時は SVG、失敗時は理由を含む結果
 	 */
 	private async renderExportMermaid(
 		source: string,
@@ -1566,8 +1663,8 @@ export class AppController {
 
 	/**
 	 * 指定タブを保存する
-	 * @param {string} tabId タブ ID
-	 * @returns {Promise<boolean>} 保存成功時 true
+	 * @param tabId - タブ ID
+	 * @returns 保存成功時 true
 	 */
 	private async saveTab(tabId: string): Promise<boolean> {
 		const tab = this.tabs.find((entry) => entry.tabId === tabId);
@@ -1615,14 +1712,14 @@ export class AppController {
 
 	/**
 	 * ファイル書き込みを実行する
-	 * @param {string} tabId タブ ID
-	 * @param {string} filePath 保存先
-	 * @param {string} diskText ディスクへ書くテキスト（改行済み）
-	 * @param {EncodingKind} encoding 文字コード
-	 * @param {EolKind} eol 主要改行
-	 * @param {Array<EolKind | null>} lineEols 行末マップ
-	 * @param {boolean} [eolMixed] 混在フラグ
-	 * @returns {Promise<boolean>} 成功時 true
+	 * @param tabId - タブ ID
+	 * @param filePath - 保存先
+	 * @param diskText - ディスクへ書くテキスト（改行済み）
+	 * @param encoding - 文字コード
+	 * @param eol - 主要改行
+	 * @param lineEols - 行末マップ
+	 * @param eolMixed - 混在フラグ
+	 * @returns 成功時 true
 	 */
 	private async writeTab(tabId: string, filePath: string, diskText: string, encoding: EncodingKind, eol: EolKind, lineEols: Array<EolKind | null>, eolMixed?: boolean): Promise<boolean> {
 		const tab = this.tabs.find((entry) => entry.tabId === tabId);
@@ -1631,7 +1728,7 @@ export class AppController {
 		}
 
 		try {
-			// 改行は diskText に既に反映済み。C# 側で再統一しない。
+			// 改行は diskText に既に反映済み。C# 側で再統一しない
 			const result = await invokeBridge<SaveFileResult>(BRIDGE_METHOD.fileSave, {
 				filePath,
 				text: diskText,
@@ -1672,9 +1769,12 @@ export class AppController {
 		}
 	}
 
+	// ----------------------------------------------
+	// セッションと終了
+	// ----------------------------------------------
+
 	/**
 	 * ウィンドウクローズ確認を処理する
-	 * @returns {Promise<void>}
 	 */
 	private async handleQueryClose(): Promise<void> {
 		this.persistActiveEditorState();
@@ -1702,7 +1802,7 @@ export class AppController {
 		await invokeBridge(BRIDGE_METHOD.appReportCloseReady, { allowClose: true });
 	}
 
-	/** 主ウィンドウの保存可能なタブ・ペイン状態を session.json へ保存する。 */
+	/** 主ウィンドウの保存可能なタブ・ペイン状態を session.json へ保存する */
 	private async persistSession(): Promise<void> {
 		if (!this.isSessionOwner) return;
 		this.persistActiveEditorState();
@@ -1732,10 +1832,13 @@ export class AppController {
 		}
 	}
 
+	// ----------------------------------------------
+	// キーボードと外部変更
+	// ----------------------------------------------
+
 	/**
 	 * グローバルキーダウンを処理する
-	 * @param {KeyboardEvent} event キーイベント
-	 * @returns {Promise<void>}
+	 * @param event - キーイベント
 	 */
 	private async handleGlobalKeydown(event: KeyboardEvent): Promise<void> {
 		if (document.querySelector('.tms-mde-dialog-backdrop')) {
@@ -1904,8 +2007,7 @@ export class AppController {
 
 	/**
 	 * 外部変更された保存済みファイルを通知または再読込する
-	 * @param {string} filePath 変更されたファイルパス
-	 * @returns {Promise<void>}
+	 * @param filePath - 変更されたファイルパス
 	 */
 	private async handleExternalFileChanged(filePath: string, kind: 'changed' | 'deleted' | 'renamed'): Promise<void> {
 		const tab = this.tabs.find((entry) => entry.filePath?.toLowerCase() === filePath.toLowerCase());
@@ -1917,7 +2019,7 @@ export class AppController {
 			const action = kind === 'deleted' ? '削除' : 'リネーム';
 			showActionToast(`外部で${action}されました: ${tab.title}`, [{
 				label  : '無視',
-				/** ディスク側が消えても、現在のバッファは未保存のまま保持する。 */
+				/** ディスク側が消えても、現在のバッファは未保存のまま保持する */
 				onClick: () => showToast(`現在の編集内容を保持します: ${tab.title}`)
 			}]);
 			return;
@@ -1926,12 +2028,12 @@ export class AppController {
 			showActionToast(`外部で変更されました: ${tab.title}`, [
 				{
 					label  : '再読込（編集を破棄）',
-					/** ユーザーの明示操作時だけ、未保存バッファをディスク内容で置き換える。 */
+					/** ユーザーの明示操作時だけ、未保存バッファをディスク内容で置き換える */
 					onClick: () => void this.reloadExternalFile(tab)
 				},
 				{
 					label  : '無視',
-					/** 外部変更を取り込まず、編集を継続できる状態を残す。 */
+					/** 外部変更を取り込まず、編集を継続できる状態を残す */
 					onClick: () => showToast(`現在の編集内容を保持します: ${tab.title}`)
 				}
 			]);
@@ -1942,8 +2044,7 @@ export class AppController {
 
 	/**
 	 * 外部変更されたファイルを読み直してタブへ反映する
-	 * @param {TabRuntime} tab 再読込対象タブ
-	 * @returns {Promise<void>}
+	 * @param tab - 再読込対象タブ
 	 */
 	private async reloadExternalFile(tab: TabRuntime): Promise<void> {
 		try {
@@ -1968,8 +2069,7 @@ export class AppController {
 
 	/**
 	 * アクティブエディタの検索・置換パネルを開く
-	 * @param {'find' | 'replace'} mode パネルモード
-	 * @returns {void}
+	 * @param mode - パネルモード
 	 */
 	private openActiveSearchPanel(mode: 'find' | 'replace'): void {
 		if (!this.editorView) {
@@ -1981,8 +2081,7 @@ export class AppController {
 
 	/**
 	 * タブを切り替える
-	 * @param {number} offset 移動量
-	 * @returns {void}
+	 * @param offset - 移動量
 	 */
 	private switchTab(offset: number): void {
 		const pane = this.panes.get(this.activePaneId);
@@ -1997,7 +2096,6 @@ export class AppController {
 
 	/**
 	 * 文字コードメニューを処理する
-	 * @returns {void}
 	 */
 	private handleEncodingMenuClick(): void {
 		const tab = this.getActiveTab();
@@ -2015,7 +2113,6 @@ export class AppController {
 
 	/**
 	 * 改行コード変換メニューを処理する
-	 * @returns {void}
 	 */
 	private handleEolMenuClick(): void {
 		const tab = this.getActiveTab();
@@ -2039,8 +2136,7 @@ export class AppController {
 
 	/**
 	 * 改行マーカー表示を行単位 EOL マップへ同期する
-	 * @param {Array<EolKind | null>} lineEols 行末マップ
-	 * @returns {void}
+	 * @param lineEols - 行末マップ
 	 */
 	private applyLineEolsToEditor(lineEols: Array<EolKind | null>): void {
 		if (!this.settings.showEolMarkers) {
@@ -2088,9 +2184,12 @@ export class AppController {
 		}
 	}
 
+	// ----------------------------------------------
+	// 表示モードと分割
+	// ----------------------------------------------
+
 	/**
 	 * アクティブタブの表示モードを切り替える
-	 * @returns {void}
 	 */
 	private toggleActiveTabViewMode(): void {
 		const tab  = this.getActiveTab();
@@ -2111,8 +2210,7 @@ export class AppController {
 
 	/**
 	 * 表示モードをエディタへ反映する
-	 * @param {ViewMode} viewMode 表示モード
-	 * @returns {void}
+	 * @param viewMode - 表示モード
 	 */
 	private applyViewModeToEditor(viewMode: ViewMode): void {
 		if (!this.editorView) {
@@ -2126,8 +2224,7 @@ export class AppController {
 
 	/**
 	 * アクティブなドキュメントを2ペインに分割する
-	 * @param {SplitDirection} direction 分割方向
-	 * @returns {void}
+	 * @param direction - 分割方向
 	 */
 	private splitActiveView(direction: SplitDirection): void {
 		const tab        = this.getActiveTab();
@@ -2155,7 +2252,6 @@ export class AppController {
 
 	/**
 	 * アクティブなドキュメントの分割を解除する
-	 * @returns {void}
 	 */
 	private unsplitActiveView(): void {
 		const sourcePane = this.panes.get(this.activePaneId);
@@ -2185,9 +2281,12 @@ export class AppController {
 		this.refreshStatusBar();
 	}
 
+	// ----------------------------------------------
+	// タブバーとメニュー
+	// ----------------------------------------------
+
 	/**
 	 * タブバーを描画する
-	 * @returns {void}
 	 */
 	private renderTabBar(): void {
 		this.panes.forEach((pane) => {
@@ -2205,7 +2304,12 @@ export class AppController {
 		});
 	}
 
-	/** ペインのタブを1件描画する */
+	/**
+	 * ペインのタブを1件描画する
+	 * @param tabBar - タブを足すバー
+	 * @param pane - そのタブが属するペイン
+	 * @param tab - 描画するタブ
+	 */
 	private renderPaneTab(tabBar: HTMLElement, pane: PaneRuntime, tab: TabRuntime): void {
 		const active     = tab.tabId === pane.activeTabId;
 		const tabElement = createDraggableTabElement(document, active);
@@ -2278,10 +2382,9 @@ export class AppController {
 
 	/**
 	 * タブバー空白のダブルクリックで無題タブを開く
-	 * @param {MouseEvent} event ダブルクリック
-	 * @param {PaneId} paneId 対象ペイン
-	 * @param {HTMLElement} tabBar タブバー
-	 * @returns {void}
+	 * @param event - ダブルクリック
+	 * @param paneId - 対象ペイン
+	 * @param tabBar - タブバー
 	 */
 	private handleTabBarEmptyDoubleClick(event: MouseEvent, paneId: PaneId, tabBar: HTMLElement): void {
 		const target                = event.target;
@@ -2310,7 +2413,6 @@ export class AppController {
 
 	/**
 	 * Web / シェルのメニューを閉じる
-	 * @returns {void}
 	 */
 	private dismissAllMenus(): void {
 		dismissContextMenus();
@@ -2319,10 +2421,9 @@ export class AppController {
 
 	/**
 	 * タブコンテキストメニューを表示する
-	 * @param {string} tabId タブ ID
-	 * @param {number} x X 座標
-	 * @param {number} y Y 座標
-	 * @returns {void}
+	 * @param tabId - タブ ID
+	 * @param x - X 座標
+	 * @param y - Y 座標
 	 */
 	private showTabContextMenu(tabId: string, x: number, y: number): void {
 		dismissContextMenus();
@@ -2351,7 +2452,7 @@ export class AppController {
 		showContextMenuAtPoint(x, y, entries, (action) => void this.handleTabContextAction(tabId, action));
 	}
 
-	/** 現在のアクティブペインから上部テーブルメニューの活性状態を同期する。 */
+	/** 現在のアクティブペインから上部テーブルメニューの活性状態を同期する */
 	private syncNativeTableMenuState(): void {
 		const tab      = this.getActiveTab();
 		const view     = this.editorView;
@@ -2375,7 +2476,10 @@ export class AppController {
 		void invokeBridge(BRIDGE_METHOD.uiUpdateTableMenuState, state).catch(() => undefined);
 	}
 
-	/** ネイティブのテーブルメニューから、右クリックと共通の処理を実行する。 */
+	/**
+	 * ネイティブのテーブルメニューから、右クリックと共通の処理を実行する
+	 * @param action - ネイティブメニューから届いた表操作
+	 */
 	private async handleNativeTableMenuAction(action: TableMenuAction): Promise<void> {
 		const tab  = this.getActiveTab();
 		const view = this.editorView;
@@ -2404,8 +2508,7 @@ export class AppController {
 
 	/**
 	 * エディタコンテキストメニューを表示する
-	 * @param {MouseEvent} event 右クリックイベント
-	 * @returns {void}
+	 * @param event - 右クリックイベント
 	 */
 	private showEditorContextMenu(event: MouseEvent): void {
 		dismissContextMenus();
@@ -2476,9 +2579,9 @@ export class AppController {
 
 	/**
 	 * エディタ本文への貼り付けを処理する
-	 * @param {ClipboardEvent} event 貼り付けイベント
-	 * @param {EditorView} view エディタ
-	 * @returns {boolean} 処理したか
+	 * @param event - 貼り付けイベント
+	 * @param view - エディタ
+	 * @returns 処理したか
 	 */
 	private handleEditorPaste(event: ClipboardEvent, view: EditorView): boolean {
 		if (view.state.readOnly || shouldSkipEditorPasteCapture(event)) {
@@ -2496,8 +2599,7 @@ export class AppController {
 
 	/**
 	 * クリップボード内容を本文へ挿入する
-	 * @param {EditorView} view エディタ
-	 * @returns {Promise<void>}
+	 * @param view - エディタ
 	 */
 	private async pasteIntoEditor(view: EditorView, mode: 'smart' | 'plain' = 'smart'): Promise<void> {
 		if (view.state.readOnly) {
@@ -2522,11 +2624,11 @@ export class AppController {
 	}
 
 	/**
-	 * 保存設定の順序・表示状態へ実行時状態を重ね、描画項目を生成する。
-	 * @param {string[]} order 項目順
-	 * @param {string[]} hiddenItems 非表示項目ID
-	 * @param {Record<string, Omit<ContextMenuEntry, 'id' | 'label'>>} overrides 実行時状態
-	 * @returns {ContextMenuEntry[]} 描画項目
+	 * 保存設定の順序・表示状態へ実行時状態を重ね、描画項目を生成する
+	 * @param order - 項目順
+	 * @param hiddenItems - 非表示項目ID
+	 * @param overrides - 実行時状態
+	 * @returns 描画項目
 	 */
 	private buildConfiguredContextMenuEntries(
 		order: string[],
@@ -2544,13 +2646,12 @@ export class AppController {
 	}
 
 	/**
-	 * エディタの右クリックコマンドを実行する。
-	 * @param {string} action コマンドID
-	 * @param {number | null} clickPosition 右クリックした文書位置
-	 * @param {string | null} linkUrl 右クリックしたリンクURL
-	 * @param {TableMergeMenuSnapshot | null} [tableMerge] 右クリック時点の表対象
-	 * @param {TableStructureMenuSnapshot | null} [tableStructure] 右クリック時点の行・列対象
-	 * @returns {Promise<void>}
+	 * エディタの右クリックコマンドを実行する
+	 * @param action - コマンドID
+	 * @param clickPosition - 右クリックした文書位置
+	 * @param linkUrl - 右クリックしたリンクURL
+	 * @param tableMerge - 右クリック時点の表対象
+	 * @param tableStructure - 右クリック時点の行・列対象
 	 */
 	private async handleEditorContextAction(
 		action: string,
@@ -2683,9 +2784,8 @@ export class AppController {
 
 	/**
 	 * タブコンテキストメニュー操作を処理する
-	 * @param {string} tabId タブ ID
-	 * @param {string} action アクション ID
-	 * @returns {Promise<void>}
+	 * @param tabId - タブ ID
+	 * @param action - アクション ID
 	 */
 	private async handleTabContextAction(tabId: string, action: string): Promise<void> {
 		const tab  = this.tabs.find((entry) => entry.tabId === tabId);
@@ -2757,7 +2857,13 @@ export class AppController {
 		}
 	}
 
-	/** タブを同一ペイン内で並べ替えるか、別ペインへ移動する */
+	/**
+	 * タブを同一ペイン内で並べ替えるか、別ペインへ移動する
+	 * @param sourceTabId - 動かすタブ ID
+	 * @param sourcePaneId - 移動元ペイン
+	 * @param targetPaneId - 移動先ペイン
+	 * @param targetIndex - 移動先での位置。省略時は末尾
+	 */
 	private moveOrReorderTab(sourceTabId: string, sourcePaneId: PaneId, targetPaneId: PaneId, targetIndex?: number): void {
 		const sourcePane = this.panes.get(sourcePaneId);
 		const targetPane = this.panes.get(targetPaneId);
@@ -2788,7 +2894,13 @@ export class AppController {
 		this.mountActiveEditor();
 	}
 
-	/** タブを指定ペインのコンテンツ領域へ分割配置する */
+	/**
+	 * タブを指定ペインのコンテンツ領域へ分割配置する
+	 * @param tab - 新しいペインへ置くタブ
+	 * @param targetPaneId - 分割する側のペイン
+	 * @param placement - ドロップ位置から決めた分割方向
+	 * @param sourcePaneId - 移動元ペイン。同一ペインの分割では省略できる
+	 */
 	private splitTabIntoNewPane(tab: TabRuntime, targetPaneId: PaneId, placement: PaneDropPlacement, sourcePaneId?: PaneId): void {
 		const targetPane = this.panes.get(targetPaneId);
 		const sourcePane = sourcePaneId ? this.panes.get(sourcePaneId) : null;
@@ -2836,14 +2948,26 @@ export class AppController {
 		this.editorHostElement.querySelectorAll<HTMLElement>('.tms-mde-tab.is-tab-drop-before, .tms-mde-tab.is-tab-drop-after').forEach((tab) => tab.classList.remove('is-tab-drop-before', 'is-tab-drop-after'));
 	}
 
-	/** タブバー上のマウス位置から、ドラッグ元を除去した後の挿入位置を算出する */
+	/**
+	 * タブバー上のマウス位置から、ドラッグ元を除去した後の挿入位置を算出する
+	 * @param tabBar - 位置を測るタブバー
+	 * @param clientX - ビューポート上のマウス X
+	 * @param excludedTabId - 幅の計算から除くドラッグ中のタブ。別ペインから来たときは省略
+	 * @returns ドラッグ元を除いたあとの挿入位置。0 が先頭
+	 */
 	private calculateTabBarDropIndex(tabBar: HTMLElement, clientX: number, excludedTabId?: string): number {
 		const tabs = [...tabBar.querySelectorAll<HTMLElement>('.tms-mde-tab')]
 			.filter((element) => element.dataset.tabId !== excludedTabId);
 		return calculateTabDropIndex(tabs.map((element) => element.getBoundingClientRect()), clientX);
 	}
 
-	/** タブバーへ挿入位置マーカーを表示する */
+	/**
+	 * タブバーへ挿入位置マーカーを表示する
+	 * @param tabBar - マーカーを出すタブバー
+	 * @param paneId - そのタブバーのペイン
+	 * @param clientX - ビューポート上のマウス X
+	 * @returns マーカーを置いた挿入位置。0 が先頭
+	 */
 	private showTabBarDropIndicator(tabBar: HTMLElement, paneId: PaneId, clientX: number): number {
 		this.clearTabDropIndicators();
 		const excludedTabId         = this.tabDragSourcePaneId === paneId ? this.tabDragSourceId ?? undefined : undefined;
@@ -2856,7 +2980,13 @@ export class AppController {
 		return targetIndex;
 	}
 
-	/** ウィンドウ外へドロップされたタブを新しいプロセスへ引き渡す */
+	/**
+	 * ウィンドウ外へドロップされたタブを新しいプロセスへ引き渡す
+	 * @param tabId - 新しいウィンドウへ渡すタブ
+	 * @param paneId - そのタブがいたペイン
+	 * @param screenX - 新しいウィンドウの画面 X
+	 * @param screenY - 新しいウィンドウの画面 Y
+	 */
 	private async detachTabToNewWindow(tabId: string, paneId: PaneId, screenX: number, screenY: number): Promise<void> {
 		const tab = this.tabs.find((entry) => entry.tabId === tabId);
 		if (!tab) return;
@@ -2885,9 +3015,12 @@ export class AppController {
 		}
 	}
 
+	// ----------------------------------------------
+	// エディタの配置
+	// ----------------------------------------------
+
 	/**
 	 * アクティブエディタをマウントする
-	 * @returns {void}
 	 */
 	private mountActiveEditor(): void {
 		this.editorViews.forEach((view) => view.destroy());
@@ -2901,7 +3034,11 @@ export class AppController {
 		this.applyEditorZoom();
 	}
 
-	/** 分割ツリーをDOMへ変換する */
+	/**
+	 * 分割ツリーをDOMへ変換する
+	 * @param node - 描画する分割木の節
+	 * @returns その節に対応する要素
+	 */
 	private renderPaneLayoutNode(node: PaneLayoutNode): HTMLElement {
 		if (node.kind === 'pane') return this.createPaneHost(node.paneId);
 
@@ -2916,7 +3053,11 @@ export class AppController {
 		return container;
 	}
 
-	/** エディタペインとペイン固有タブバーを生成する */
+	/**
+	 * エディタペインとペイン固有タブバーを生成する
+	 * @param paneId - ホストを作るペイン
+	 * @returns タブバーと編集面を含むペイン要素
+	 */
 	private createPaneHost(paneId: PaneId): HTMLElement {
 		const pane = this.panes.get(paneId);
 		if (!pane) throw new Error(`ペインが見つかりません: ${paneId}`);
@@ -3006,7 +3147,13 @@ export class AppController {
 		return host;
 	}
 
-	/** ペインへEditorViewをマウントする */
+	/**
+	 * ペインへEditorViewをマウントする
+	 * @param paneId - マウント先のペイン
+	 * @param host - EditorView を入れる要素
+	 * @param tab - 表示するタブ
+	 * @param state - そのペイン用のエディタ状態
+	 */
 	private mountPaneEditor(paneId: PaneId, host: HTMLElement, tab: TabRuntime, state: EditorState): void {
 		const view = mountEditorView(host, state, (transaction, sourceView) => this.dispatchEditorTransaction(transaction, sourceView));
 		this.editorViews.set(paneId, view);
@@ -3017,9 +3164,8 @@ export class AppController {
 
 	/**
 	 * ペイン間で本文変更だけを同期する
-	 * @param {Transaction} transaction 同期元トランザクション
-	 * @param {EditorView} sourceView 同期元ビュー
-	 * @returns {void}
+	 * @param transaction - 同期元トランザクション
+	 * @param sourceView - 同期元ビュー
 	 */
 	private dispatchEditorTransaction(transaction: Transaction, sourceView: EditorView): void {
 		sourceView.update([transaction]);
@@ -3051,8 +3197,7 @@ export class AppController {
 
 	/**
 	 * アクティブペインを切り替える
-	 * @param {PaneId} paneId ペイン ID
-	 * @returns {void}
+	 * @param paneId - ペイン ID
 	 */
 	private activatePane(paneId: PaneId): void {
 		const view = this.editorViews.get(paneId);
@@ -3076,8 +3221,8 @@ export class AppController {
 
 	/**
 	 * 分割境界バーを生成する
-	 * @param {SplitDirection} direction 分割方向
-	 * @returns {HTMLElement} 境界バー
+	 * @param direction - 分割方向
+	 * @returns 境界バー
 	 */
 	private createSplitDivider(split: PaneSplit, container: HTMLElement): HTMLElement {
 		const direction   = split.direction;
@@ -3103,8 +3248,7 @@ export class AppController {
 		});
 		/**
 		 * 境界バーのドラッグを終了する
-		 * @param {PointerEvent} event ポインターイベント
-		 * @returns {void}
+		 * @param event - ポインターイベント
 		 */
 		const finishDrag = (event: PointerEvent): void => {
 			if (divider.hasPointerCapture(event.pointerId)) {
@@ -3136,11 +3280,10 @@ export class AppController {
 
 	/**
 	 * ポインター座標から分割比率を更新する
-	 * @param {PaneSplit} split 分割ノード
-	 * @param {HTMLElement} container 分割コンテナー
-	 * @param {number} clientX X 座標
-	 * @param {number} clientY Y 座標
-	 * @returns {void}
+	 * @param split - 分割ノード
+	 * @param container - 分割コンテナー
+	 * @param clientX - X 座標
+	 * @param clientY - Y 座標
 	 */
 	private updateSplitRatioFromPointer(split: PaneSplit, container: HTMLElement, clientX: number, clientY: number): void {
 		const rect      = container.getBoundingClientRect();
@@ -3152,9 +3295,8 @@ export class AppController {
 
 	/**
 	 * 分割比率をレイアウトへ反映する
-	 * @param {PaneSplit} split 分割ノード
-	 * @param {HTMLElement} container 分割コンテナー
-	 * @returns {void}
+	 * @param split - 分割ノード
+	 * @param container - 分割コンテナー
 	 */
 	private applySplitRatio(split: PaneSplit, container: HTMLElement): void {
 		const primary   = `${split.ratio}fr`;
@@ -3171,11 +3313,14 @@ export class AppController {
 		divider?.setAttribute('aria-valuenow', String(Math.round(split.ratio * 100)));
 	}
 
+	// ----------------------------------------------
+	// ノートの表示位置
+	// ----------------------------------------------
+
 	/**
 	 * 画像解決用のドキュメント文脈をエディタへ反映する
-	 * @param {EditorView} view 対象ビュー
-	 * @param {string | null} filePath ファイルパス
-	 * @returns {void}
+	 * @param view - 対象ビュー
+	 * @param filePath - ファイルパス
 	 */
 	private applyDocumentContextToEditor(view: EditorView, filePath: string | null): void {
 		view.dispatch({
@@ -3188,7 +3333,7 @@ export class AppController {
 
 	/**
 	 * アクティブエディタ状態をタブへ反映する
-	 * @returns {void}
+	 * @param forceNoteViewCapture - 復元の途中でも表示位置を記録するか。省略時は false
 	 */
 	private persistActiveEditorState(forceNoteViewCapture = false): void {
 		this.editorViews.forEach((view, paneId) => {
@@ -3203,9 +3348,8 @@ export class AppController {
 	}
 
 	/**
-	 * 起動時に受け取った表示位置をメモリへ載せる。
-	 * @param {unknown} value 保存ドキュメント
-	 * @returns {void}
+	 * 起動時に受け取った表示位置をメモリへ載せる
+	 * @param value - 保存ドキュメント
 	 */
 	private loadNoteViewPositions(value: unknown): void {
 		this.noteViewPositions.replace(normalizeNoteViewPositionDocument(value));
@@ -3213,9 +3357,9 @@ export class AppController {
 	}
 
 	/**
-	 * マウント済みビューの表示位置を、準備ができたものだけ記録する。
-	 * アクティブペインを最後に書き、同じノートの位置はそちらを優先する。
-	 * @returns {void}
+	 * マウント済みビューの表示位置を、準備ができたものだけ記録する
+	 * アクティブペインを最後に書き、同じノートの位置はそちらを優先する
+	 * @param force - 準備完了を待たず記録するか。省略時は false
 	 */
 	private captureMountedNoteViews(force = false): void {
 		this.editorViews.forEach((view, paneId) => {
@@ -3227,15 +3371,13 @@ export class AppController {
 	}
 
 	/**
-	 * 表示位置の復元が終わるまで、先頭へのスクロールを保存しない。
-	 * @param {EditorView} view エディタ
-	 * @returns {void}
+	 * 表示位置の復元が終わるまで、先頭へのスクロールを保存しない
+	 * @param view - エディタ
 	 */
 	private bindNoteViewPosition(view: EditorView): void {
 		const position         = this.noteViewPositionForView(view);
 		/**
 		 * スクロールのたびに表示位置を記録する
-		 * @returns {void}
 		 */
 		const rememberOnScroll = (): void => {
 			this.scheduleRememberNoteView(view);
@@ -3249,14 +3391,12 @@ export class AppController {
 		}
 
 		/**
-		 * 復元を終えたらキャレットを描き直して、以後のユーザー操作を記録できるようにする。
-		 * @param {boolean} applied 行高が揃った位置まで戻せたら true
-		 * @returns {void}
+		 * 復元を終えたらキャレットを描き直して、以後のユーザー操作を記録できるようにする
+		 * @param applied - 行高が揃った位置まで戻せたら true
 		 */
 		const finishRestore = (applied: boolean): void => {
 			/**
-			 * 計測の外でキャレットを描き直す。
-			 * @returns {void}
+			 * 計測の外でキャレットを描き直す
 			 */
 			const finishAfterFrame = (): void => {
 				if (!view.dom.isConnected) return;
@@ -3266,8 +3406,8 @@ export class AppController {
 			};
 			window.requestAnimationFrame(finishAfterFrame);
 		};
-		// ペインDOMはこのメソッドの呼出し後にレイアウトへ接続される。
-		// 接続前に復元を始めると scrollDOM.isConnected が false になり、キャレット行表示へフォールバックしてしまう。
+		// ペインDOMはこのメソッドの呼出し後にレイアウトへ接続される
+		// 接続前に復元を始めると scrollDOM.isConnected が false になり、キャレット行表示へフォールバックしてしまう
 		window.requestAnimationFrame(() => {
 			if (!view.dom.isConnected) return;
 			restoreNoteViewScroll(view, position, finishRestore);
@@ -3275,16 +3415,14 @@ export class AppController {
 	}
 
 	/**
-	 * 描画後にキャレットを選択位置へ合わせ、アクティブペインなら入力できるようフォーカスする。
-	 * 行高が揃う前にフォーカスすると、DOM 選択が編集できない隙間に入り、キー入力が捨てられる。
-	 * @param {EditorView} view エディタ
-	 * @param {boolean} bringSelectionIntoView 表示位置へ戻せなかったとき、選択行を画面内へ入れる
-	 * @returns {void}
+	 * 描画後にキャレットを選択位置へ合わせ、アクティブペインなら入力できるようフォーカスする
+	 * 行高が揃う前にフォーカスすると、DOM 選択が編集できない隙間に入り、キー入力が捨てられる
+	 * @param view - エディタ
+	 * @param bringSelectionIntoView - 表示位置へ戻せなかったとき、選択行を画面内へ入れる
 	 */
 	private scheduleCaretSync(view: EditorView, bringSelectionIntoView: boolean): void {
 		/**
 		 * 計測の外でキャレットとフォーカスを合わせる
-		 * @returns {void}
 		 */
 		const syncAfterFrame = (): void => {
 			if (!view.dom.isConnected) return;
@@ -3295,9 +3433,8 @@ export class AppController {
 	}
 
 	/**
-	 * 描画キャレットを選択位置へ合わせ、アクティブペインならフォーカスする。
-	 * @param {EditorView} view エディタ
-	 * @returns {void}
+	 * 描画キャレットを選択位置へ合わせ、アクティブペインならフォーカスする
+	 * @param view - エディタ
 	 */
 	private syncMountedCaret(view: EditorView): void {
 		if (!view.dom.isConnected) return;
@@ -3306,9 +3443,8 @@ export class AppController {
 	}
 
 	/**
-	 * 選択行が画面外なら、その行の上端までスクロールする。
-	 * @param {EditorView} view エディタ
-	 * @returns {void}
+	 * 選択行が画面外なら、その行の上端までスクロールする
+	 * @param view - エディタ
 	 */
 	private revealSelectionLine(view: EditorView): void {
 		const scroller = view.scrollDOM;
@@ -3322,9 +3458,9 @@ export class AppController {
 	}
 
 	/**
-	 * ビューに対応する保存済み表示位置を返す。
-	 * @param {EditorView} view エディタ
-	 * @returns {NoteViewPosition | null} 無ければ null
+	 * ビューに対応する保存済み表示位置を返す
+	 * @param view - エディタ
+	 * @returns 無ければ null
 	 */
 	private noteViewPositionForView(view: EditorView): NoteViewPosition | null {
 		const tab = this.tabForView(view);
@@ -3334,10 +3470,9 @@ export class AppController {
 	}
 
 	/**
-	 * スクロールや選択の直後は、次のフレームで表示位置を記録する。
-	 * 同じターンで行位置を読むと、Ctrl+End の末尾補正より先に計測が走り、見積もり高さで止まってしまう。
-	 * @param {EditorView} view エディタ
-	 * @returns {void}
+	 * スクロールや選択の直後は、次のフレームで表示位置を記録する
+	 * 同じターンで行位置を読むと、Ctrl+End の末尾補正より先に計測が走り、見積もり高さで止まってしまう
+	 * @param view - エディタ
 	 */
 	private scheduleRememberNoteView(view: EditorView): void {
 		if (!this.noteViewCaptureReady.has(view)) return;
@@ -3345,7 +3480,6 @@ export class AppController {
 		this.noteViewRememberScheduled.add(view);
 		/**
 		 * 描画後のビューポートから表示位置を記録する
-		 * @returns {void}
 		 */
 		const rememberAfterFrame = (): void => {
 			this.noteViewRememberScheduled.delete(view);
@@ -3355,9 +3489,8 @@ export class AppController {
 	}
 
 	/**
-	 * ビューの現在位置をノートへ記録する。復元中は無視する。
-	 * @param {EditorView} view エディタ
-	 * @returns {void}
+	 * ビューの現在位置をノートへ記録する。復元中は無視する
+	 * @param view - エディタ
 	 */
 	private rememberNoteView(view: EditorView, force = false): void {
 		if (!force && !this.noteViewCaptureReady.has(view)) return;
@@ -3374,9 +3507,9 @@ export class AppController {
 	}
 
 	/**
-	 * ビューが表示しているタブを返す。
-	 * @param {EditorView} view エディタ
-	 * @returns {TabRuntime | null} タブ
+	 * ビューが表示しているタブを返す
+	 * @param view - エディタ
+	 * @returns タブ
 	 */
 	private tabForView(view: EditorView): TabRuntime | null {
 		const paneId = this.findPaneId(view);
@@ -3386,14 +3519,12 @@ export class AppController {
 	}
 
 	/**
-	 * 表示位置のディスク保存を少し遅らせる。
-	 * @returns {void}
+	 * 表示位置のディスク保存を少し遅らせる
 	 */
 	private scheduleNoteViewPositionSave(): void {
 		if (this.noteViewSaveTimer !== null) window.clearTimeout(this.noteViewSaveTimer);
 		/**
 		 * 遅延後に表示位置を保存する
-		 * @returns {void}
 		 */
 		const saveLater = (): void => {
 			this.noteViewSaveTimer = null;
@@ -3403,8 +3534,7 @@ export class AppController {
 	}
 
 	/**
-	 * 未保存の表示位置をディスクへ書く。
-	 * @returns {Promise<void>}
+	 * 未保存の表示位置をディスクへ書く
 	 */
 	private flushNoteViewPositions(): Promise<void> {
 		if (this.noteViewSaveTimer !== null) {
@@ -3413,7 +3543,6 @@ export class AppController {
 		}
 		/**
 		 * 直前の保存の後に最新の表示位置を書く
-		 * @returns {Promise<void>}
 		 */
 		const saveAfterCurrent = (): Promise<void> => this.saveNoteViewPositions();
 		this.noteViewSaveChain = this.noteViewSaveChain.then(saveAfterCurrent);
@@ -3421,8 +3550,7 @@ export class AppController {
 	}
 
 	/**
-	 * メモリ上の表示位置を保存する。内容が同じなら書き込まない。
-	 * @returns {Promise<void>}
+	 * メモリ上の表示位置を保存する。内容が同じなら書き込まない
 	 */
 	private async saveNoteViewPositions(): Promise<void> {
 		const document = this.noteViewPositions.toDocument();
@@ -3440,10 +3568,13 @@ export class AppController {
 		}
 	}
 
+	// ----------------------------------------------
+	// ステータス
+	// ----------------------------------------------
+
 	/**
 	 * ステータスバーの表示倍率を更新する
-	 * @param {number} zoom 倍率
-	 * @returns {void}
+	 * @param zoom - 倍率
 	 */
 	private updateUiZoomStatus(zoom: number): void {
 		const isDefault = zoom === 1;
@@ -3455,7 +3586,6 @@ export class AppController {
 
 	/**
 	 * エディタ本文の表示倍率を反映する
-	 * @returns {void}
 	 */
 	private applyEditorZoom(): void {
 		if (this.editorViews.size === 0) {
@@ -3472,7 +3602,6 @@ export class AppController {
 
 	/**
 	 * ステータスバーを更新する
-	 * @returns {void}
 	 */
 	private refreshStatusBar(): void {
 		const tab = this.getActiveTab();
@@ -3498,7 +3627,6 @@ export class AppController {
 
 	/**
 	 * ウィンドウタイトルを更新する
-	 * @returns {Promise<void>}
 	 */
 	private async updateWindowTitle(): Promise<void> {
 		const tab = this.getActiveTab();
@@ -3513,8 +3641,7 @@ export class AppController {
 
 	/**
 	 * ドキュメント変更を処理する
-	 * @param {EditorView} view 変更元ビュー
-	 * @returns {void}
+	 * @param view - 変更元ビュー
 	 */
 	private handleDocumentChange(view: EditorView): void {
 		const paneId = this.findPaneId(view);
@@ -3545,7 +3672,7 @@ export class AppController {
 		void this.updateWindowTitle();
 
 		// 本文だけの入力では装飾更新を dispatch しない。IME composition 中に
-		// 行末ウィジェットを差し替えると、先頭のローマ字が確定・重複するため。
+		// 行末ウィジェットを差し替えると、先頭のローマ字が確定・重複するため
 		if (this.settings.showEolMarkers && tab.lineEols !== previousLineEols) {
 			const lineEols = tab.lineEols;
 			const tabId    = tab.tabId;
@@ -3563,8 +3690,8 @@ export class AppController {
 
 	/**
 	 * EditorView に対応するペイン ID を取得する
-	 * @param {EditorView} view 対象ビュー
-	 * @returns {PaneId | null} ペイン ID
+	 * @param view - 対象ビュー
+	 * @returns ペイン ID
 	 */
 	private findPaneId(view: EditorView): PaneId | null {
 		for (const [paneId, mountedView] of this.editorViews) {
@@ -3577,8 +3704,7 @@ export class AppController {
 
 	/**
 	 * 選択状態をペインへ保存し、アクティブペインのステータスを更新する
-	 * @param {EditorView} view 対象ビュー
-	 * @returns {void}
+	 * @param view - 対象ビュー
 	 */
 	private handleSelectionChange(view: EditorView): void {
 		const paneId = this.findPaneId(view);
@@ -3597,19 +3723,26 @@ export class AppController {
 		}
 	}
 
-	/** アウトラインパネルの表示 / 非表示を切り替える。 */
+	// ----------------------------------------------
+	// アウトライン
+	// ----------------------------------------------
+
+	/** アウトラインパネルの表示 / 非表示を切り替える */
 	private toggleOutline(): void {
 		this.setOutlineVisible(!this.outlineVisible);
 	}
 
-	/** アウトラインパネルの表示状態を切り替える。 */
+	/**
+	 * アウトラインパネルの表示状態を切り替える
+	 * @param visible - 表示するなら true
+	 */
 	private setOutlineVisible(visible: boolean): void {
 		this.outlineVisible             = visible;
 		this.outlinePanelElement.hidden = !visible;
 		if (visible) this.renderOutline();
 	}
 
-	/** アクティブペインの見出し一覧を描画する。 */
+	/** アクティブペインの見出し一覧を描画する */
 	private renderOutline(): void {
 		if (!this.outlineVisible) return;
 
@@ -3629,8 +3762,8 @@ export class AppController {
 
 	/**
 	 * アウトラインの1見出しと子孫を描画する
-	 * @param {OutlineTreeNode} node ノード
-	 * @returns {HTMLElement} ノード要素
+	 * @param node - ノード
+	 * @returns ノード要素
 	 */
 	private createOutlineNodeElement(node: OutlineTreeNode): HTMLElement {
 		const wrap     = document.createElement('div');
@@ -3687,8 +3820,7 @@ export class AppController {
 
 	/**
 	 * 存在しなくなった折りたたみ位置を捨てる
-	 * @param {OutlineTreeNode[]} tree 現在のツリー
-	 * @returns {void}
+	 * @param tree - 現在のツリー
 	 */
 	private pruneOutlineCollapsedFroms(tree: OutlineTreeNode[]): void {
 		const valid = new Set(collectFoldableOutlineFroms(tree));
@@ -3699,8 +3831,7 @@ export class AppController {
 
 	/**
 	 * 子を持つ見出しの開閉を切り替える
-	 * @param {number} from 見出し位置
-	 * @returns {void}
+	 * @param from - 見出し位置
 	 */
 	private toggleOutlineFold(from: number): void {
 		if (this.outlineCollapsedFroms.has(from)) this.outlineCollapsedFroms.delete(from);
@@ -3708,13 +3839,13 @@ export class AppController {
 		this.renderOutline();
 	}
 
-	/** アウトラインをすべて展開する。 */
+	/** アウトラインをすべて展開する */
 	private expandAllOutline(): void {
 		this.outlineCollapsedFroms.clear();
 		this.renderOutline();
 	}
 
-	/** 子を持つ見出しをすべて折りたたむ。子自身の開閉状態は維持する。 */
+	/** 子を持つ見出しをすべて折りたたむ。子自身の開閉状態は維持する */
 	private collapseAllOutline(): void {
 		this.outlineItems          = this.editorView ? collectOutlineItems(this.editorView.state) : [];
 		this.outlineCollapsedFroms = new Set(
@@ -3723,7 +3854,7 @@ export class AppController {
 		this.renderOutline();
 	}
 
-	/** キャレット位置に対応する見出しを強調し、アウトラインの表示範囲へ収める。 */
+	/** キャレット位置に対応する見出しを強調し、アウトラインの表示範囲へ収める */
 	private updateOutlineActiveItem(): void {
 		if (!this.outlineVisible || !this.editorView) return;
 
@@ -3764,7 +3895,10 @@ export class AppController {
 		this.outlineListElement.scrollTo({ top: targetScrollTop });
 	}
 
-	/** 選択した見出しへキャレットを移動する。スクロールは補正プラグインが行う。 */
+	/**
+	 * 選択した見出しへキャレットを移動する。スクロールは補正プラグインが行う
+	 * @param item - 移動先の見出し
+	 */
 	private jumpToOutlineItem(item: OutlineItem): void {
 		if (!this.editorView) return;
 
@@ -3772,12 +3906,16 @@ export class AppController {
 		jumpToOutlineItem(this.editorView, item);
 	}
 
+	// ----------------------------------------------
+	// タブの実行時モデル
+	// ----------------------------------------------
+
 	/**
 	 * 追加ペイン用の EditorState を生成する
-	 * @param {TabRuntime} tab 対象タブ
-	 * @param {string} text 初期本文
-	 * @param {ViewMode} viewMode 初期表示モード
-	 * @returns {EditorState} エディタ状態
+	 * @param tab - 対象タブ
+	 * @param text - 初期本文
+	 * @param viewMode - 初期表示モード
+	 * @returns エディタ状態
 	 */
 	private createPaneEditorState(tab: TabRuntime, text: string, viewMode: ViewMode): EditorState {
 		const selection = tab.editorState.selection.main;
@@ -3794,7 +3932,7 @@ export class AppController {
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
 			onSelectionChange: (view) => this.handleSelectionChange(view),
-			/** 折りたたみ状態の変更を表示位置履歴へ保存する。 */
+			/** 折りたたみ状態の変更を表示位置履歴へ保存する */
 			onFoldChange: (view) => this.scheduleRememberNoteView(view),
 			/** 貼り付けを処理する */
 			onPaste: (event, view) => this.handleEditorPaste(event, view),
@@ -3802,11 +3940,11 @@ export class AppController {
 	}
 
 	/**
-	 * 既存 EditorState を新しい設定で再構成する。
-	 * @param {TabRuntime} tab 対象タブ
-	 * @param {EditorState} state 現在の状態
-	 * @param {ViewMode} viewMode ペインの表示モード
-	 * @returns {EditorState} 再構成後の状態
+	 * 既存 EditorState を新しい設定で再構成する
+	 * @param tab - 対象タブ
+	 * @param state - 現在の状態
+	 * @param viewMode - ペインの表示モード
+	 * @returns 再構成後の状態
 	 */
 	private reconfigurePaneEditorState(tab: TabRuntime, state: EditorState, viewMode: ViewMode): EditorState {
 		return reconfigureEditorState(state, {
@@ -3820,7 +3958,7 @@ export class AppController {
 			onDocChange: (view) => this.handleDocumentChange(view),
 			/** 選択変更を処理する */
 			onSelectionChange: (view) => this.handleSelectionChange(view),
-			/** 折りたたみ状態の変更を表示位置履歴へ保存する。 */
+			/** 折りたたみ状態の変更を表示位置履歴へ保存する */
 			onFoldChange: (view) => this.scheduleRememberNoteView(view),
 			/** 貼り付けを処理する */
 			onPaste: (event, view) => this.handleEditorPaste(event, view),
@@ -3829,8 +3967,8 @@ export class AppController {
 
 	/**
 	 * タブランタイムを生成する
-	 * @param {object} options 生成オプション
-	 * @returns {TabRuntime} タブ
+	 * @param options - 生成オプション
+	 * @returns タブ
 	 */
 	private createTabRuntime(options: { filePath: string | null; text: string; encoding: EncodingKind; eol: EolKind; eolMixed: boolean; largeFile: boolean; viewMode: ViewMode; lineEols: Array<EolKind | null> }): TabRuntime {
 		const tabId       = crypto.randomUUID();
@@ -3846,23 +3984,20 @@ export class AppController {
 			collapsedHeadingFroms: savedView?.collapsedHeadingFroms,
 			/**
 			 * ドキュメント変更時
-			 * @returns {void}
 			 */
 			onDocChange: (view) => {
 				this.handleDocumentChange(view);
 			},
 			/**
 			 * 選択変更時
-			 * @returns {void}
 			 */
 			onSelectionChange: (view) => {
 				this.handleSelectionChange(view);
 			},
-			/** 折りたたみ状態の変更を表示位置履歴へ保存する。 */
+			/** 折りたたみ状態の変更を表示位置履歴へ保存する */
 			onFoldChange: (view) => this.scheduleRememberNoteView(view),
 			/**
 			 * 貼り付け時
-			 * @returns {void}
 			 */
 			onPaste: (event, view) => this.handleEditorPaste(event, view),
 		});
@@ -3885,7 +4020,7 @@ export class AppController {
 
 	/**
 	 * アクティブタブを取得する
-	 * @returns {TabRuntime | null} タブ
+	 * @returns タブ
 	 */
 	private getActiveTab(): TabRuntime | null {
 		if (!this.activeTabId) {
@@ -3895,7 +4030,11 @@ export class AppController {
 		return this.tabs.find((tab) => tab.tabId === this.activeTabId) ?? null;
 	}
 
-	/** タブをペインへ登録し、ペイン固有の表示状態を初期化する */
+	/**
+	 * タブをペインへ登録し、ペイン固有の表示状態を初期化する
+	 * @param tab - 登録するタブ
+	 * @param paneId - 登録先のペイン
+	 */
 	private addTabToPane(tab: TabRuntime, paneId: PaneId): void {
 		const pane = this.panes.get(paneId);
 		if (!pane) return;
@@ -3904,7 +4043,11 @@ export class AppController {
 		if (!pane.viewModes.has(tab.tabId)) pane.viewModes.set(tab.tabId, tab.viewMode);
 	}
 
-	/** 同じ文書を表示する全ペインへ本文置換を反映する */
+	/**
+	 * 同じ文書を表示する全ペインへ本文置換を反映する
+	 * @param tab - 本文を置き換えるタブ
+	 * @param text - 新しい本文。改行は LF
+	 */
 	private replaceTabText(tab: TabRuntime, text: string): void {
 		this.panes.forEach((pane, paneId) => {
 			if (!pane.tabIds.includes(tab.tabId)) return;
@@ -3926,7 +4069,11 @@ export class AppController {
 		}).state;
 	}
 
-	/** 指定タブを含む先頭のペインを返す */
+	/**
+	 * 指定タブを含む先頭のペインを返す
+	 * @param tabId - 探すタブ ID
+	 * @returns そのタブを含む最初のペイン。無いときは null
+	 */
 	private findPaneContainingTab(tabId: string): PaneId | null {
 		for (const [paneId, pane] of this.panes) {
 			if (pane.tabIds.includes(tabId)) return paneId;
@@ -3953,8 +4100,8 @@ export class AppController {
 
 	/**
 	 * 既定文字コードを解決する
-	 * @param {string} value 設定値
-	 * @returns {EncodingKind} 文字コード
+	 * @param value - 設定値
+	 * @returns 文字コード
 	 */
 	private parseDefaultEncoding(value: string): EncodingKind {
 		if (value === 'utf8Bom' || value === 'utf-8(bom)') {
@@ -3970,8 +4117,8 @@ export class AppController {
 
 	/**
 	 * 既定改行コードを解決する
-	 * @param {string} value 設定値
-	 * @returns {EolKind} 改行コード
+	 * @param value - 設定値
+	 * @returns 改行コード
 	 */
 	private parseDefaultEol(value: string): EolKind {
 		return value === 'lf' ? 'lf' : 'crlf';
@@ -3979,24 +4126,22 @@ export class AppController {
 
 	/**
 	 * エラーを整形する
-	 * @param {unknown} error エラー
-	 * @returns {string} メッセージ
+	 * @param error - エラー
+	 * @returns メッセージ
 	 */
 	private formatError(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
 	}
 }
 
+// ----------------------------------------------
+// メニュー操作の変換
+// ----------------------------------------------
+
 /**
- * エクスポート既定ファイル名を作る
- * @param {TabRuntime} tab タブ
- * @param {'html' | 'pdf'} ext 拡張子
- * @returns {string}
- */
-/**
- * 右クリックの配置コマンドを文書変更へ変換する。
- * @param {string} action コマンドID
- * @returns {TableAlignPatch | null}
+ * 右クリックの配置コマンドを文書変更へ変換する
+ * @param action - コマンドID
+ * @returns 水平または垂直の配置。配置コマンドでなければ null
  */
 function tableAlignPatchFromAction(action: string): TableAlignPatch | null {
 	if (action === 'alignTableCellLeft') {
@@ -4026,7 +4171,12 @@ function tableAlignPatchFromAction(action: string): TableAlignPatch | null {
 	return null;
 }
 
-/** @param {string} action メニューID @returns {TableStructureAction | null} 表構造操作 */
+/**
+ * 右クリックの表構造コマンドを、行や列の操作へ変換する
+ * 配置コマンドは対象外
+ * @param action - メニュー項目の ID
+ * @returns 挿入、削除、移動のいずれか。配置コマンドのときは null
+ */
 function tableStructureActionFromContextMenu(action: string): TableStructureAction | null {
 	if (action === 'insertTableRowsBefore' || action === 'insertTableColumnsBefore') return 'insert-before';
 	if (action === 'insertTableRowsAfter' || action === 'insertTableColumnsAfter') return 'insert-after';
@@ -4038,9 +4188,9 @@ function tableStructureActionFromContextMenu(action: string): TableStructureActi
 
 /**
  * エクスポート既定ファイル名を作る
- * @param {TabRuntime} tab タブ
- * @param {'html' | 'pdf'} ext 拡張子
- * @returns {string}
+ * @param tab - タブ
+ * @param ext - 拡張子
+ * @returns 拡張子を付けたファイル名。使えない文字はアンダースコア
  */
 function suggestedExportFileName(tab: TabRuntime, ext: 'html' | 'pdf'): string {
 	const fromPath = tab.filePath
@@ -4052,8 +4202,8 @@ function suggestedExportFileName(tab: TabRuntime, ext: 'html' | 'pdf'): string {
 
 /**
  * エクスポートに使うテーマを解決する
- * @param {string} theme 設定値
- * @returns {'light' | 'dark'}
+ * @param theme - 設定値
+ * @returns 明暗の確定値。system は OS の配色
  */
 function resolveExportTheme(theme: string): 'light' | 'dark' {
 	if (theme === 'dark') {

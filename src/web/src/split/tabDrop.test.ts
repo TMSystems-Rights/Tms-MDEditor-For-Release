@@ -1,7 +1,13 @@
+/**
+ * ペイン上のドロップ座標が、分割方向と新しいペインの位置になることを検証する
+ * @file
+ */
+
 import { describe, expect, it } from 'vitest';
 import { calculatePaneDropPlacement } from './tabDrop';
 
 describe('calculatePaneDropPlacement', () => {
+	/** ドロップ判定の基準にするペイン矩形。座標はビューポート上の px */
 	const rect = { left: 100, top: 50, width: 400, height: 300 };
 
 	it.each([

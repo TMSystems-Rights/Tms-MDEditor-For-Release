@@ -1,4 +1,12 @@
-/* ライブプレビュー装飾 */
+@charset "utf-8";
+/* ============================================== */
+/* ライブプレビューの見た目を定義する */
+/* ============================================== */
+
+/*
+ * 見出し、リスト、コールアウト、表、画像、Mermaid の見た目を定義する
+ * トークン色はテーマ変数に任せ、このファイルでは構文色を直接指定しない
+ */
 
 .tms-mde-editor-host .cm-md-hide {
 	display: inline-block;
@@ -59,6 +67,10 @@
 	text-underline-offset: 0.15em;
 }
 
+/* ---------------------------------------------- */
+/* 見出し */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-line.cm-md-h1,
 .tms-mde-editor-host .cm-line.cm-md-h2,
 .tms-mde-editor-host .cm-line.cm-md-h3,
@@ -69,8 +81,8 @@
 }
 
 /*
- * 単独ハイフンの入力途中は Markdown パーサが Setext 見出しとしてタグ付けする。
- * 箇条書きを入力中の前行には構文ハイライトの見出し太字を適用しない。
+ * 単独ハイフンの入力途中は Markdown パーサが Setext 見出しとしてタグ付けする
+ * 箇条書きを入力中の前行には構文ハイライトの見出し太字を適用しない
  */
 .tms-mde-editor-host .cm-line.cm-md-pending-list-source,
 .tms-mde-editor-host .cm-line.cm-md-pending-list-source * {
@@ -78,8 +90,8 @@
 }
 
 /*
- * CSS スニペットが `.cm-line` に指定する縦 margin をこの要素内へ収める。
- * CodeMirror はこのラッパーの実高さを計測するため、行番号・クリック位置と本文表示を同期できる。
+ * CSS スニペットが `.cm-line` に指定する縦 margin をこの要素内へ収める
+ * CodeMirror はこのラッパーの実高さを計測するため、行番号・クリック位置と本文表示を同期できる
  */
 .tms-mde-editor-host .tms-mde-cm-line-wrapper {
 	display: flow-root;
@@ -167,6 +179,10 @@
 	opacity: 0.92;
 }
 
+/* ---------------------------------------------- */
+/* 引用と水平線 */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-line.cm-md-blockquote {
 	padding-left: 0.75em;
 	border-left: 3px solid var(--tms-mde-color-primary);
@@ -194,6 +210,10 @@
 	pointer-events: none;
 	transform: translateY(-50%);
 }
+
+/* ---------------------------------------------- */
+/* リスト */
+/* ---------------------------------------------- */
 
 .tms-mde-editor-host .cm-md-bullet-marker {
 	display: inline-block;
@@ -237,6 +257,10 @@
 	text-decoration: underline;
 	cursor: default;
 }
+
+/* ---------------------------------------------- */
+/* コールアウト */
+/* ---------------------------------------------- */
 
 .tms-mde-editor-host .cm-line.cm-md-callout {
 	/* Obsidian 準拠: --callout-color は R, G, B トリプレット */
@@ -327,6 +351,10 @@
 	vertical-align: middle;
 }
 
+/* ---------------------------------------------- */
+/* コードブロック */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-line.cm-md-fenced-code {
 	background: var(--tms-mde-color-code-bg);
 	font-family: var(--tms-mde-font-mono);
@@ -340,6 +368,10 @@
 	background-color: var(--tms-mde-color-selection-bg-focused);
 }
 
+/* ---------------------------------------------- */
+/* 表 */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-md-table-wrap,
 .tms-mde-editor-host .cm-md-html-table-wrap {
 	display: block;
@@ -348,26 +380,26 @@
 }
 
 /*
- * 最大幅は表示中の編集領域（--tms-mde-table-max-width）。
- * パーセント幅だと親が表の内容幅まで伸び、横スクロールが出ない。
- * 縦方向は内容に合わせて伸びるため隠し、僅かな計測誤差から縦横スクロールが連鎖するのを防ぐ。
- * スニペットの overflow より詳細度を上げる。
+ * 最大幅は表示中の編集領域（--tms-mde-table-max-width）
+ * パーセント幅だと親が表の内容幅まで伸び、横スクロールが出ない
+ * 縦方向は内容に合わせて伸びるため隠し、僅かな計測誤差から縦横スクロールが連鎖するのを防ぐ
+ * スニペットの overflow より詳細度を上げる
  */
 .tms-mde-editor-host div.cm-md-table-wrap,
 .tms-mde-editor-host div.cm-md-html-table-wrap {
 	max-width: var(--tms-mde-table-max-width, 100%);
 	/*
-	 * 複数行を置換するインライン Widget の前後には CodeMirror が1行分の行ボックスを作る。
-	 * 行高 1.4em の半分を相殺し、表の上下にはそれぞれ0.5行分（0.7em）を残す。
-	 * CSSスニペットの表余白より確実に優先するため、div を含む詳細度で指定する。
+	 * 複数行を置換するインライン Widget の前後には CodeMirror が1行分の行ボックスを作る
+	 * 行高 1.4em の半分を相殺し、表の上下にはそれぞれ0.5行分（0.7em）を残す
+	 * CSSスニペットの表余白より確実に優先するため、div を含む詳細度で指定する
 	 */
 	margin: -0.7em 0;
 	overflow-y: hidden;
 }
 
 /*
- * 複数行テーブルの replace 後も、置換元の末尾行には EOL 用の行 Decoration が残る。
- * 通常行の改行記号は維持し、テーブル Widget を含む行に重なる記号だけを隠す。
+ * 複数行テーブルの replace 後も、置換元の末尾行には EOL 用の行 Decoration が残る
+ * 通常行の改行記号は維持し、テーブル Widget を含む行に重なる記号だけを隠す
  */
 .tms-mde-editor-host .cm-line.cm-eol-marker-line:has(> .cm-md-table-wrap)::after,
 .tms-mde-editor-host .cm-line.cm-eol-marker-line:has(> .cm-md-html-table-wrap)::after {
@@ -505,8 +537,8 @@
 }
 
 /*
- * 固定列幅から実際にはみ出すセルは、エディタの折り返しがオフでも列幅の中で折り返す。
- * .cm-content は white-space: pre を継承し、overflow-wrap だけでは改行されない。
+ * 固定列幅から実際にはみ出すセルは、エディタの折り返しがオフでも列幅の中で折り返す
+ * .cm-content は white-space: pre を継承し、overflow-wrap だけでは改行されない
  */
 .tms-mde-editor-host .cm-md-table .cm-md-table-cell-wrap {
 	white-space: pre-wrap;
@@ -571,8 +603,8 @@
 }
 
 /*
- * 見出し・縞模様と同じ詳細度で後勝ちしないよう、選択は両方より後に置く。
- * 塗りは背景を上書きせず inset で重ね、見出しの文字色も保つ。
+ * 見出し・縞模様と同じ詳細度で後勝ちしないよう、選択は両方より後に置く
+ * 塗りは背景を上書きせず inset で重ね、見出しの文字色も保つ
  */
 .tms-mde-editor-host .cm-md-table th.cm-md-table-cell-selected,
 .tms-mde-editor-host .cm-md-table td.cm-md-table-cell-selected,
@@ -590,9 +622,9 @@
 }
 
 /*
- * 固定中の見出しは選択セル（z-index: 1）より後に置き、同じ詳細度で手前に描く。
- * 表の内部スクロールでは sticky、文書スクロールではスクロール連動の translate が足される。
- * 上にはみ出す帯は、サブピクセルで背面が1〜2px見える隙間を塞ぐ。通常位置では表ラッパーの overflow に隠れる。
+ * 固定中の見出しは選択セル（z-index: 1）より後に置き、同じ詳細度で手前に描く
+ * 表の内部スクロールでは sticky、文書スクロールではスクロール連動の translate が足される
+ * 上にはみ出す帯は、サブピクセルで背面が1〜2px見える隙間を塞ぐ。通常位置では表ラッパーの overflow に隠れる
  */
 .tms-mde-editor-host .cm-md-table th.cm-md-table-pin-cell,
 .tms-mde-editor-host .cm-md-table td.cm-md-table-pin-cell {
@@ -667,6 +699,10 @@
 	height: 1.4em;
 }
 
+/* ---------------------------------------------- */
+/* 画像 */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-md-image-wrap {
 	display: inline-block;
 	position: relative;
@@ -731,6 +767,10 @@
 	background: var(--tms-mde-color-surface);
 }
 
+/* ---------------------------------------------- */
+/* コールアウトの種別ラベル */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-md-callout-type-label {
 	display: inline-flex;
 	align-items: center;
@@ -754,6 +794,10 @@
 	stroke-linejoin: round;
 }
 
+/* ---------------------------------------------- */
+/* HTML のインライン装飾 */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-md-html-u {
 	text-decoration: underline;
 }
@@ -761,6 +805,10 @@
 .tms-mde-editor-host .cm-md-html-mark {
 	background-color: var(--tms-mde-color-highlight, #ffe566);
 }
+
+/* ---------------------------------------------- */
+/* Mermaid */
+/* ---------------------------------------------- */
 
 .tms-mde-editor-host .cm-md-mermaid-wrap {
 	display: block;

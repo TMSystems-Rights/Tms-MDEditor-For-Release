@@ -1,3 +1,8 @@
+/**
+ * Web UI の起動入口
+ * OS テーマを描画前に同期し、未処理のエラーをログへ渡してから、DOM 準備後にアプリ制御を生成する
+ * @file
+ */
 import { AppController } from './app/AppController';
 import { bindThemePreferenceListener, initOsThemeAttribute } from './app/theme';
 import { writeLog } from './bridge';

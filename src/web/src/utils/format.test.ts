@@ -1,3 +1,7 @@
+/**
+ * タブ名、ウィンドウ名、改行ラベルと、大ファイル判定を確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { analyzeEol, buildTabTitle, buildWindowTitle, formatEolLabel, isLargeFile, normalizeEol } from './format';
 

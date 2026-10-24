@@ -1,3 +1,8 @@
+/**
+ * 見出し、引用、リスト、コード、コールアウトの行装飾を検証する
+ * 折りたたみの上書きはテストが StateEffect で渡し、描画 DOM は作らない
+ * @file
+ */
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
@@ -11,8 +16,8 @@ import {
 
 /**
  * TMS Markdown 付き EditorState を生成する
- * @param {string} doc ドキュメント
- * @returns {EditorState}
+ * @param doc - ドキュメント
+ * @returns TMS Markdown 付き EditorState
  */
 function createMarkdownState(doc: string): EditorState {
 	return EditorState.create({
@@ -429,8 +434,8 @@ describe('lineDecorations', () => {
 
 		/**
 		 * タイトル本文の開始オフセットを返す
-		 * @param {string} text 行テキスト
-		 * @returns {number}
+		 * @param text - 行テキスト
+		 * @returns タイトル本文の開始オフセット
 		 */
 		const titleStart = (text: string): number => {
 			const match = /\][+-]?\s*/.exec(text);

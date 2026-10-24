@@ -1,3 +1,7 @@
+/**
+ * 検索一致の件数、移動先、不正な正規表現の文言を確認する
+ * @file
+ */
 import { history, undo } from '@codemirror/commands';
 import { SearchQuery, replaceAll, search, setSearchQuery } from '@codemirror/search';
 import { EditorState, type TransactionSpec } from '@codemirror/state';
@@ -117,15 +121,14 @@ describe('searchLogic', () => {
 		const commandTarget  = {
 			/**
 			 * 現在のエディタ状態を返す
-			 * @returns {EditorState} エディタ状態
+			 * @returns エディタ状態
 			 */
 			get state() {
 				return state;
 			},
 			/**
 			 * テスト用トランザクションを適用する
-			 * @param {TransactionSpec[]} specs トランザクション仕様
-			 * @returns {void}
+			 * @param specs - トランザクション仕様
 			 */
 			dispatch(...specs: TransactionSpec[]) {
 				const transaction = state.update(...specs);

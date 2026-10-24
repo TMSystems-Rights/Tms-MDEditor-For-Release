@@ -1,10 +1,15 @@
+/**
+ * Markdown 記法とコードトークンを、CSS 変数の色で塗るハイライト style を公開する
+ * テーマの色そのものは呼び出し側の CSS が持ち、本ファイルはタグと変数の対応だけを固定する
+ * @file
+ */
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import type { Extension } from '@codemirror/state';
 
 /**
  * Markdown 記法とコードトークンを CSS 変数で塗るハイライト
- * 非フォールバックとして登録する。フォールバック指定だと主ハイライトがある限り効かない。
+ * 非フォールバックとして登録する。フォールバック指定だと主ハイライトがある限り効かない
  */
 export const tmsHighlightStyle = HighlightStyle.define([
 	{ tag: tags.processingInstruction, color: 'var(--tms-mde-color-mark)' },
@@ -52,8 +57,8 @@ export const tmsHighlightStyle = HighlightStyle.define([
 ]);
 
 /**
- * 記法トークン色とコードトークン色を CSS 変数で塗るシンタックスハイライト拡張
- * @returns {Extension[]}
+ * 記法トークン色とコードトークン色を CSS 変数で塗るシンタックスハイライト拡張を返す
+ * @returns tmsHighlightStyle を非フォールバックで登録する Extension の配列
  */
 export function createMarkdownSyntaxHighlighting(): Extension[] {
 	return [syntaxHighlighting(tmsHighlightStyle)];

@@ -1,21 +1,35 @@
+// ==============================================
+// 最近使ったファイルの追加と削除を設定へ反映する
+// ==============================================
+
+// 一覧の実体は設定ファイルにあり、追加と削除の成功時だけメモリ上の設定とメニューを更新する
+// 保存に失敗したときはメニューを変えず、結果のメッセージを Web 層へ返す
+
 using System.Text.Json;
 using TmsMdEditor.Models;
 
 namespace TmsMdEditor.Bridge;
 
 /// <summary>
-/// 最近使ったファイル関連ブリッジ API
+/// recent:* を受けるブリッジ。件数の上限とパスの正規化は RecentFilesService が行う
 /// </summary>
 internal sealed class RecentApi
 {
+	/// <summary>
+	/// 設定の読み書き先。API より長く生き、保存成功時だけ Config を差し替える
+	/// </summary>
 	private readonly AppContext _appContext;
+
+	/// <summary>
+	/// 保存後に最近使ったファイルのメニューを描き直す宛先
+	/// </summary>
 	private readonly MainForm _mainForm;
 
 	/// <summary>
-	/// 最近使ったファイル API を初期化する
+	/// 最近使ったファイル API を作る。フォームとコンテキストは借用する
 	/// </summary>
-	/// <param name="mainForm">メインフォーム</param>
-	/// <param name="appContext">アプリコンテキスト</param>
+	/// <param name="mainForm">メニューの再描画先。null は渡さない</param>
+	/// <param name="appContext">設定と最近使ったファイルのサービス。null は渡さない</param>
 	public RecentApi(MainForm mainForm, AppContext appContext)
 	{
 		_mainForm    = mainForm;
@@ -23,9 +37,9 @@ internal sealed class RecentApi
 	}
 
 	/// <summary>
-	/// 最近使ったファイル一覧を取得する
+	/// 最近使ったファイルのパスを新しい順で返す。空白の要素は含めない
 	/// </summary>
-	/// <returns>一覧</returns>
+	/// <returns>パスの一覧。0 件のときも Files は空で、失敗は返さない</returns>
 	public RecentFilesResponse List()
 	{
 		return new RecentFilesResponse
@@ -35,10 +49,10 @@ internal sealed class RecentApi
 	}
 
 	/// <summary>
-	/// 最近使ったファイルへ追加する
+	/// ファイルを一覧の先頭へ加え、設定を保存する。成功したときだけメニューを更新する
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>保存結果</returns>
+	/// <param name="paramsElement">filePath を持つ JSON。無い、または空白のときは保存せず失敗を返す</param>
+	/// <returns>保存結果。失敗時は Config が null で、メニューは変えない</returns>
 	public SaveConfigResult Add(JsonElement paramsElement)
 	{
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
@@ -51,10 +65,10 @@ internal sealed class RecentApi
 	}
 
 	/// <summary>
-	/// 最近使ったファイルから削除する
+	/// 一覧からパスを外し、設定を保存する。成功したときだけメニューを更新する
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>保存結果</returns>
+	/// <param name="paramsElement">filePath を持つ JSON。無いときは保存せず失敗を返す</param>
+	/// <returns>保存結果。失敗時はメニューを変えない</returns>
 	public SaveConfigResult Remove(JsonElement paramsElement)
 	{
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
@@ -66,6 +80,11 @@ internal sealed class RecentApi
 		return result;
 	}
 
+	/// <summary>
+	/// 保存に成功した設定をメモリへ反映し、最近使ったファイルのメニューを描き直す
+	/// 失敗、または Config が null のときは何もしない
+	/// </summary>
+	/// <param name="result">Add または Remove の保存結果</param>
 	private void ApplySavedConfig(SaveConfigResult result)
 	{
 		if (result.Success && result.Config is not null)

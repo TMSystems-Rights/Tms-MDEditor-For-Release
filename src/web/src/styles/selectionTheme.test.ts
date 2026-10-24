@@ -1,3 +1,8 @@
+/**
+ * 範囲選択の CSS 変数と、選択レイヤーの重なりを検証する
+ * @file
+ */
+
 /* eslint-disable-next-line spaced-comment */
 /// <reference types="node" />
 import { readFileSync } from 'node:fs';
@@ -5,11 +10,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+/** このテストファイルがある styles ディレクトリ */
 const stylesDir = dirname(fileURLToPath(import.meta.url));
 
 describe('範囲選択の CSS 変数', () => {
+	/** 色と透過度の変数を読む CSS 本文 */
 	const baseCss        = readFileSync(join(stylesDir, 'base.css'), 'utf8');
+	/** 選択レイヤーの重なりを読む CSS 本文 */
 	const shellCss       = readFileSync(join(stylesDir, 'shell.css'), 'utf8');
+	/** ライブプレビュー側の選択スタイルを読む CSS 本文 */
 	const livePreviewCss = readFileSync(join(stylesDir, 'livePreview.css'), 'utf8');
 
 	it('色と透過度を CSS 変数として公開する', () => {

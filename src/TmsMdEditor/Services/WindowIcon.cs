@@ -1,28 +1,37 @@
+// ==============================================
+// ウィンドウアイコンの読み込み
+// ==============================================
+
+// アイコンの実体はこの型が保持しない。フォームは Load が返した Icon を破棄する
+
 namespace TmsMdEditor.Services;
 
 /// <summary>
-/// ウィンドウ / タスクバー用アイコンを解決する
+/// exe 隣の icon.ico を優先し、無ければ exe に紐づくアイコンを読む
+/// どちらも読めなければ null を返し、例外は出さない
 /// </summary>
 internal static class WindowIcon
 {
-	/// <summary>exe 隣へコピーするアイコンファイル名</summary>
+	/// <summary>
+	/// exe 隣で探すアイコンのファイル名。ディレクトリは含まない
+	/// </summary>
 	public const string FileName = "icon.ico";
 
 	/// <summary>
-	/// 実行中プロセスのウィンドウアイコンを読み込む
+	/// 実行中プロセスの基底ディレクトリと exe パスからアイコンを読む
 	/// </summary>
-	/// <returns>アイコン。読み込めなければ null</returns>
+	/// <returns>読み込んだアイコン。ファイルが無い、または壊れているときは null</returns>
 	public static Icon? Load()
 	{
 		return Load(System.AppContext.BaseDirectory, Application.ExecutablePath);
 	}
 
 	/// <summary>
-	/// 指定ディレクトリまたは exe からウィンドウアイコンを読み込む
+	/// icon.ico を優先し、無ければ exe の関連アイコンを読む。失敗は null に潰す
 	/// </summary>
 	/// <param name="baseDirectory">icon.ico を探すディレクトリ</param>
-	/// <param name="executablePath">フォールバック用 exe パス</param>
-	/// <returns>アイコン。読み込めなければ null</returns>
+	/// <param name="executablePath">icon.ico が無いときの exe。null や実在しなければ関連アイコンは読まない</param>
+	/// <returns>読み込んだアイコン。読めなければ null。呼び出し元が破棄する</returns>
 	public static Icon? Load(string baseDirectory, string? executablePath)
 	{
 		try

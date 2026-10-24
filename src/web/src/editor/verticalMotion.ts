@@ -1,3 +1,9 @@
+/**
+ * 文字列上の列をゴールにして、論理行単位の上下移動を行う
+ * CodeMirror の goalColumn はピクセルなので使わず、本ファイルが文字列のゴールを状態として持つ
+ * 表セルへの出入りは tableWidget に任せ、本ファイルは文書上の選択とゴールだけを更新する
+ * @file
+ */
 import {
 	countColumn,
 	EditorSelection,
@@ -18,25 +24,34 @@ import {
 } from '../livePreview/tableWidget';
 import { normalizeCaretRange } from './caretNormalize';
 
+// ==============================================
+// 文字列ゴール
+// ==============================================
+
 /**
- * 縦移動用の文字列ゴール（CM の goalColumn はピクセルなので使わない）
+ * 縦移動用の文字列ゴールを更新する Effect
+ * CodeMirror の goalColumn はピクセルなので使わない。null はゴールを消す
  */
 export const setVerticalCharGoalEffect = StateEffect.define<number | null>();
 
 /**
- * 縦移動で維持する文字列位置
+ * 縦移動で維持する文字列上の列
+ * 縦移動以外の選択変更で消え、select.normalize だけの更新では残す
  */
 export const verticalCharGoalField = StateField.define<number | null>({
 	/**
-	 * @returns {null}
+	 * ゴールの初期値は未設定にする
+	 * 最初の縦移動で、その時点の文字列から決める
+	 * @returns まだ縦移動していないことを示す null
 	 */
 	create() {
 		return null;
 	},
 	/**
-	 * @param {number | null} value 現在値
-	 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-	 * @returns {number | null}
+	 * 縦移動の Effect があればその列を保持し、それ以外の選択変更では消す
+	 * @param value - 更新前の文字列ゴール。条件に当てはまらなければこのまま返す
+	 * @param transaction - 今回のトランザクション。Effect と userEvent を見る
+	 * @returns 維持する列。ゴールを消すときは null
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
@@ -59,10 +74,14 @@ export const verticalCharGoalField = StateField.define<number | null>({
 	},
 });
 
+// ==============================================
+// 論理行の移動
+// ==============================================
+
 /**
- * ATX 見出し行頭の `#` + 空白プレフィックス長を返す（ユーザー案の (b)）
- * @param {string} lineText 行テキスト
- * @returns {number}
+ * ATX 見出し行頭の `#` と、その直後の空白までの長さを返す（ユーザー案の (b)）
+ * @param lineText - 1 行のテキスト。`#` の連続のあとに空白が無いときは見出し接頭辞としない
+ * @returns 接頭辞の文字数。見出しでなければ 0
  */
 export function headingPrefixLength(lineText: string): number {
 	const match = /^(#+)\s/.exec(lineText);
@@ -70,20 +89,20 @@ export function headingPrefixLength(lineText: string): number {
 }
 
 /**
- * 選択範囲の端を返す
- * @param {SelectionRange} range 範囲
- * @param {boolean} forward 方向
- * @returns {SelectionRange}
+ * 選択範囲の、移動方向にある端を空のキャレットにして返す
+ * @param range - 折り畳す範囲。空のときは from と to が同じ
+ * @param forward - true で末尾、false で先頭
+ * @returns 端に置いた空の選択
  */
 function rangeEnd(range: SelectionRange, forward: boolean): SelectionRange {
 	return EditorSelection.cursor(forward ? range.to : range.from);
 }
 
 /**
- * 現在位置の文字列を返す
- * @param {EditorState} state 状態
- * @param {SelectionRange} range 範囲
- * @returns {number}
+ * キャレット位置の文字列上の列を返す
+ * @param state - 列を数える文書。タブ幅は state.tabSize
+ * @param range - head の位置を見る範囲
+ * @returns 行頭から head までの列。タブは tabSize で数える
  */
 function characterColumnAt(state: EditorState, range: SelectionRange): number {
 	const line = state.doc.lineAt(range.head);
@@ -92,11 +111,12 @@ function characterColumnAt(state: EditorState, range: SelectionRange): number {
 
 /**
  * 論理行単位でカーソルを 1 行移動する（ソース文字位置 (a) を維持）
- * @param {EditorState} state 状態
- * @param {SelectionRange} range 現在範囲
- * @param {boolean} forward 下方向なら true
- * @param {number} charGoal 文字列ゴール
- * @returns {SelectionRange}
+ * 文書の端では範囲を変えない。着地後はキャレット正規化を通す
+ * @param state - 移動元の文書
+ * @param range - 現在の選択。head の行から 1 行進む
+ * @param forward - true で次の行、false で前の行
+ * @param charGoal - 着地させたい文字列上の列。タブは tabSize で数える。負の値は 0 として扱う
+ * @returns 移動後の空選択。端で動けないときは range
  */
 export function moveByDocumentLine(
 	state: EditorState,
@@ -117,13 +137,14 @@ export function moveByDocumentLine(
 }
 
 /**
- * 縦移動先を決定する
- * @param {EditorView} view ビュー
- * @param {SelectionRange} range 現在範囲
- * @param {boolean} forward 下方向なら true
- * @param {number} charGoal 文字列ゴール
- * @param {boolean} extend 選択拡張（Shift）なら true
- * @returns {SelectionRange}
+ * 縦移動先を決める
+ * 折り返し行の中だけピクセル移動を使い、論理行を跨ぐときは文字列ゴールで着地する
+ * @param view - ピクセル移動を試すエディタ
+ * @param range - 移動前の範囲
+ * @param forward - true で下、false で上
+ * @param charGoal - 論理行を跨いだときの着地列
+ * @param extend - true のとき選択を拡張する。false で範囲選択中なら、先に移動方向の端へ折り畳む
+ * @returns 移動後の範囲。ピクセル移動が同じ論理行に留まったときはその結果
  */
 function resolveVerticalMove(
 	view: EditorView,
@@ -154,10 +175,11 @@ function resolveVerticalMove(
 
 /**
  * 選択を縦移動で更新する
- * @param {EditorView} view ビュー
- * @param {boolean} forward 下方向なら true
- * @param {boolean} extend 選択拡張
- * @returns {boolean}
+ * 拡張でない単一選択で、移動先に描画済みの表があるときはセルへ入る
+ * @param view - 移動対象のエディタ
+ * @param forward - true で下、false で上
+ * @param extend - true のときアンカーを維持して head だけ動かす。表セル移動はしない
+ * @returns 移動または表セル移動を処理したとき true。選択もゴールも変わらないときも true
  */
 function applyVerticalMove(view: EditorView, forward: boolean, extend: boolean): boolean {
 	if (!extend && moveActiveTableCellVertically(view, forward)) {
@@ -214,33 +236,46 @@ function applyVerticalMove(view: EditorView, forward: boolean, extend: boolean):
 	return true;
 }
 
+// ==============================================
+// 移動コマンド
+// ==============================================
+
 /**
- * 見出しなど可変行高でも飛びにくい上移動
- * @type {Command}
+ * 見出しなど可変行高でも飛びにくい上移動コマンド
+ * 文字列上の列をゴールとして維持し、表ウィジェットがあるときはセル移動を優先する
+ * @param view - 移動対象のエディタ
+ * @returns 移動を処理したとき true
  */
 export const cursorStableLineUp: Command = (view) => applyVerticalMove(view, false, false);
 
 /**
- * 見出しなど可変行高でも飛びにくい下移動
- * @type {Command}
+ * 見出しなど可変行高でも飛びにくい下移動コマンド
+ * 文字列上の列をゴールとして維持し、表ウィジェットがあるときはセル移動を優先する
+ * @param view - 移動対象のエディタ
+ * @returns 移動を処理したとき true
  */
 export const cursorStableLineDown: Command = (view) => applyVerticalMove(view, true, false);
 
 /**
- * 選択拡張付き上移動
- * @type {Command}
+ * 選択を拡張しながら 1 行上へ移動するコマンド
+ * 表セルへは入らない
+ * @param view - 移動対象のエディタ
+ * @returns 移動を処理したとき true
  */
 export const selectStableLineUp: Command = (view) => applyVerticalMove(view, false, true);
 
 /**
- * 選択拡張付き下移動
- * @type {Command}
+ * 選択を拡張しながら 1 行下へ移動するコマンド
+ * 表セルへは入らない
+ * @param view - 移動対象のエディタ
+ * @returns 移動を処理したとき true
  */
 export const selectStableLineDown: Command = (view) => applyVerticalMove(view, true, true);
 
 /**
- * 縦移動用拡張
- * @returns {Extension[]}
+ * 縦移動の文字列ゴールを保持する Extension を返す
+ * 移動コマンド自体はキーマップ側が束ねる
+ * @returns verticalCharGoalField だけを含む配列
  */
 export function createVerticalMotionExtensions(): Extension[] {
 	return [verticalCharGoalField];

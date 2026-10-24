@@ -1,3 +1,8 @@
+/**
+ * 見出し接頭辞の長さと、論理行単位の上下移動が文字列上の列を維持することを検証する
+ * ピクセル移動と表ウィジェットは持たず、EditorState 上の位置だけを見る
+ * @file
+ */
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { headingPrefixLength, moveByDocumentLine } from './verticalMotion';

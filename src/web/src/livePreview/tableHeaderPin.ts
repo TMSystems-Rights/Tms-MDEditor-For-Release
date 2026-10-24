@@ -1,10 +1,17 @@
+/**
+ * ライブプレビューの表見出しを、エディタのスクロールに追従して留める
+ * 文書は変えず、描画済みの見出しセルへスクロール連動アニメーションを張る
+ * @file
+ */
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 
 /** 固定対象の見出しセル。選択セルより手前に描く */
 export const TABLE_HEADER_PIN_CLASS = 'cm-md-table-pin-cell';
 
+/** 見出し位置の再計測をまとめる requestMeasure のキー */
 const TABLE_HEADER_PIN_KEY = 'tms-mde-table-header-pin';
 
+/** スクロール連動アニメーションのコンストラクタ。未対応環境では使わない */
 type ScrollTimelineConstructor = new (options: {
 	source: Element;
 	axis: 'block' | 'inline' | 'x' | 'y';
@@ -19,15 +26,15 @@ export type TableHeaderPinSpan = {
 };
 
 /**
- * 表全体の高さと、表の枠だけが縦スクロールする場合の見える高さを切り替える。
- * 枠の中をスクロールしているとき、表の全高を使うと見出しがデータ行の中へめり込む。
- * @param {boolean} scrollsInside 表の枠自身が縦スクロールするか
- * @param {number} wrapDocTop 表の枠の位置（スクロール内容の上端から）
- * @param {number} wrapClientHeight 表の枠の見える高さ
- * @param {number} headerDocTop 見出しの位置（スクロール内容の上端から）
- * @param {number} headerHeight 見出しの高さ
- * @param {number} tableBottom 表の下端（スクロール内容の上端から）
- * @returns {TableHeaderPinSpan} 基準位置と移動量
+ * 表全体の高さと、表の枠だけが縦スクロールする場合の見える高さを切り替える
+ * 枠の中をスクロールしているとき、表の全高を使うと見出しがデータ行の中へめり込む
+ * @param scrollsInside - 表の枠自身が縦スクロールするか
+ * @param wrapDocTop - 表の枠の位置（スクロール内容の上端から）
+ * @param wrapClientHeight - 表の枠の見える高さ
+ * @param headerDocTop - 見出しの位置（スクロール内容の上端から）
+ * @param headerHeight - 見出しの高さ
+ * @param tableBottom - 表の下端（スクロール内容の上端から）
+ * @returns 基準位置と移動量
  */
 export function resolveTableHeaderPinSpan(
 	scrollsInside: boolean,
@@ -61,22 +68,30 @@ export type TableHeaderPinFrame = {
 	translateY: number;
 };
 
+/** 1つの表へ見出し固定を張り直すための計測結果 */
 type TableHeaderPinUpdate = {
+	/** 対象の表の枠 */
 	wrap: HTMLElement;
+	/** 固定する見出しセル */
 	cells: HTMLElement[];
+	/** もう固定しないセル。アニメーションを外す */
 	stale: HTMLElement[];
+	/** スクロール位置に対するずらしのキーフレーム */
 	frames: TableHeaderPinFrame[];
+	/** 見出しの基準位置。スクロール内容の上端から（px） */
 	headerDocTop: number;
+	/** 寸法が変わったかを見る文字列。同じなら張り直さない */
 	signature: string;
+	/** 計測不能で、今回は何もしないなら true */
 	skip: boolean;
 };
 
 /**
- * データ行が見出しの裏に入っているかを返す。
- * @param {number} scrollTop エディタのスクロール量
- * @param {number} headerDocTop 見出しの基準位置
- * @param {number} wrapScrollTop 表の枠自身のスクロール量
- * @returns {boolean} 隠れているなら true
+ * データ行が見出しの裏に入っているかを返す
+ * @param scrollTop - エディタのスクロール量
+ * @param headerDocTop - 見出しの基準位置
+ * @param wrapScrollTop - 表の枠自身のスクロール量
+ * @returns 隠れているなら true
  */
 export function isTableHeaderCovering(scrollTop: number, headerDocTop: number, wrapScrollTop: number): boolean {
 	const documentCovering = Number.isFinite(headerDocTop) && scrollTop > headerDocTop + 0.5;
@@ -84,12 +99,12 @@ export function isTableHeaderCovering(scrollTop: number, headerDocTop: number, w
 }
 
 /**
- * エディタのスクロール範囲に対する見出しのずらしキーフレームを返す。
- * スクロールの途中では線形補間が、その時点の必要量と一致する。
- * @param {number} headerDocTop 見出しのレイアウト位置（スクロール内容の上端から）
- * @param {number} maxTravel 見出しを下へ動かせる最大量
- * @param {number} maxScroll エディタの最大スクロール量
- * @returns {TableHeaderPinFrame[]} 空なら固定しない
+ * エディタのスクロール範囲に対する見出しのずらしキーフレームを返す
+ * スクロールの途中では線形補間が、その時点の必要量と一致する
+ * @param headerDocTop - 見出しのレイアウト位置（スクロール内容の上端から）
+ * @param maxTravel - 見出しを下へ動かせる最大量
+ * @param maxScroll - エディタの最大スクロール量
+ * @returns 空なら固定しない
  */
 export function buildTableHeaderPinFrames(
 	headerDocTop: number,
@@ -104,7 +119,9 @@ export function buildTableHeaderPinFrames(
 	}
 
 	/**
-	 *
+	 * スクロール位置を、見出しが動ける範囲へ収める
+	 * @param scroll - エディタのスクロール量（px）
+	 * @returns 0 から maxTravel までのずらし量（px）
 	 */
 	const at                            = (scroll: number): number => Math.max(0, Math.min(maxTravel, scroll - headerDocTop));
 	const frames: TableHeaderPinFrame[] = [
@@ -133,24 +150,26 @@ export function buildTableHeaderPinFrames(
 }
 
 /**
- * ライブプレビューの表見出しを、エディタのスクロールと同時に留める。
- * スクロールイベントで位置を書き直すと1フレーム遅れてちらつくため、スクロール連動アニメーションを使う。
- * @returns {import('@codemirror/state').Extension} 拡張
+ * ライブプレビューの表見出しを、エディタのスクロールと同時に留める
+ * スクロールイベントで位置を書き直すと1フレーム遅れてちらつくため、スクロール連動アニメーションを使う
+ * @returns 拡張
  */
 export function createTableHeaderPinExtension() {
 	return ViewPlugin.define((view) => new TableHeaderPinController(view));
 }
 
 /**
- * 表の寸法が変わったときだけ、見出しのスクロール連動アニメーションを張り直す。
+ * 表の寸法が変わったときだけ、見出しのスクロール連動アニメーションを張り直す
  */
 class TableHeaderPinController {
+	/** 破棄済みなら true。以降の計測と書き込みを止める */
 	private destroyed = false;
 
+	/** 表とスクロール領域の寸法変化。コンストラクタで監視を始める */
 	private readonly observer: ResizeObserver;
 
 	/**
-	 * @param {EditorView} view 対象エディタ
+	 * @param view - 対象エディタ
 	 */
 	public constructor(private readonly view: EditorView) {
 		this.observer = new ResizeObserver(() => {
@@ -163,10 +182,9 @@ class TableHeaderPinController {
 	}
 
 	/**
-	 * 文書や行の高さが変わったとき、見出し位置を測り直す。
-	 * スクロールだけでは張り直さない。
-	 * @param {ViewUpdate} update 更新情報
-	 * @returns {void}
+	 * 文書や行の高さが変わったとき、見出し位置を測り直す
+	 * スクロールだけでは張り直さない
+	 * @param update - 更新情報
 	 */
 	public update(update: ViewUpdate): void {
 		if (update.docChanged || update.geometryChanged) {
@@ -175,8 +193,7 @@ class TableHeaderPinController {
 	}
 
 	/**
-	 * 監視を解除する。
-	 * @returns {void}
+	 * 監視を解除する
 	 */
 	public destroy(): void {
 		this.destroyed = true;
@@ -188,10 +205,9 @@ class TableHeaderPinController {
 	}
 
 	/**
-	 * 仕切りは、隠れ始めた瞬間と戻った瞬間だけ切り替える。
-	 * 見出しの移動そのものはスクロール連動アニメーションに任せる。
-	 * @param {Event} event スクロールイベント
-	 * @returns {void}
+	 * 仕切りは、隠れ始めた瞬間と戻った瞬間だけ切り替える
+	 * 見出しの移動そのものはスクロール連動アニメーションに任せる
+	 * @param event - スクロールイベント
 	 */
 	private readonly onWrapScroll = (event: Event): void => {
 		const target = event.target;
@@ -212,8 +228,7 @@ class TableHeaderPinController {
 	};
 
 	/**
-	 * 見出し位置の計測を次のレイアウトへ予約する。
-	 * @returns {void}
+	 * 見出し位置の計測を次のレイアウトへ予約する
 	 */
 	private schedule(): void {
 		if (this.destroyed) {
@@ -222,9 +237,9 @@ class TableHeaderPinController {
 
 		this.view.requestMeasure({
 			key  : TABLE_HEADER_PIN_KEY,
-			/** DOM読取フェーズで、スクロール範囲に対するずらし量を決める。 */
+			/** DOM読取フェーズで、スクロール範囲に対するずらし量を決める */
 			read : (view) => readTableHeaderPinUpdates(view),
-			/** 書込フェーズでスクロール連動アニメーションを張り替える。 */
+			/** 書込フェーズでスクロール連動アニメーションを張り替える */
 			write: (updates) => {
 				if (this.destroyed) {
 					return;
@@ -237,9 +252,9 @@ class TableHeaderPinController {
 }
 
 /**
- * 表示中の表について、アニメーションの張り替えが必要かを集める。
- * @param {EditorView} view 対象エディタ
- * @returns {TableHeaderPinUpdate[]} 表ごとの更新
+ * 表示中の表について、アニメーションの張り替えが必要かを集める
+ * @param view - 対象エディタ
+ * @returns 表ごとの更新
  */
 function readTableHeaderPinUpdates(view: EditorView): TableHeaderPinUpdate[] {
 	const updates: TableHeaderPinUpdate[] = [];
@@ -250,10 +265,10 @@ function readTableHeaderPinUpdates(view: EditorView): TableHeaderPinUpdate[] {
 }
 
 /**
- * 1つの表のずらしキーフレームを測る。寸法が同じなら張り替えない。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLElement} scroller エディタのスクロール要素
- * @returns {TableHeaderPinUpdate} 更新内容
+ * 1つの表のずらしキーフレームを測る。寸法が同じなら張り替えない
+ * @param wrap - 表ラッパー
+ * @param scroller - エディタのスクロール要素
+ * @returns 更新内容
  */
 function readTableHeaderPinUpdate(wrap: HTMLElement, scroller: HTMLElement): TableHeaderPinUpdate {
 	const cells = findTableHeaderPinCells(wrap);
@@ -324,10 +339,9 @@ function readTableHeaderPinUpdate(wrap: HTMLElement, scroller: HTMLElement): Tab
 }
 
 /**
- * 測り直した表へスクロール連動アニメーションを付ける。
- * @param {TableHeaderPinUpdate[]} updates 表ごとの更新
- * @param {HTMLElement} scroller エディタのスクロール要素
- * @returns {void}
+ * 測り直した表へスクロール連動アニメーションを付ける
+ * @param updates - 表ごとの更新
+ * @param scroller - エディタのスクロール要素
  */
 function applyTableHeaderPinUpdates(updates: TableHeaderPinUpdate[], scroller: HTMLElement): void {
 	updates.forEach((update) => {
@@ -354,11 +368,10 @@ function applyTableHeaderPinUpdates(updates: TableHeaderPinUpdate[], scroller: H
 }
 
 /**
- * 見出しセルをエディタの縦スクロールに連動させる。
- * @param {HTMLElement[]} cells 見出しセル
- * @param {TableHeaderPinFrame[]} frames ずらしキーフレーム
- * @param {HTMLElement} scroller エディタのスクロール要素
- * @returns {void}
+ * 見出しセルをエディタの縦スクロールに連動させる
+ * @param cells - 見出しセル
+ * @param frames - ずらしキーフレーム
+ * @param scroller - エディタのスクロール要素
  */
 function bindTableHeaderPin(
 	cells: HTMLElement[],
@@ -383,9 +396,8 @@ function bindTableHeaderPin(
 }
 
 /**
- * 見出しの固定アニメーションと印を外す。
- * @param {HTMLElement} cell セル
- * @returns {void}
+ * 見出しの固定アニメーションと印を外す
+ * @param cell - セル
  */
 function clearTableHeaderPin(cell: HTMLElement): void {
 	cell.getAnimations().forEach((animation) => {
@@ -398,9 +410,8 @@ function clearTableHeaderPin(cell: HTMLElement): void {
 }
 
 /**
- * 表の枠内スクロールでデータ行が隠れているあいだ、仕切りを出す。
- * @param {HTMLElement} wrap 表ラッパー
- * @returns {void}
+ * 表の枠内スクロールでデータ行が隠れているあいだ、仕切りを出す
+ * @param wrap - 表ラッパー
  */
 function syncTableHeaderCovering(wrap: HTMLElement, scrollTop: number): void {
 	const headerDocTop = Number(wrap.dataset.tmsMdeHeaderPinTop);
@@ -413,17 +424,17 @@ function syncTableHeaderCovering(wrap: HTMLElement, scrollTop: number): void {
 }
 
 /**
- * スクロール連動アニメーションが使えるか。
- * @returns {boolean} 使えるなら true
+ * スクロール連動アニメーションが使えるか
+ * @returns 使えるなら true
  */
 function canUseScrollTimeline(): boolean {
 	return scrollTimelineConstructor() !== null;
 }
 
 /**
- * エディタの縦スクロールに紐づくタイムラインを作る。
- * @param {HTMLElement} scroller エディタのスクロール要素
- * @returns {AnimationTimeline} タイムライン
+ * エディタの縦スクロールに紐づくタイムラインを作る
+ * @param scroller - エディタのスクロール要素
+ * @returns タイムライン
  */
 function createScrollTimeline(scroller: HTMLElement): AnimationTimeline {
 	const ScrollTimeline = scrollTimelineConstructor();
@@ -438,8 +449,8 @@ function createScrollTimeline(scroller: HTMLElement): AnimationTimeline {
 }
 
 /**
- * 実行環境の ScrollTimeline コンストラクタを返す。
- * @returns {ScrollTimelineConstructor | null} 未対応なら null
+ * 実行環境の ScrollTimeline コンストラクタを返す
+ * @returns 未対応なら null
  */
 function scrollTimelineConstructor(): ScrollTimelineConstructor | null {
 	const host = globalThis as { ScrollTimeline?: ScrollTimelineConstructor };
@@ -447,10 +458,10 @@ function scrollTimelineConstructor(): ScrollTimelineConstructor | null {
 }
 
 /**
- * 留める見出しセルを返す。
- * GFM 表は thead の先頭行。HTML 表は thead の先頭行、無ければ th を含む先頭行。
- * @param {HTMLElement} wrap 表ラッパー
- * @returns {HTMLElement[]} 見出しセル
+ * 留める見出しセルを返す
+ * GFM 表は thead の先頭行。HTML 表は thead の先頭行、無ければ th を含む先頭行
+ * @param wrap - 表ラッパー
+ * @returns 見出しセル
  */
 export function findTableHeaderPinCells(wrap: HTMLElement): HTMLElement[] {
 	const table = wrap.querySelector('table');
@@ -473,9 +484,9 @@ export function findTableHeaderPinCells(wrap: HTMLElement): HTMLElement[] {
 }
 
 /**
- * 行の直接のセルを返す。
- * @param {Element} row 行
- * @returns {HTMLElement[]} th / td
+ * 行の直接のセルを返す
+ * @param row - 行
+ * @returns th / td
  */
 function rowCells(row: Element): HTMLElement[] {
 	return [...row.children].filter((child): child is HTMLElement =>
@@ -483,9 +494,9 @@ function rowCells(row: Element): HTMLElement[] {
 }
 
 /**
- * 適用中の translateY を返す。スクロール連動アニメーションの値を含む。
- * @param {HTMLElement} cell 見出しセル
- * @returns {number} px
+ * 適用中の translateY を返す。スクロール連動アニメーションの値を含む
+ * @param cell - 見出しセル
+ * @returns px
  */
 function readTranslateY(cell: HTMLElement): number {
 	const transform = getComputedStyle(cell).transform;

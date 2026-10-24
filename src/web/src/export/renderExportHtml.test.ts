@@ -1,10 +1,15 @@
+/**
+ * Markdown から書き出す HTML の構造、画像、Mermaid、装飾を検証する
+ * @file
+ */
+
 import { describe, expect, it } from 'vitest';
 import { buildExportCss, decorateText, renderExportHtml, type ExportMermaidResult } from './renderExportHtml';
 import { compileCustomDecorationRules } from '../livePreview/customDecorations';
 
 /**
  * 成功した Mermaid 結果を返す
- * @returns {Promise<ExportMermaidResult>}
+ * @returns 描画できた SVG
  */
 async function mermaidOk(): Promise<ExportMermaidResult> {
 	return { ok: true, svg: '<svg><g>ok</g></svg>' };
@@ -12,7 +17,7 @@ async function mermaidOk(): Promise<ExportMermaidResult> {
 
 /**
  * 失敗した Mermaid 結果を返す
- * @returns {Promise<ExportMermaidResult>}
+ * @returns 構文エラーの失敗
  */
 async function mermaidError(): Promise<ExportMermaidResult> {
 	return { ok: false, error: '構文エラー' };
@@ -20,7 +25,7 @@ async function mermaidError(): Promise<ExportMermaidResult> {
 
 /**
  * 画像解決失敗を返す
- * @returns {Promise<null>}
+ * @returns 解決できない画像
  */
 async function unresolvedImage(): Promise<null> {
 	return null;
@@ -28,12 +33,13 @@ async function unresolvedImage(): Promise<null> {
 
 /**
  * 固定 Data URL を返す
- * @returns {Promise<string>}
+ * @returns テスト用の PNG Data URL
  */
 async function resolvedPng(): Promise<string> {
 	return 'data:image/png;base64,abc';
 }
 
+/** 区切り文字を隠して下線クラスを付ける、テスト用の装飾ルール */
 const underlineRule = {
 	name           : '下線',
 	enabled        : true,
@@ -43,9 +49,10 @@ const underlineRule = {
 };
 
 /**
- * @param {string} markdown Markdown
- * @param {Partial<import('./renderExportHtml').RenderExportHtmlOptions>} [extra] 追加オプション
- * @returns {Promise<string>}
+ * テスト用の共通項目を埋めて HTML を書き出す
+ * @param markdown - 変換する本文
+ * @param extra - 上書きするオプション。省略時はライトテーマだけを足す
+ * @returns 生成した HTML 文書
  */
 async function render(
 	markdown: string,

@@ -1,59 +1,103 @@
+/**
+ * 開いているノートの表示位置を、パスをキーにして保持する
+ * 保存先の読み書きは持たず、渡された記録とエディタのスクロール位置を変換する
+ * 行高が確定するまでの追従は、呼び出し側が終了コールバックで受け取る
+ * @file
+ */
 import type { EditorView } from '@codemirror/view';
 import { getCollapsedHeadingFroms } from './headingFold';
 
+/** 表示位置ドキュメントの版。2 は折りたたみ見出しの位置を含む */
 export const NOTE_VIEW_POSITION_SCHEMA_VERSION = 2;
 
-/** 保存するノート数の上限。古い記録から捨てる。 */
+/** 保存するノート数の上限。古い記録から捨てる */
 export const NOTE_VIEW_POSITION_LIMIT = 200;
 
+/** 復元の追従を打ち切るまでの時間（ms）。超えたらその時点の位置で終える */
 const RESTORE_LIMIT_MS      = 4000;
+/** 追従を終えてよい最短時間（ms）。これより前は、安定しても終えない */
 const RESTORE_MIN_TRACK_MS  = 1500;
+/** 目標位置と高さが連続して一致したフレーム数。この回数で追従を終える */
 const RESTORE_STABLE_FRAMES = 8;
 
+/** requestMeasure の同一キー。連続する復元計測を 1 本にまとめる */
 const noteViewScrollMeasureKey = {};
 
 /**
- * ノートの表示位置。
- * anchor はビューポート上端にある行塊の文書オフセット。
- * yMargin は「行塊上端 - scrollTop」（CodeMirror の scrollSnapshot と同じ）。
+ * ノートの表示位置
+ * anchor はビューポート上端にある行塊の文書オフセット
+ * yMargin は「行塊上端 - scrollTop」（CodeMirror の scrollSnapshot と同じ）
  */
 export type NoteViewPosition = {
+	/** 上端行塊の文書オフセット。0 以上、文書長以下 */
 	anchor: number;
+	/** 行塊上端から scrollTop を引いた差（px）。負のときは行塊が上端より上 */
 	yMargin: number;
+	/** 横スクロール量（px）。0 未満にはしない */
 	scrollLeft: number;
+	/** 選択の anchor（文書オフセット） */
 	selectionAnchor: number;
+	/** 選択の head（文書オフセット） */
 	selectionHead: number;
+	/** 折りたたみ中の見出し先頭。スキーマ 1 の記録には無く、空配列として読む */
 	collapsedHeadingFroms: number[];
 };
 
+/**
+ * パスと更新時刻を付けた表示位置の記録
+ * 同じパスは更新時刻が新しい方だけを残す
+ */
 export type NoteViewPositionRecord = NoteViewPosition & {
+	/** ノートのファイルパス。比較前の表記を保持する */
 	filePath: string;
+	/** 記録した時刻。ISO 8601。新しい方を残す */
 	updatedAt: string;
 };
 
+/**
+ * 保存先へ書く表示位置ドキュメント
+ * 版が 1 または 2 でない JSON は空の記録として読む
+ */
 export type NoteViewPositionDocument = {
+	/** ドキュメントの版。現在は 2 */
 	schemaVersion: typeof NOTE_VIEW_POSITION_SCHEMA_VERSION;
+	/** パスごとの記録。件数は NOTE_VIEW_POSITION_LIMIT 以下 */
 	entries: NoteViewPositionRecord[];
 };
 
+/**
+ * 復元中の 1 フレームの計測結果
+ * スクロール領域が無い、または行高が未確定で先頭へ潰れているときは null
+ */
 type NoteViewScrollMeasure = {
+	/** 復元先の scrollTop（px）。最大スクロール量を超えない */
 	targetTop: number;
+	/** 復元先の横スクロール量（px）。0 未満にはしない */
 	scrollLeft: number;
+	/** 目標が、いま測れている文書高に収まっているとき true */
 	layoutReady: boolean;
 } | null;
 
+/**
+ * 高さマップ上の行塊
+ * `lineBlockAt` の戻りを、復元と記録で同じ形にしたもの
+ */
 type ScrollLineBlock = {
+	/** 行塊先頭の文書オフセット（含む） */
 	from: number;
+	/** 行塊上端（px） */
 	top: number;
+	/** 行塊末尾の文書オフセット（含まない） */
 	to: number;
+	/** 行塊下端（px） */
 	bottom: number;
 };
 
 /**
- * 文書長へ収まるオフセットへ切り詰める。
- * @param {number} offset オフセット
- * @param {number} docLength 文書長
- * @returns {number} 0 以上 docLength 以下の整数
+ * 文書長へ収まるオフセットへ切り詰める
+ * @param offset - 収める文書オフセット。非数は 0 にする
+ * @param docLength - 文書の文字数。非数のときは 0 を返す
+ * @returns 0 以上、文書長以下の整数
  */
 export function clampNoteViewOffset(offset: number, docLength: number): number {
 	if (!Number.isFinite(offset) || !Number.isFinite(docLength)) return 0;
@@ -61,25 +105,26 @@ export function clampNoteViewOffset(offset: number, docLength: number): number {
 }
 
 /**
- * パス比較用のキーを返す。区切りと大文字小文字の差を吸収する。
- * @param {string} filePath ファイルパス
- * @returns {string} 比較キー
+ * パス比較用のキーを返す。区切りと大文字小文字の差を吸収する
+ * @param filePath - 比較するパス。前後の空白を除き、スラッシュはバックスラッシュへ揃える
+ * @returns 区切りと大文字小文字を吸収した比較キー
  */
 export function noteViewPositionKey(filePath: string): string {
 	return filePath.trim().replaceAll('/', '\\').toLowerCase();
 }
 
 /**
- * 行塊座標から保存用の表示位置を作る。
- * @param {object} input 計測値
- * @param {number} input.scrollTop 縦スクロール
- * @param {number} input.scrollLeft 横スクロール
- * @param {number} input.blockFrom 上端行塊の開始オフセット
- * @param {number} input.blockTop 上端行塊の文書上端
- * @param {number} input.selectionAnchor 選択アンカー
- * @param {number} input.selectionHead 選択ヘッド
- * @param {number} input.docLength 文書長
- * @returns {NoteViewPosition} 表示位置
+ * 行塊座標から保存用の表示位置を作る
+ * @param input - 計測値
+ * @param input.scrollTop - 縦スクロール
+ * @param input.scrollLeft - 横スクロール
+ * @param input.blockFrom - 上端行塊の開始オフセット
+ * @param input.blockTop - 上端行塊の文書上端
+ * @param input.selectionAnchor - 選択アンカー
+ * @param input.selectionHead - 選択ヘッド
+ * @param input.docLength - 文書長
+ * @param input.collapsedHeadingFroms - 折りたたみ中の見出し位置。未指定時は空配列
+ * @returns 保存する表示位置。非数のスクロールは 0 として扱う
  */
 export function captureNoteViewPositionFromMetrics(input: {
 	scrollTop: number;
@@ -104,11 +149,11 @@ export function captureNoteViewPositionFromMetrics(input: {
 }
 
 /**
- * 高さマップから、scrollTop を含む行塊を探す。
- * `lineBlockAtHeight` は未実行の計測をその場で走らせるため使わない。
- * @param {EditorView} view エディタ
- * @param {number} scrollTop 縦スクロール
- * @returns {ScrollLineBlock | null} 行塊。高さマップが scrollTop に届いていなければ null
+ * 高さマップから、scrollTop を含む行塊を探す
+ * `lineBlockAtHeight` は未実行の計測をその場で走らせるため使わない
+ * @param view - エディタ
+ * @param scrollTop - 縦スクロール
+ * @returns 行塊。高さマップが scrollTop に届いていなければ null
  */
 export function findLineBlockAtScrollTop(view: EditorView, scrollTop: number): ScrollLineBlock | null {
 	const docLength = view.state.doc.length;
@@ -142,9 +187,9 @@ export function findLineBlockAtScrollTop(view: EditorView, scrollTop: number): S
 }
 
 /**
- * マウント中のエディタから表示位置を読む。
- * @param {EditorView} view エディタ
- * @returns {NoteViewPosition | null} 読めなければ null
+ * マウント中のエディタから表示位置を読む
+ * @param view - エディタ
+ * @returns 読めなければ null
  */
 export function captureNoteViewPosition(view: EditorView): NoteViewPosition | null {
 	const scroller = view.scrollDOM;
@@ -166,11 +211,11 @@ export function captureNoteViewPosition(view: EditorView): NoteViewPosition | nu
 }
 
 /**
- * 保存した行アンカーを、現在のレイアウトでの scrollTop へ変換する。
- * @param {number} blockTop 行塊上端
- * @param {number} yMargin 保存時の行上端とスクロール上端の差
- * @param {number} maxScrollTop スクロール可能な最大値
- * @returns {number} scrollTop
+ * 保存した行アンカーを、現在のレイアウトでの scrollTop へ変換する
+ * @param blockTop - 行塊上端
+ * @param yMargin - 保存時の行上端とスクロール上端の差
+ * @param maxScrollTop - スクロール可能な最大値
+ * @returns scrollTop
  */
 export function computeRestoredScrollTop(blockTop: number, yMargin: number, maxScrollTop: number): number {
 	const target = restoredScrollRawTarget(blockTop, yMargin);
@@ -178,7 +223,7 @@ export function computeRestoredScrollTop(blockTop: number, yMargin: number, maxS
 	return Math.min(max, Math.max(0, target));
 }
 
-/** 実EditorStateから折りたたみ状態を読み、簡易テストビューなど未構成状態では空として扱う。 */
+/** 実EditorStateから折りたたみ状態を読み、簡易テストビューなど未構成状態では空として扱う */
 function readCollapsedHeadingFroms(view: EditorView): number[] {
 	try {
 		return getCollapsedHeadingFroms(view.state);
@@ -188,12 +233,12 @@ function readCollapsedHeadingFroms(view: EditorView): number[] {
 }
 
 /**
- * 保存位置が、いま測れている文書高の中に収まっているかを返す。
- * 収まっていないあいだに追従を終えると、先頭や途中の高さで止まってキャレットも描けない。
- * @param {number} blockTop 行塊上端
- * @param {number} yMargin 保存時の行上端とスクロール上端の差
- * @param {number} maxScrollTop スクロール可能な最大値
- * @returns {boolean} 収まるなら true
+ * 保存位置が、いま測れている文書高の中に収まっているかを返す
+ * 収まっていないあいだに追従を終えると、先頭や途中の高さで止まってキャレットも描けない
+ * @param blockTop - 行塊上端
+ * @param yMargin - 保存時の行上端とスクロール上端の差
+ * @param maxScrollTop - スクロール可能な最大値
+ * @returns 収まるなら true
  */
 export function isRestoredScrollLayoutReady(blockTop: number, yMargin: number, maxScrollTop: number): boolean {
 	const max = Number.isFinite(maxScrollTop) ? Math.max(0, maxScrollTop) : 0;
@@ -201,20 +246,20 @@ export function isRestoredScrollLayoutReady(blockTop: number, yMargin: number, m
 }
 
 /**
- * 範囲へ切り詰める前の scrollTop を返す。
- * @param {number} blockTop 行塊上端
- * @param {number} yMargin 保存時の行上端とスクロール上端の差
- * @returns {number} scrollTop
+ * 範囲へ切り詰める前の scrollTop を返す
+ * @param blockTop - 行塊上端
+ * @param yMargin - 保存時の行上端とスクロール上端の差
+ * @returns scrollTop
  */
 function restoredScrollRawTarget(blockTop: number, yMargin: number): number {
 	return (Number.isFinite(blockTop) ? blockTop : 0) - (Number.isFinite(yMargin) ? yMargin : 0);
 }
 
 /**
- * 保存位置から、新しい文書へ収まる選択範囲を返す。
- * @param {NoteViewPosition} position 表示位置
- * @param {number} docLength 文書長
- * @returns {{ anchor: number, head: number }} 選択範囲
+ * 保存位置から、新しい文書へ収まる選択範囲を返す
+ * @param position - 表示位置
+ * @param docLength - 文書長
+ * @returns } 選択範囲
  */
 export function selectionFromNoteViewPosition(position: NoteViewPosition, docLength: number): { anchor: number; head: number } {
 	return {
@@ -224,9 +269,9 @@ export function selectionFromNoteViewPosition(position: NoteViewPosition, docLen
 }
 
 /**
- * 外部 JSON を検証し、新しい記録を優先して上限内へ正規化する。
- * @param {unknown} value 外部 JSON
- * @returns {NoteViewPositionRecord[]} 記録
+ * 外部 JSON を検証し、新しい記録を優先して上限内へ正規化する
+ * @param value - 外部 JSON
+ * @returns 記録
  */
 export function normalizeNoteViewPositionDocument(value: unknown): NoteViewPositionRecord[] {
 	if (!isRecord(value)
@@ -240,11 +285,11 @@ export function normalizeNoteViewPositionDocument(value: unknown): NoteViewPosit
 }
 
 /**
- * 更新時刻が新しい方を残してマージし、上限を超えた古い記録を捨てる。
- * @param {NoteViewPositionRecord[]} current 既存
- * @param {NoteViewPositionRecord[]} incoming 追加分
- * @param {number} [limit] 上限
- * @returns {NoteViewPositionRecord[]} マージ結果
+ * 更新時刻が新しい方を残してマージし、上限を超えた古い記録を捨てる
+ * @param current - 既存
+ * @param incoming - 追加分
+ * @param limit - 上限。未指定時は NOTE_VIEW_POSITION_LIMIT
+ * @returns マージ結果
  */
 export function mergeNoteViewPositionRecords(
 	current: readonly NoteViewPositionRecord[],
@@ -262,10 +307,10 @@ export function mergeNoteViewPositionRecords(
 }
 
 /**
- * 更新が新しい順に上限件数へ切る。
- * @param {NoteViewPositionRecord[]} records 記録
- * @param {number} [limit] 上限
- * @returns {NoteViewPositionRecord[]} 残す記録
+ * 更新が新しい順に上限件数へ切る
+ * @param records - 記録
+ * @param limit - 上限。未指定時は NOTE_VIEW_POSITION_LIMIT
+ * @returns 残す記録
  */
 export function trimNoteViewPositionRecords(records: readonly NoteViewPositionRecord[], limit = NOTE_VIEW_POSITION_LIMIT): NoteViewPositionRecord[] {
 	return [...records].sort((left, right) => {
@@ -275,15 +320,15 @@ export function trimNoteViewPositionRecords(records: readonly NoteViewPositionRe
 }
 
 /**
- * プロセス内の表示位置表。
+ * プロセス内の表示位置表
  */
 export class NoteViewPositionMemory {
+	/** パスキーから記録への表。remember のたびに上限へ切り詰める */
 	private readonly entries = new Map<string, NoteViewPositionRecord>();
 
 	/**
-	 * 正規化済みの記録で表を置き換える。
-	 * @param {NoteViewPositionRecord[]} records 記録
-	 * @returns {void}
+	 * 正規化済みの記録で表を置き換える
+	 * @param records - 置き換える記録。不正な重複は新しい時刻の方を残してから入れる
 	 */
 	public replace(records: readonly NoteViewPositionRecord[]): void {
 		this.entries.clear();
@@ -293,9 +338,9 @@ export class NoteViewPositionMemory {
 	}
 
 	/**
-	 * パスに対応する表示位置を返す。
-	 * @param {string} filePath ファイルパス
-	 * @returns {NoteViewPosition | null} 無ければ null
+	 * パスに対応する表示位置を返す
+	 * @param filePath - 探すノートのパス。区切りと大文字小文字は比較時に吸収する
+	 * @returns 表示位置。記録が無ければ null。折りたたみ位置はコピーして返す
 	 */
 	public get(filePath: string): NoteViewPosition | null {
 		const record = this.entries.get(noteViewPositionKey(filePath));
@@ -311,11 +356,10 @@ export class NoteViewPositionMemory {
 	}
 
 	/**
-	 * 表示位置を記録し、上限を超えた古いパスを捨てる。
-	 * @param {string} filePath ファイルパス
-	 * @param {NoteViewPosition} position 表示位置
-	 * @param {string} [updatedAt] 更新時刻
-	 * @returns {void}
+	 * 表示位置を記録し、上限を超えた古いパスを捨てる
+	 * @param filePath - 記録するノートのパス。空白だけなら記録しない
+	 * @param position - 表示位置
+	 * @param updatedAt - 更新時刻。ISO 8601。未指定時は現在時刻
 	 */
 	public remember(filePath: string, position: NoteViewPosition, updatedAt = new Date().toISOString()): void {
 		const trimmed = filePath.trim();
@@ -336,8 +380,8 @@ export class NoteViewPositionMemory {
 	}
 
 	/**
-	 * 保存用ドキュメントを返す。
-	 * @returns {NoteViewPositionDocument} ドキュメント
+	 * 保存用ドキュメントを返す
+	 * @returns ドキュメント
 	 */
 	public toDocument(): NoteViewPositionDocument {
 		return {
@@ -348,14 +392,13 @@ export class NoteViewPositionMemory {
 }
 
 /**
- * 行高が確定するまで、保存した行アンカーへスクロールを追従させる。
- * ユーザー操作が始まったら追従を終える。
- * @param {EditorView} view エディタ
- * @param {NoteViewPosition} position 表示位置
- * @param {(applied: boolean) => void} onSettled 追従終了時。行高が揃った位置まで戻せたら true
- * @param {() => void} [onLayoutReady] 目標位置が現在の文書高に収まった最初のフレーム
- * @returns {void}
- */
+ * 行高が確定するまで、保存した行アンカーへスクロールを追従させる
+ * ユーザー操作が始まったら追従を終える
+ * @param view - エディタ
+ * @param position - 表示位置
+ * @param onSettled - 追従終了時。行高が揃った位置まで戻せたら true
+	 * @param onLayoutReady - 目標位置が現在の文書高に収まった最初のフレームで呼ぶ。未指定時は通知しない
+	 */
 export function restoreNoteViewScroll(
 	view: EditorView,
 	position: NoteViewPosition,
@@ -377,8 +420,8 @@ export function restoreNoteViewScroll(
 	const startedAt         = Date.now();
 
 	/**
-	 * 追従を終えて購読を外す。
-	 * @returns {void}
+	 * 追従を終えて購読を外す
+	 * 既に終えていれば、コールバックは再度呼ばない
 	 */
 	const settle = (): void => {
 		if (settled) return;
@@ -391,17 +434,15 @@ export function restoreNoteViewScroll(
 	};
 
 	/**
-	 * ユーザーのスクロール操作で追従をやめる。
-	 * @returns {void}
+	 * ユーザーのホイールまたはポインタ操作で追従をやめる
 	 */
 	const onUserScroll = (): void => {
 		settle();
 	};
 
 	/**
-	 * 文字入力や移動キーで追従をやめる。修飾キーだけではやめない。
-	 * @param {KeyboardEvent} event キー
-	 * @returns {void}
+	 * 文字入力や移動キーで追従をやめる。修飾キーだけではやめない
+	 * @param event - キー。修飾キーだけでは追従をやめない
 	 */
 	const onKeydown = (event: KeyboardEvent): void => {
 		if (!appliedOnce) return;
@@ -425,8 +466,7 @@ export function restoreNoteViewScroll(
 	const timeoutId = window.setTimeout(settle, RESTORE_LIMIT_MS);
 
 	/**
-	 * 現在の行高でスクロールを合わせ、安定するまで繰り返す。
-	 * @returns {void}
+	 * 現在の行高でスクロールを合わせ、安定するか制限時間まで繰り返す
 	 */
 	const step = (): void => {
 		if (settled || !scroller.isConnected) {
@@ -441,9 +481,9 @@ export function restoreNoteViewScroll(
 		view.requestMeasure<NoteViewScrollMeasure>({
 			key: noteViewScrollMeasureKey,
 			/**
-			 * 目標 scrollTop を計測する。
-			 * @param {EditorView} measuredView エディタ
-			 * @returns {NoteViewScrollMeasure} 計測値
+			 * 目標 scrollTop を計測する
+			 * @param measuredView - 計測するエディタ。未接続や高さが 0 のときは測らない
+			 * @returns 復元先のスクロール。行高が未確定で先頭へ潰れているときは null
 			 */
 			read(measuredView) {
 				const measuredScroller = measuredView.scrollDOM;
@@ -452,7 +492,7 @@ export function restoreNoteViewScroll(
 				const block       = measuredView.lineBlockAt(anchor);
 				const maxScroll   = Math.max(0, measuredScroller.scrollHeight - measuredScroller.clientHeight);
 				const layoutReady = isRestoredScrollLayoutReady(block.top, position.yMargin, maxScroll);
-				// 行高が未確定のあいだ、文書途中のアンカーが先頭へ潰れる。確定するまで待って、先頭を保存しない。
+				// 行高が未確定のあいだ、文書途中のアンカーが先頭へ潰れる。確定するまで待って、先頭を保存しない
 				if (!layoutReady && anchor > 0 && block.top <= 0 && maxScroll <= 1) return null;
 				return {
 					targetTop : computeRestoredScrollTop(block.top, position.yMargin, maxScroll),
@@ -461,10 +501,9 @@ export function restoreNoteViewScroll(
 				};
 			},
 			/**
-			 * 計測値をスクロールへ反映する。
-			 * @param {NoteViewScrollMeasure} measure 計測値
-			 * @param {EditorView} measuredView エディタ
-			 * @returns {void}
+			 * 計測値をスクロールへ反映する
+			 * @param measure - 計測結果。null のときは次のフレームで測り直す
+			 * @param measuredView - スクロールを書くエディタ。破棄済みなら何もしない
 			 */
 			write(measure, measuredView) {
 				if (settled || !measuredView.scrollDOM.isConnected) return;
@@ -513,9 +552,11 @@ export function restoreNoteViewScroll(
 }
 
 /**
- *
- * @param {unknown} value 候補
- * @returns {NoteViewPositionRecord | null} 記録
+ * 外部入力の 1 件を、記録として読めるか検証する
+ * 必須の数値やパスが欠けていれば捨てる
+ * @param value - JSON の 1 要素。オブジェクトでなければ記録にしない
+ * @param includeCollapsedHeadings - true のとき見出し位置を残す。スキーマ 1 では false で、空配列にする
+ * @returns 検証できた記録。必須項目が欠けていれば null
  */
 function normalizeNoteViewPositionRecord(value: unknown, includeCollapsedHeadings: boolean): NoteViewPositionRecord | null {
 	if (!isRecord(value) || !isNonEmptyString(value.filePath) || !isNonEmptyString(value.updatedAt)) return null;
@@ -538,7 +579,7 @@ function normalizeNoteViewPositionRecord(value: unknown, includeCollapsedHeading
 	};
 }
 
-/** 外部入力の見出し位置を、重複のない非負整数へ正規化する。 */
+/** 外部入力の見出し位置を、重複のない非負整数へ正規化する */
 function normalizeHeadingFroms(value: unknown, docLength: number): number[] {
 	if (!Array.isArray(value)) return [];
 	const max = Number.isFinite(docLength) ? Math.max(0, Math.trunc(docLength)) : Number.MAX_SAFE_INTEGER;
@@ -549,27 +590,27 @@ function normalizeHeadingFroms(value: unknown, docLength: number): number[] {
 }
 
 /**
- *
- * @param {unknown} value 値
- * @returns {value is number} 有限数なら true
+ * 値が有限の数値かを判定する
+ * @param value - 検査する値。NaN と無限大は数値として扱わない
+ * @returns 有限の number のとき true
  */
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
 }
 
 /**
- *
- * @param {unknown} value 値
- * @returns {value is string} 空でなければ true
+ * 空白以外を含む文字列かを判定する
+ * @param value - 検査する値。文字列でないときは false
+ * @returns trim して空でなければ true
  */
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === 'string' && value.trim().length > 0;
 }
 
 /**
- *
- * @param {unknown} value 値
- * @returns {value is Record<string, unknown>} オブジェクトなら true
+ * 配列でないオブジェクトかを判定する
+ * @param value - 検査する値。null と配列は記録の入れ物にしない
+ * @returns プレーンなオブジェクトのとき true
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);

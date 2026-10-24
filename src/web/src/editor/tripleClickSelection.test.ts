@@ -1,3 +1,8 @@
+/**
+ * トリプルクリックの行選択が、行末改行を含めず、ドラッグ方向と空行で向きを変えることを検証する
+ * 座標は clientX を文書位置として扱うモックビューで見る
+ * @file
+ */
 import { EditorSelection, EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
@@ -7,13 +12,15 @@ import {
 	tripleClickMouseSelectionStyle,
 } from './tripleClickSelection';
 
+/** 3 行のサンプル文書。行の内容は alpha、beta、gamma */
 const SAMPLE = ['alpha', 'beta', 'gamma'].join('\n');
 
 /**
- * 文書位置を clientX として返すビューを作る
- * @param {string} doc 文書
- * @param {number} [head] 初期キャレット
- * @returns {EditorView} テスト用ビュー
+ * clientX を文書位置として解釈するビューを作る
+ * 実 DOM は持たず、posAndSideAtCoords だけを模す
+ * @param doc - ビューが持つ文書
+ * @param head - 初期キャレットの文書オフセット。未指定時は 0
+ * @returns state と posAndSideAtCoords だけを持つ EditorView のモック
  */
 function createView(doc: string, head = 0): EditorView {
 	const state = EditorState.create({
@@ -23,7 +30,10 @@ function createView(doc: string, head = 0): EditorView {
 	return {
 		state,
 		/**
-		 *
+		 * clientX を文書位置として返す。assoc は常に 1 の固定値
+		 * @param coords - マウス座標。x だけを文書オフセットとして使う
+		 * @param coords.x - 文書オフセットとして扱う clientX
+		 * @returns pos が coords.x、assoc が 1 の位置
 		 */
 		posAndSideAtCoords(coords: { x: number }): { pos: number; assoc: 1 } {
 			return { pos: coords.x, assoc: 1 };

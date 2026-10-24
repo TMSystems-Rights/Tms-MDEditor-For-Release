@@ -1,3 +1,8 @@
+/**
+ * 文書末尾への選択移動が、折り畳みと拡張でアンカーの扱いを分けることを検証する
+ * キー入力は持たず、EditorState から作った選択だけを見る
+ * @file
+ */
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createDocumentEndSelection } from './documentBoundary';

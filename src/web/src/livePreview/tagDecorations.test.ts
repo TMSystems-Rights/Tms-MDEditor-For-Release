@@ -1,3 +1,8 @@
+/**
+ * プレビュー行の `#` タグが、文字種と除外構文で装飾される範囲を検証する
+ * 装飾の有無は文字列で比較し、DOM は作らない
+ * @file
+ */
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
@@ -5,10 +10,11 @@ import { collectSourceLineNumbers } from './cursorLine';
 import { collectTagDecorationEntries } from './tagDecorations';
 
 /**
- * タグ装飾された文字列を返す。
- * @param {string} doc Markdown
- * @param {number} [anchor=0] カーソル位置
- * @returns {string[]}
+ * テスト用の文書から、タグ装飾が付いた文字列を順に返す
+ * カーソル位置でソース行を作り、その行は装飾対象から外れる
+ * @param doc - Markdown 全文
+ * @param anchor - カーソル位置。省略時は文書先頭で、先頭行はソース表示になる
+ * @returns 装飾範囲の文字列。該当が無ければ空
  */
 function collectDecoratedTags(doc: string, anchor = 0): string[] {
 	const state       = EditorState.create({

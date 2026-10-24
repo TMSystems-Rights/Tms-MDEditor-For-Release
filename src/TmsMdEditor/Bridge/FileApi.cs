@@ -1,3 +1,10 @@
+// ==============================================
+// ファイルの読み書きとダイアログ
+// ==============================================
+
+// パス指定の読み込みは監視対象へ加え、保存の直前だけ外部変更通知を抑止する
+// 必須項目が無い保存は例外にし、ダイアログのキャンセルは例外にしない
+
 using System.Text.Json;
 using TmsMdEditor.Models;
 using TmsMdEditor.Services;
@@ -5,26 +12,30 @@ using TmsMdEditor.Services;
 namespace TmsMdEditor.Bridge;
 
 /// <summary>
-/// ファイル関連ブリッジ API
+/// file:* を受けるブリッジ。ダイアログはシェルの UI スレッドで表示する
 /// </summary>
 internal sealed class FileApi
 {
+	/// <summary>
+	/// ファイル読み書きと監視の参照先。API より長く生きる
+	/// </summary>
 	private readonly AppContext _appContext;
 
 	/// <summary>
-	/// ファイル API を初期化する
+	/// ファイル API を作る。コンテキストは借用する
 	/// </summary>
-	/// <param name="appContext">アプリコンテキスト</param>
+	/// <param name="appContext">FileService と FileWatcherService を持つコンテキスト。null は渡さない</param>
 	public FileApi(AppContext appContext)
 	{
 		_appContext = appContext;
 	}
 
 	/// <summary>
-	/// パス指定でファイルを開く
+	/// パスのテキストを文字コード自動判定で読み、その絶対パスを監視対象に加える
+	/// ファイルが無い、またはパスが不正なときは FileService の例外がそのまま出る
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>読み込み結果</returns>
+	/// <param name="paramsElement">filePath を持つ JSON。無いときは空文字として読みにいく</param>
+	/// <returns>本文、判定した文字コード、改行、バイト数</returns>
 	public TextFileInfo Open(JsonElement paramsElement)
 	{
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
@@ -36,6 +47,14 @@ internal sealed class FileApi
 		return result;
 	}
 
+	/// <summary>
+	/// 指定した文字コードでテキストを読み、その絶対パスを監視対象に加える
+	/// filePath か encoding が無いとき、または文字コード名が未対応のときは例外になる
+	/// </summary>
+	/// <param name="paramsElement">filePath と encoding を持つオブジェクト。両方必須</param>
+	/// <returns>指定した文字コードで復号した本文と、改行の内訳</returns>
+	/// <exception cref="KeyNotFoundException">filePath または encoding が無い</exception>
+	/// <exception cref="InvalidOperationException">encoding の名前が未対応</exception>
 	public TextFileInfo OpenWithEncoding(JsonElement paramsElement)
 	{
 		string filePath = paramsElement.GetProperty(BridgeProperty.FilePath).GetString() ?? string.Empty;
@@ -46,9 +65,10 @@ internal sealed class FileApi
 	}
 
 	/// <summary>
-	/// ファイル選択ダイアログで開く
+	/// ファイル選択ダイアログを出し、選ばれたテキストを自動判定で読む
+	/// キャンセル時はファイルを読まず Canceled を true にする
 	/// </summary>
-	/// <returns>選択結果</returns>
+	/// <returns>キャンセル、または読み込んだファイル。読み込み失敗は例外のまま出す</returns>
 	public OpenFileDialogResult OpenDialog()
 	{
 		using var dialog = new OpenFileDialog
@@ -75,10 +95,12 @@ internal sealed class FileApi
 	}
 
 	/// <summary>
-	/// ファイルを保存する
+	/// 本文を指定の文字コードと改行で保存する。保存通知を外部変更として再読込しないよう、書く直前に抑止する
+	/// 必須項目が無いときは保存しない
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>保存結果</returns>
+	/// <param name="paramsElement">filePath、text、encoding が必須。unifyEol が空のときは既存の改行を維持する</param>
+	/// <returns>保存したパスと、採用した文字コード、改行</returns>
+	/// <exception cref="InvalidOperationException">filePath、text、encoding が無い、文字コードが未対応、または unifyEol が未対応</exception>
 	public SaveFileResult Save(JsonElement paramsElement)
 	{
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
@@ -121,10 +143,10 @@ internal sealed class FileApi
 	}
 
 	/// <summary>
-	/// 画像を Data URL として読み込む
+	/// ローカル画像か埋め込み画像を Data URL として返す。失敗は例外にせず結果の Error に入れる
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>読み込み結果</returns>
+	/// <param name="paramsElement">path、documentPath、embed のいずれか。未指定のオブジェクトでも読みにいく</param>
+	/// <returns>成功時は Data URL。失敗時は Ok が false</returns>
 	public ReadImageResult ReadImageAsDataUrl(JsonElement paramsElement)
 	{
 		string? path = null;
@@ -156,10 +178,11 @@ internal sealed class FileApi
 	}
 
 	/// <summary>
-	/// 名前を付けて保存ダイアログを表示する
+	/// 名前を付けて保存ダイアログを出し、選ばれたパスだけを返す。ファイルは書かない
+	/// キャンセル時は Canceled を true にする
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>選択結果</returns>
+	/// <param name="paramsElement">初期表示に使う filePath。未指定ならダイアログの既定位置</param>
+	/// <returns>キャンセル、または選ばれたパス</returns>
 	public SaveAsDialogResult SaveAsDialog(JsonElement paramsElement)
 	{
 		string? suggestedPath = null;
@@ -199,10 +222,11 @@ internal sealed class FileApi
 	}
 
 	/// <summary>
-	/// HTML / PDF エクスポート用の保存ダイアログを表示する
+	/// HTML または PDF の保存先ダイアログを出す。ファイルは書かない
+	/// kind が pdf 以外のときは HTML。キャンセル時は Canceled を true にする
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>選択結果</returns>
+	/// <param name="paramsElement">kind、suggestedName、filePath。未指定なら HTML の無題</param>
+	/// <returns>キャンセル、または選ばれたパス</returns>
 	public SaveAsDialogResult ExportDialog(JsonElement paramsElement)
 	{
 		string kind = "html";
@@ -280,10 +304,12 @@ internal sealed class FileApi
 	}
 
 	/// <summary>
-	/// UTF-8 でテキストを書き込む
+	/// 生成済みテキストを UTF-8 で書く。監視の抑止はしない
+	/// パスが空白のときは書かない
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>保存結果</returns>
+	/// <param name="paramsElement">filePath と text。text が無いときは空文字を書く</param>
+	/// <returns>保存結果。文字コードは UTF-8</returns>
+	/// <exception cref="InvalidOperationException">filePath が無い、または空白</exception>
 	public SaveFileResult WriteUtf8(JsonElement paramsElement)
 	{
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)

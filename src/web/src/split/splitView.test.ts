@@ -1,3 +1,7 @@
+/**
+ * 分割比率の制限と、本文変更だけを別ペインへ写すことを確認する
+ * @file
+ */
 import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import {

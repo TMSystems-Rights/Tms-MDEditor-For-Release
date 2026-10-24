@@ -1,30 +1,55 @@
+// ==============================================
+// ポータブル判定と保存先の計算
+// ==============================================
+
+// 実行ファイルの場所だけを見て、cwd は見ない
+// 実際の切り替えとプロセス終了は PortableRuntime が行い、ここはパスと更新方式を返す
+
 using System.Security.Cryptography;
 using System.Text;
 
 namespace TmsMdEditor.Services;
 
 /// <summary>
-/// ポータブル判定・保存先・更新方式の純関数
+/// 判定ファイル、保存先、AppUserModelID、単一インスタンスの範囲を、状態を持たずに計算する
+/// 書き込み探針だけがファイルを作り、失敗しても別の場所へは切り替えない
 /// </summary>
 internal static class PortableMode
 {
-	/// <summary>ポータブル判定ファイル名</summary>
-	public const string MarkerFileName = "portable-mode.json";
-
-	/// <summary>ポータブル版 AppUserModelID</summary>
-	public const string PortableAppUserModelId = "jp.tm-systems.tms-mdeditor.portable";
-
-	/// <summary>インストーラ版 AppUserModelID</summary>
-	public const string InstallerAppUserModelId = "jp.tm-systems.tms-mdeditor";
-
-	/// <summary>Debug 用 AppUserModelID</summary>
-	public const string DevAppUserModelId = "jp.tm-systems.tms-mdeditor.dev";
+	// ==============================================
+	// 配布形態の識別子
+	// ==============================================
 
 	/// <summary>
-	/// exe と同じフォルダを返す
+	/// exe と同じフォルダに置く判定ファイル名。中身が JSON でなくても、ファイルがあればポータブルとする
 	/// </summary>
-	/// <param name="execPath">実行ファイルパス</param>
-	/// <returns>exe ディレクトリ</returns>
+	public const string MarkerFileName = "portable-mode.json";
+
+	/// <summary>
+	/// ポータブル版の AppUserModelID。インストーラ版とタスクバーで分けて表示するために使う
+	/// </summary>
+	public const string PortableAppUserModelId = "jp.tm-systems.tms-mdeditor.portable";
+
+	/// <summary>
+	/// インストーラ版の AppUserModelID。Debug でもポータブルでもないときに使う
+	/// </summary>
+	public const string InstallerAppUserModelId = "jp.tm-systems.tms-mdeditor";
+
+	/// <summary>
+	/// Debug ビルドの AppUserModelID。ポータブルのときは使わない
+	/// </summary>
+	public const string DevAppUserModelId = "jp.tm-systems.tms-mdeditor.dev";
+
+	// ==============================================
+	// パスとインスタンス範囲
+	// ==============================================
+
+	/// <summary>
+	/// 実行ファイルの絶対パスから、そのディレクトリを返す
+	/// </summary>
+	/// <param name="execPath">実行ファイルのパス。相対パスはカレントから絶対パスにする</param>
+	/// <returns>exe のあるディレクトリ</returns>
+	/// <exception cref="InvalidOperationException"><paramref name="execPath"/> のディレクトリを決められない</exception>
 	public static string ResolveExeDir(string execPath)
 	{
 		string fullPath = Path.GetFullPath(execPath);
@@ -38,22 +63,22 @@ internal static class PortableMode
 	}
 
 	/// <summary>
-	/// ポータブル判定ファイルのパスを返す
+	/// 判定ファイルの絶対パスを返す。ファイルの有無は見ない
 	/// </summary>
-	/// <param name="execPath">実行ファイルパス</param>
-	/// <returns>判定ファイルパス</returns>
+	/// <param name="execPath">実行ファイルのパス。ディレクトリ解決に失敗すると例外になる</param>
+	/// <returns>exe 隣の portable-mode.json</returns>
 	public static string ResolveMarkerPath(string execPath)
 	{
 		return Path.Combine(ResolveExeDir(execPath), MarkerFileName);
 	}
 
 	/// <summary>
-	/// ポータブルモードか判定する。cwd は見ない。
-	/// ファイルがあれば JSON の成否に関わらずポータブルとする。
+	/// ポータブルモードかを返す。カレントディレクトリは見ない
+	/// ファイルがあれば JSON の成否に関わらずポータブルとする
 	/// </summary>
-	/// <param name="execPath">実行ファイルパス</param>
-	/// <param name="existsFn">存在判定</param>
-	/// <returns>ポータブルなら true</returns>
+	/// <param name="execPath">実行ファイルのパス。判定ファイルは exe 隣だけを見る</param>
+	/// <param name="existsFn">存在判定。null なら File.Exists。テストがファイルシステムを避けるために渡す</param>
+	/// <returns>判定ファイルがあれば true</returns>
 	public static bool DetectPortableMode(string execPath, Func<string, bool>? existsFn = null)
 	{
 		Func<string, bool> exists = existsFn ?? File.Exists;
@@ -61,10 +86,10 @@ internal static class PortableMode
 	}
 
 	/// <summary>
-	/// ポータブル版の保存先パスを解決する。dataDir は userData と同じ（平坦化）。
+	/// ポータブル版の保存先を返す。dataDir は userData と同じ平坦配置で、フォルダはまだ作らない
 	/// </summary>
-	/// <param name="exeDir">exe ディレクトリ</param>
-	/// <returns>保存先</returns>
+	/// <param name="exeDir">exe のディレクトリ。data フォルダの親になる</param>
+	/// <returns>exe 隣の data と、その配下のログ、一時、WebView2、バックアップ、スニペット</returns>
 	public static PortableDataPaths ResolvePortableDataPaths(string exeDir)
 	{
 		string userData = Path.Combine(exeDir, "data");
@@ -84,43 +109,43 @@ internal static class PortableMode
 	}
 
 	/// <summary>
-	/// 既定 dataDir を解決する
+	/// 既定の dataDir を返す。ポータブルは userData そのもの、それ以外は userData 配下の data
 	/// </summary>
-	/// <param name="userData">userData / AppDataRoot</param>
-	/// <param name="isPortable">ポータブルなら true</param>
-	/// <returns>dataDir</returns>
+	/// <param name="userData">ポータブルの data、またはインストーラの AppData ルート</param>
+	/// <param name="isPortable">ポータブルなら true。true のときサブフォルダ data は重ねない</param>
+	/// <returns>既定 dataDir。フォルダは作らない</returns>
 	public static string ResolveDefaultDataDir(string userData, bool isPortable)
 	{
 		return isPortable ? userData : Path.Combine(userData, "data");
 	}
 
 	/// <summary>
-	/// dataDir が平坦配置か判定する
+	/// dataDir が userData と同じ平坦配置かを返す。比較前に両方を絶対パスにする
 	/// </summary>
-	/// <param name="dataDir">dataDir</param>
-	/// <param name="userData">userData</param>
-	/// <returns>dataDir が userData と同じなら true</returns>
+	/// <param name="dataDir">設定上の dataDir</param>
+	/// <param name="userData">比較する userData。ポータブルでは data フォルダ</param>
+	/// <returns>大文字小文字を無視して同じディレクトリなら true</returns>
 	public static bool IsFlattenedDataDir(string dataDir, string userData)
 	{
 		return Path.GetFullPath(dataDir).Equals(Path.GetFullPath(userData), StringComparison.OrdinalIgnoreCase);
 	}
 
 	/// <summary>
-	/// 更新確認の実装方式を決める
+	/// 更新確認で資産のダウンロードまで行うかを返す。ポータブルはタグの比較だけにする
 	/// </summary>
 	/// <param name="isPortable">ポータブルなら true</param>
-	/// <returns>更新確認方式</returns>
+	/// <returns>ポータブルならタグ比較のみ、それ以外はインストーラのダウンロード</returns>
 	public static UpdateCheckMode ResolveUpdateCheckMode(bool isPortable)
 	{
 		return isPortable ? UpdateCheckMode.GithubReleaseTagOnly : UpdateCheckMode.InstallerDownload;
 	}
 
 	/// <summary>
-	/// AppUserModelID を解決する
+	/// タスクバーで配布形態を分ける AppUserModelID を返す。ポータブルを Debug より優先する
 	/// </summary>
-	/// <param name="isPortable">ポータブルなら true</param>
-	/// <param name="isDebug">Debug ビルドなら true</param>
-	/// <returns>AppUserModelID</returns>
+	/// <param name="isPortable">ポータブルなら true。true のとき Debug かは見ない</param>
+	/// <param name="isDebug">Debug ビルドなら true。ポータブルでないときだけ使う</param>
+	/// <returns>ポータブル、Debug、インストーラのいずれかの AppUserModelID</returns>
 	public static string ResolveAppUserModelId(bool isPortable, bool isDebug)
 	{
 		if (isPortable)
@@ -132,12 +157,12 @@ internal static class PortableMode
 	}
 
 	/// <summary>
-	/// 単一インスタンスの Mutex / Pipe スコープを解決する
+	/// 単一インスタンスの Mutex と名前付きパイプを分ける範囲を返す
 	/// </summary>
-	/// <param name="isPortable">ポータブルなら true</param>
-	/// <param name="exeDir">ポータブル時の exe ディレクトリ</param>
-	/// <param name="appDataFolderName">インストーラ / Debug 時の AppData フォルダ名</param>
-	/// <returns>スコープ</returns>
+	/// <param name="isPortable">ポータブルなら true。true のときは exe ディレクトリのハッシュを使う</param>
+	/// <param name="exeDir">ポータブル時の exe ディレクトリ。null や空白はカレントディレクトリとして扱う</param>
+	/// <param name="appDataFolderName">インストーラまたは Debug の AppData フォルダ名。dev フォルダなら開発用の範囲にする</param>
+	/// <returns>Mutex 名とパイプ名の接尾辞。ポータブルは portable- と SHA-256 の先頭 16 桁</returns>
 	public static string ResolveInstanceScope(bool isPortable, string? exeDir, string appDataFolderName)
 	{
 		if (isPortable)
@@ -154,11 +179,15 @@ internal static class PortableMode
 			: "prod-v1";
 	}
 
+	// ==============================================
+	// 書き込み探針
+	// ==============================================
+
 	/// <summary>
-	/// ディレクトリへ書き込めるか探針する。失敗しても他場所へ逃がさない。
+	/// ディレクトリへ探針ファイルを書いて削除できるかを調べる。失敗しても他の場所へは切り替えない
 	/// </summary>
-	/// <param name="directory">探針対象</param>
-	/// <returns>結果</returns>
+	/// <param name="directory">探針するディレクトリ。無ければ作る</param>
+	/// <returns>作成と削除までできれば成功。失敗時は例外メッセージを入れる</returns>
 	public static WritableProbeResult ProbeWritableDirectory(string directory)
 	{
 		string probeName = $".write-probe-{Environment.ProcessId}-{DateTime.UtcNow.Ticks}";
@@ -195,44 +224,84 @@ internal static class PortableMode
 }
 
 /// <summary>
-/// ポータブル版の保存先パス
+/// ポータブル版で使うディレクトリ一式。作成はせず、パスの計算結果だけを持つ
 /// </summary>
 internal sealed class PortableDataPaths
 {
+	/// <summary>
+	/// ポータブル exe のディレクトリ。data の親であり、保存先そのものではない
+	/// </summary>
 	public string ExeDir { get; init; } = string.Empty;
 
+	/// <summary>
+	/// exe 隣の data。ポータブルのユーザーデータルート
+	/// </summary>
 	public string UserData { get; init; } = string.Empty;
 
+	/// <summary>
+	/// 設定上の dataDir。ポータブルでは <see cref="UserData"/> と同じ平坦配置
+	/// </summary>
 	public string DataDir { get; init; } = string.Empty;
 
+	/// <summary>
+	/// 日次ログを置く data 配下の logs
+	/// </summary>
 	public string Logs { get; init; } = string.Empty;
 
+	/// <summary>
+	/// ポータブル時の一時ファイル用 data 配下の temp
+	/// </summary>
 	public string Temp { get; init; } = string.Empty;
 
+	/// <summary>
+	/// 編集用 WebView2 のユーザーデータ。インストーラ版の LocalAppData とは別パス
+	/// </summary>
 	public string WebView2 { get; init; } = string.Empty;
 
+	/// <summary>
+	/// 印刷用 WebView2 のユーザーデータ。編集用とはフォルダを分ける
+	/// </summary>
 	public string WebView2Print { get; init; } = string.Empty;
 
+	/// <summary>
+	/// 設定バックアップを置く data 配下の backups
+	/// </summary>
 	public string Backups { get; init; } = string.Empty;
 
+	/// <summary>
+	/// CSS スニペットを置く data 配下の snippets
+	/// </summary>
 	public string Snippets { get; init; } = string.Empty;
 }
 
 /// <summary>
-/// 書き込み探針結果
+/// 書き込み探針の成否。失敗しても保存先は変えない
 /// </summary>
 internal sealed class WritableProbeResult
 {
+	/// <summary>
+	/// 探針ファイルの作成と削除までできたとき true
+	/// </summary>
 	public bool Ok { get; init; }
 
+	/// <summary>
+	/// 失敗時の例外メッセージ。成功時は null
+	/// </summary>
 	public string? Error { get; init; }
 }
 
 /// <summary>
-/// 更新確認の実装方式
+/// 更新確認で、インストーラ資産まで取るか、タグの比較で終えるか
 /// </summary>
 internal enum UpdateCheckMode
 {
+	/// <summary>
+	/// インストーラ資産の有無とダウンロードまで行う。ポータブル以外
+	/// </summary>
 	InstallerDownload,
+
+	/// <summary>
+	/// Release の tag だけを比較し、資産は要求しない。ポータブル用
+	/// </summary>
 	GithubReleaseTagOnly,
 }

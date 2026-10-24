@@ -1,15 +1,28 @@
+/**
+ * コールアウトの折りたたみボタン、種別アイコン、本文を潰す装飾を呼び出し側の配列へ足す
+ * 折りたたみ状態そのものは calloutFold が持ち、このファイルは描画と重なりの除去だけを行う
+ * @file
+ */
 import { Decoration, WidgetType } from '@codemirror/view';
 import type { CalloutType } from '../editor/markdownSyntax';
 import type { DecorationEntry } from './inlineDecorations';
 import { TableWidget } from './tableWidget';
 
+/**
+ * コールアウトアイコンの SVG 部品
+ * path は viewBox 24 の d 属性。circle は中心と半径で、fill が true のときだけ塗りつぶす
+ */
 type CalloutIconShape =
 	| { kind: 'path'; d: string }
 	| { kind: 'circle'; cx: number; cy: number; r: number; fill?: boolean };
 
+// ==============================================
+// 種別アイコン
+// ==============================================
+
 /**
- * コールアウト種別ごとの独自 SVG 図形（Obsidian / Lucide 資産の複製ではない）
- * viewBox 0 0 24 24、stroke 描画前提
+ * コールアウト種別ごとの独自 SVG 図形
+ * Obsidian / Lucide 資産の複製ではない。viewBox は 0 0 24 24、線描画が前提。実行中は変えない
  */
 const CALLOUT_ICON_SHAPES: Record<CalloutType, CalloutIconShape[]> = {
 	note: [
@@ -70,20 +83,27 @@ const CALLOUT_ICON_SHAPES: Record<CalloutType, CalloutIconShape[]> = {
 	],
 };
 
+// ==============================================
+// 折りたたみ
+// ==============================================
+
 /**
- * 折りたたみ時に本文を潰す空ウィジェット（CodeMirror fold と同様のインライン replace 用）
+ * 折りたたみ時に本文を潰す空ウィジェット
+ * CodeMirror の fold と同じくインライン replace に使い、ブロック装飾は使わない
  */
 export class CalloutCollapseWidget extends WidgetType {
 	/**
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * 基底の契約と同じ。すべての折りたたみウィジェットを同一とみなす
+	 * @param other - 比較対象のウィジェット
+	 * @returns 相手も CalloutCollapseWidget なら true
 	 */
 	eq(other: WidgetType): boolean {
 		return other instanceof CalloutCollapseWidget;
 	}
 
 	/**
-	 * @returns {HTMLElement}
+	 * 基底の契約と同じ。高さを持たない隠し要素を返す
+	 * @returns クラス `cm-md-callout-collapsed` の空 span
 	 */
 	toDOM(): HTMLElement {
 		const span     = document.createElement('span');
@@ -94,33 +114,42 @@ export class CalloutCollapseWidget extends WidgetType {
 
 	/**
 	 * 高さを 0 に固定し、ビューポート計測の不安定化を防ぐ
-	 * @returns {number}
+	 * @returns 常に 0
 	 */
 	get estimatedHeight(): number {
 		return 0;
 	}
 
 	/**
-	 * @returns {boolean}
+	 * 基底の契約と同じ。潰した本文の上のイベントはエディタへ渡さない
+	 * @returns 常に true
 	 */
 	ignoreEvent(): boolean {
 		return true;
 	}
 }
 
+/**
+ * 折りたたみ本文で共有する空ウィジェット
+ * 表示が位置に依存しないため、モジュール内で 1 つだけ生成する
+ */
 const calloutCollapseWidget = new CalloutCollapseWidget();
 
 /**
- * コールアウト折りたたみトグル用ウィジェット
+ * コールアウトの折りたたみボタンを描くウィジェット
+ * クリックは ignoreEvent が false のため、エディタの domEventHandlers へ渡る
  */
 export class CalloutFoldWidget extends WidgetType {
+	/** 折りたたみ中なら true。生成後は変えない */
 	readonly collapsed: boolean;
 
+	/** blockquote の開始位置。クリック時に dataset へ文字列で載せる */
 	readonly calloutFrom: number;
 
 	/**
-	 * @param {boolean} collapsed 折りたたみ中か
-	 * @param {number} calloutFrom Blockquote 開始位置
+	 * 折りたたみ状態と、対象コールアウトの位置を固定する
+	 * @param collapsed - 折りたたみ中なら true。ボタンの記号と aria-expanded に使う
+	 * @param calloutFrom - blockquote の開始位置。dataset.calloutFrom へ文字列で入れる
 	 */
 	constructor(collapsed: boolean, calloutFrom: number) {
 		super();
@@ -129,8 +158,9 @@ export class CalloutFoldWidget extends WidgetType {
 	}
 
 	/**
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * 基底の契約と同じ。折りたたみ状態と開始位置が同じボタンだけを同一とみなす
+	 * @param other - 比較対象のウィジェット
+	 * @returns 相手も CalloutFoldWidget で collapsed と calloutFrom が一致すれば true
 	 */
 	eq(other: WidgetType): boolean {
 		return other instanceof CalloutFoldWidget
@@ -139,7 +169,8 @@ export class CalloutFoldWidget extends WidgetType {
 	}
 
 	/**
-	 * @returns {HTMLElement}
+	 * 基底の契約と同じ。展開状態を示すボタン風の span を返す
+	 * @returns クラス `cm-md-callout-fold` の要素。折りたたみ中は `▶`、展開中は `▼`
 	 */
 	toDOM(): HTMLElement {
 		const button       = document.createElement('span');
@@ -154,8 +185,9 @@ export class CalloutFoldWidget extends WidgetType {
 	}
 
 	/**
-	 * クリックをエディタの domEventHandlers へ渡す（チェックボックスと同じ）
-	 * @returns {boolean}
+	 * クリックをエディタの domEventHandlers へ渡す
+	 * チェックボックスと同じく、基底はイベントを無視するが、このボタンは操作のため無視しない
+	 * @returns 常に false
 	 */
 	ignoreEvent(): boolean {
 		return false;
@@ -163,13 +195,16 @@ export class CalloutFoldWidget extends WidgetType {
 }
 
 /**
- * コールアウト種別アイコン用ウィジェット
+ * コールアウト種別の SVG アイコンを描くウィジェット
+ * 図形は CALLOUT_ICON_SHAPES から取り、種別が変われば別インスタンスにする
  */
 export class CalloutTypeLabelWidget extends WidgetType {
+	/** 描くアイコンの種別。CALLOUT_ICON_SHAPES のキー */
 	readonly calloutType: CalloutType;
 
 	/**
-	 * @param {CalloutType} calloutType コールアウト種別
+	 * 表示するコールアウト種別を固定する
+	 * @param calloutType - アイコンと読み上げ名に使う種別
 	 */
 	constructor(calloutType: CalloutType) {
 		super();
@@ -177,15 +212,17 @@ export class CalloutTypeLabelWidget extends WidgetType {
 	}
 
 	/**
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * 基底の契約と同じ。種別が同じアイコンだけを同一とみなす
+	 * @param other - 比較対象のウィジェット
+	 * @returns 相手も CalloutTypeLabelWidget で calloutType が一致すれば true
 	 */
 	eq(other: WidgetType): boolean {
 		return other instanceof CalloutTypeLabelWidget && other.calloutType === this.calloutType;
 	}
 
 	/**
-	 * @returns {HTMLElement}
+	 * 基底の契約と同じ。種別の SVG を含む span を返す
+	 * @returns クラス `cm-md-callout-type-label` の要素。図形は viewBox 24 の線描画
 	 */
 	toDOM(): HTMLElement {
 		const span     = document.createElement('span');
@@ -223,7 +260,8 @@ export class CalloutTypeLabelWidget extends WidgetType {
 	}
 
 	/**
-	 * @returns {boolean}
+	 * 基底の契約と同じ。アイコン上のイベントはエディタへ渡さない
+	 * @returns 常に true
 	 */
 	ignoreEvent(): boolean {
 		return true;
@@ -231,12 +269,12 @@ export class CalloutTypeLabelWidget extends WidgetType {
 }
 
 /**
- * 折りたたみボタン Decoration を追加する
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} pos 挿入位置
- * @param {boolean} collapsed 折りたたみ中か
- * @param {number} calloutFrom Blockquote 開始位置
- * @returns {void}
+ * 折りたたみボタンの point 装飾を追加する
+ * 文書の文字は置き換えず、指定位置の side 1 にボタンを挿入する
+ * @param entries - 装飾を追加する配列。この関数が末尾へ push する
+ * @param pos - ボタンを挿入する文書位置
+ * @param collapsed - 折りたたみ中なら true
+ * @param calloutFrom - blockquote の開始位置。クリック後の上書き先
  */
 export function pushCalloutFoldWidget(
 	entries: DecorationEntry[],
@@ -255,11 +293,11 @@ export function pushCalloutFoldWidget(
 }
 
 /**
- * コールアウト種別アイコン Decoration を追加する
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} pos 挿入位置
- * @param {CalloutType} calloutType コールアウト種別
- * @returns {void}
+ * コールアウト種別アイコンの point 装飾を追加する
+ * 文書の文字は置き換えず、指定位置の side 1 にアイコンを挿入する
+ * @param entries - 装飾を追加する配列。この関数が末尾へ push する
+ * @param pos - アイコンを挿入する文書位置
+ * @param calloutType - 描くアイコンの種別
  */
 export function pushCalloutTypeLabel(
 	entries: DecorationEntry[],
@@ -277,12 +315,11 @@ export function pushCalloutTypeLabel(
 }
 
 /**
- * 折りたたみ時にタイトル行末〜本文末をインライン replace で潰す
- * （`block: true` は行境界要件を満たさず描画崩壊の原因になるため使わない）
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} from 開始位置（タイトル行末）
- * @param {number} to 終了位置（コールアウト末尾）
- * @returns {void}
+ * 折りたたみ時に、タイトル行末から本文末までをインライン replace で潰す
+ * `block: true` は行境界要件を満たさず描画崩壊の原因になるため使わない。範囲が空のときは何もしない
+ * @param entries - 装飾を追加する配列。範囲が空でなければ末尾へ push する
+ * @param from - 潰す範囲の開始。タイトル行末
+ * @param to - 潰す範囲の終端。コールアウト末尾。from 以上なら追加しない
  */
 export function pushCalloutCollapseReplace(
 	entries: DecorationEntry[],
@@ -302,19 +339,25 @@ export function pushCalloutCollapseReplace(
 	});
 }
 
+// ==============================================
+// 重なった装飾の除去
+// ==============================================
+
 /**
- * 複数行 replace ウィジェットか判定する
- * @param {unknown} widget ウィジェット
- * @returns {boolean}
+ * 複数行をまとめて置き換えるウィジェットかを判定する
+ * 折りたたみ本文と表ウィジェットが対象。点だけのボタンは含めない
+ * @param widget - 装飾が持つウィジェット。ウィジェットでなければ false
+ * @returns CalloutCollapseWidget または TableWidget なら true
  */
 function isMultiLineReplaceWidget(widget: unknown): boolean {
 	return widget instanceof CalloutCollapseWidget || widget instanceof TableWidget;
 }
 
 /**
- * 折りたたみ / テーブル等の複数行 replace 範囲の内部に食い込む装飾を除去する
- * @param {DecorationEntry[]} entries エントリ配列
- * @returns {DecorationEntry[]}
+ * 折りたたみや表の複数行 replace の内部に食い込む装飾を除く
+ * 複数行 replace 自身と、範囲の端にちょうど乗る point 装飾は残す
+ * @param entries - 選別前の装飾。この配列は変更せず、新しい配列を返す
+ * @returns 範囲の内部に入っていない装飾。複数行 replace が無ければ入力と同じ配列
  */
 export function filterEntriesOutsideCollapseRanges(
 	entries: DecorationEntry[],

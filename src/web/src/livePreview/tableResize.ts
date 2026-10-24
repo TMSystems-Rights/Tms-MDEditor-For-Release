@@ -1,31 +1,57 @@
+/**
+ * 表の列幅と行高のドラッグ結果をプロセス内に覚え、DOM の幅へ反映する
+ * ノートへの書き戻しは onPersist に任せ、このファイルは表示中のレイアウトだけを持つ
+ * @file
+ */
 export type TableResizeHit = {
+	/** col は列境界、row は行境界 */
 	kind: 'col' | 'row';
+	/** 動かした境界の番号。0 始まり */
 	index: number;
 };
 
+/** ドラッグ中に覚える列幅と行高。未設定の軸はプロパティを置かない */
 export type TableLayout = {
+	/** 列幅（px）。未設定ならプロパティ自体が無い */
 	widths?: number[];
+	/** 行高（px）。未設定ならプロパティ自体が無い */
 	heights?: number[];
 };
 
+/** 描画済みセルの、列位置と横幅 */
 export type TableCellBox = {
+	/** セルの開始列。0 始まり */
 	column: number;
+	/** セルが占める列数。1 以上 */
 	colspan: number;
+	/** セルの左端。スクロール領域内の px */
 	left: number;
+	/** セルの幅（px） */
 	width: number;
 };
 
+/** 表リサイズを始めるときのレイアウトと、保存の受け口 */
 export type TableResizeOptions = {
+	/** 開始時の列幅と行高。未指定なら DOM から測る */
 	layout?: TableLayout;
+	/** ドラッグ確定時にレイアウトを受け取る。省略なら保存しない */
 	onPersist?: (layout: TableLayout, hit: TableResizeHit) => void;
 };
 
+// ----------------------------------------------
+// 寸法の下限
+// ----------------------------------------------
+/** 列幅の下限（px）。これより細いドラッグはここまで戻す */
 const MIN_COLUMN_WIDTH = 32;
+/** 行高の下限（px）。これより低いドラッグはここまで戻す */
 const MIN_ROW_HEIGHT   = 24;
 
+/** 表が横にはみ出したときに枠へ付けるクラス */
 const TABLE_HORIZONTAL_OVERFLOW_CLASS        = 'cm-md-table-horizontal-overflow';
+/** 横はみ出しとみなす余裕（px）。1px 以内は誤差として無視する */
 const TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX = 1;
 
+/** セル内で折り返すクラス。はみ出し判定と対で使う */
 const TABLE_CELL_WRAP_CLASS = 'cm-md-table-cell-wrap';
 
 /** 列・行ハンドルのヒット幅（px） */
@@ -34,15 +60,19 @@ export const TABLE_RESIZE_HANDLE_PX = 14;
 /** クリックとドラッグを区別する最小移動量（px） */
 export const TABLE_RESIZE_DRAG_THRESHOLD_PX = 4;
 
+// ----------------------------------------------
+// レイアウトの記憶
+// ----------------------------------------------
+/** 表の位置と列数から、ドラッグ中の列幅・行高。プロセス内だけ */
 const layouts = new Map<string, TableLayout>();
 
 /**
- * スクロールコンテナ内での要素位置を返す。
- * offsetLeft / offsetTop が含めない親 padding と、現在のスクロール量を補正する。
- * @param {number} containerStart コンテナの画面座標
- * @param {number} elementStart 要素の画面座標
- * @param {number} scrollOffset コンテナのスクロール量
- * @returns {number} スクロール領域内の座標
+ * スクロールコンテナ内での要素位置を返す
+ * offsetLeft / offsetTop が含めない親 padding と、現在のスクロール量を補正する
+ * @param containerStart - コンテナの画面座標
+ * @param elementStart - 要素の画面座標
+ * @param scrollOffset - コンテナのスクロール量
+ * @returns スクロール領域内の座標
  */
 export function resolveTableRelativeOffset(
 	containerStart: number,
@@ -53,11 +83,11 @@ export function resolveTableRelativeOffset(
 }
 
 /**
- * 表本体がラッパーの表示幅を実際に超えているかを返す。
- * @param {number} tableLeft 表左端のスクロール領域内座標
- * @param {number} tableWidth 表の実幅
- * @param {number} viewportWidth ラッパーの表示幅
- * @returns {boolean} 横スクロールが必要か
+ * 表本体がラッパーの表示幅を実際に超えているかを返す
+ * @param tableLeft - 表左端のスクロール領域内座標
+ * @param tableWidth - 表の実幅
+ * @param viewportWidth - ラッパーの表示幅
+ * @returns 横スクロールが必要か
  */
 export function isTableHorizontallyOverflowing(
 	tableLeft: number,
@@ -68,17 +98,17 @@ export function isTableHorizontallyOverflowing(
 }
 
 /**
- * 表本体の実幅に応じて横スクロールの有無を切り替える。
- * 絶対配置のヘッダー・リサイズ要素やサブピクセル丸めは判定対象にしない。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLTableElement} table 表
- * @returns {() => void} 表位置・幅が変わったときの再同期処理
+ * 表本体の実幅に応じて横スクロールの有無を切り替える
+ * 絶対配置のヘッダー・リサイズ要素やサブピクセル丸めは判定対象にしない
+ * @param wrap - 表ラッパー
+ * @param table - 表
+ * @returns 表位置・幅が変わったときの再同期処理
  */
 export function attachTableHorizontalOverflow(
 	wrap: HTMLElement,
 	table: HTMLTableElement,
 ): () => void {
-	/** 現在の表実幅から横スクロール要否を同期する。 */
+	/** 現在の表実幅から横スクロール要否を同期する */
 	const sync = (): void => {
 		const wrapRect  = wrap.getBoundingClientRect();
 		const tableRect = table.getBoundingClientRect();
@@ -107,20 +137,19 @@ export function attachTableHorizontalOverflow(
 }
 
 /**
- * 表レイアウトの保存キーを返す。
- * @param {number} tableFrom 表の開始位置
- * @param {number} columnCount 列数
- * @returns {string} キー
+ * 表レイアウトの保存キーを返す
+ * @param tableFrom - 表の開始位置
+ * @param columnCount - 列数
+ * @returns キー
  */
 export function getTableLayoutKey(tableFrom: number, columnCount: number): string {
 	return `${tableFrom}:${columnCount}`;
 }
 
 /**
- * ドラッグで決めた列幅・行高を覚える。
- * @param {string} key 保存キー
- * @param {TableLayout} layout レイアウト
- * @returns {void}
+ * ドラッグで決めた列幅・行高を覚える
+ * @param key - 保存キー
+ * @param layout - レイアウト
  */
 export function rememberTableLayout(key: string, layout: TableLayout): void {
 	layouts.set(key, {
@@ -130,18 +159,17 @@ export function rememberTableLayout(key: string, layout: TableLayout): void {
 }
 
 /**
- * 1 表の保存レイアウトを消す。
- * @param {string} key 保存キー
- * @returns {void}
+ * 1 表の保存レイアウトを消す
+ * @param key - 保存キー
  */
 export function forgetTableLayout(key: string): void {
 	layouts.delete(key);
 }
 
 /**
- * 保存した列幅・行高を返す。
- * @param {string} key 保存キー
- * @returns {TableLayout | undefined} レイアウト
+ * 保存した列幅・行高を返す
+ * @param key - 保存キー
+ * @returns レイアウト
  */
 export function recallTableLayout(key: string): TableLayout | undefined {
 	const layout = layouts.get(key);
@@ -156,18 +184,17 @@ export function recallTableLayout(key: string): TableLayout | undefined {
 }
 
 /**
- * 試験用に保存レイアウトを消す。
- * @returns {void}
+ * 試験用に保存レイアウトを消す
  */
 export function clearTableLayouts(): void {
 	layouts.clear();
 }
 
 /**
- * 列ヒットと行ヒットのうち近い方を返す。
- * @param {{ index: number; distance: number } | null} columnHit 列
- * @param {{ index: number; distance: number } | null} rowHit 行
- * @returns {TableResizeHit | null} ヒット
+ * 列ヒットと行ヒットのうち近い方を返す
+ * @param columnHit - 列
+ * @param rowHit - 行
+ * @returns ヒット
  */
 export function resolveTableResizeHit(
 	columnHit: { index: number; distance: number } | null,
@@ -191,28 +218,27 @@ export function resolveTableResizeHit(
 }
 
 /**
- * 列幅の下限を適用する。
- * @param {number} width 幅
- * @returns {number} クランプ後
+ * 列幅の下限を適用する
+ * @param width - 幅
+ * @returns クランプ後
  */
 export function clampColumnWidth(width: number): number {
 	return Math.max(MIN_COLUMN_WIDTH, Math.round(width));
 }
 
 /**
- * 行高の下限を適用する。
- * @param {number} height 高さ
- * @returns {number} クランプ後
+ * 行高の下限を適用する
+ * @param height - 高さ
+ * @returns クランプ後
  */
 export function clampRowHeight(height: number): number {
 	return Math.max(MIN_ROW_HEIGHT, Math.round(height));
 }
 
 /**
- * 保存した列幅・行高を表へ適用する。
- * @param {HTMLTableElement} table 表
- * @param {TableLayout | undefined} layout レイアウト
- * @returns {void}
+ * 保存した列幅・行高を表へ適用する
+ * @param table - 表
+ * @param layout - レイアウト
  */
 export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | undefined): void {
 	const columnCount = getRenderedColumnCount(table);
@@ -266,10 +292,10 @@ export function applyTableLayout(table: HTMLTableElement, layout: TableLayout | 
 }
 
 /**
- * 固定列幅から横へはみ出すセルだけを折り返す。
- * @param {number} contentWidth セル内容の折り返し前の横幅
- * @param {number} availableWidth セル内の利用可能幅
- * @param {number} tolerance サブピクセル丸めの許容値
+ * 固定列幅から横へはみ出すセルだけを折り返す
+ * @param contentWidth - セル内容の折り返し前の横幅
+ * @param availableWidth - セル内の利用可能幅
+ * @param tolerance - サブピクセル丸めの許容値
  */
 export function shouldWrapTableCell(
 	contentWidth: number,
@@ -279,7 +305,7 @@ export function shouldWrapTableCell(
 	return contentWidth > availableWidth + tolerance;
 }
 
-/** 固定列幅に収まらないセルだけへ折り返しクラスを付ける。 */
+/** 固定列幅に収まらないセルだけへ折り返しクラスを付ける */
 function syncTableCellWrapping(table: HTMLTableElement, widths?: number[]): void {
 	const cells = [...table.querySelectorAll<HTMLElement>('th, td')];
 	cells.forEach((cell) => cell.classList.remove(TABLE_CELL_WRAP_CLASS));
@@ -306,7 +332,7 @@ function syncTableCellWrapping(table: HTMLTableElement, widths?: number[]): void
 	});
 }
 
-/** セル文字列を折り返さない状態で測定する。セル内の block 要素幅には依存しない。 */
+/** セル文字列を折り返さない状態で測定する。セル内の block 要素幅には依存しない */
 function measureTableCellContentWidth(
 	cell: HTMLElement,
 	style: CSSStyleDeclaration | undefined,
@@ -334,7 +360,7 @@ function measureTableCellContentWidth(
 }
 
 /**
- * リサイズ対象の軸で、クリックではなくドラッグとみなす距離を移動したか判定する。
+ * リサイズ対象の軸で、クリックではなくドラッグとみなす距離を移動したか判定する
  */
 export function hasTableResizePointerMoved(
 	hit: TableResizeHit,
@@ -347,7 +373,7 @@ export function hasTableResizePointerMoved(
 }
 
 /**
- * 操作対象以外の寸法は、既に保存済みの場合だけドラッグ中の固定値へ含める。
+ * 操作対象以外の寸法は、既に保存済みの場合だけドラッグ中の固定値へ含める
  */
 export function resolveActiveTableResizeLayout(
 	hit: TableResizeHit,
@@ -362,12 +388,12 @@ export function resolveActiveTableResizeLayout(
 }
 
 /**
- * 罫線ドラッグで列幅・行高を変えられるようにする。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLTableElement} table 表
- * @param {string} key 保存キー
- * @param {TableResizeOptions} [options] ソースのレイアウトと確定時の書き戻し
- * @returns {() => void} 表位置が変わったときの再同期処理
+ * 罫線ドラッグで列幅・行高を変えられるようにする
+ * @param wrap - 表ラッパー
+ * @param table - 表
+ * @param key - 保存キー
+ * @param options - ソースのレイアウトと確定時の書き戻し。省略可
+ * @returns 表位置が変わったときの再同期処理
  */
 export function attachTableResize(
 	wrap: HTMLElement,
@@ -383,8 +409,7 @@ export function attachTableResize(
 	wrap.appendChild(overlay);
 
 	/**
-	 * ハンドル位置を表の実寸に合わせる。
-	 * @returns {void}
+	 * ハンドル位置を表の実寸に合わせる
 	 */
 	const sync = (): void => {
 		syncTableResizeHandles(overlay, table, key, options.onPersist);
@@ -416,12 +441,11 @@ export function attachTableResize(
 }
 
 /**
- * 列・行のドラッグハンドルを罫線上へ置く。
- * @param {HTMLElement} overlay オーバーレイ
- * @param {HTMLTableElement} table 表
- * @param {string} key 保存キー
- * @param {(layout: TableLayout, hit: TableResizeHit) => void} [onPersist] 確定時
- * @returns {void}
+ * 列・行のドラッグハンドルを罫線上へ置く
+ * @param overlay - オーバーレイ
+ * @param table - 表
+ * @param key - 保存キー
+ * @param onPersist - 確定時。省略可
  */
 export function syncTableResizeHandles(
 	overlay: HTMLElement,
@@ -481,9 +505,9 @@ export function syncTableResizeHandles(
 }
 
 /**
- * 現在の列幅・行高を測る。
- * @param {HTMLTableElement} table 表
- * @returns {TableLayout} レイアウト
+ * 現在の列幅・行高を測る
+ * @param table - 表
+ * @returns レイアウト
  */
 export function measureTableLayout(table: HTMLTableElement): TableLayout {
 	const columnCount = getRenderedColumnCount(table);
@@ -494,9 +518,9 @@ export function measureTableLayout(table: HTMLTableElement): TableLayout {
 }
 
 /**
- * 描画済みセルの列位置と幅を集める。
- * @param {HTMLTableElement} table 表
- * @returns {TableCellBox[]}
+ * 描画済みセルの列位置と幅を集める
+ * @param table - 表
+ * @returns 描画済みセルの列位置と幅を集める
  */
 export function collectTableCellBoxes(table: HTMLTableElement): TableCellBox[] {
 	const tableRect = table.getBoundingClientRect();
@@ -512,10 +536,10 @@ export function collectTableCellBoxes(table: HTMLTableElement): TableCellBox[] {
 }
 
 /**
- * 各列の右端位置を返す。結合セルでも列境界を出す。
- * @param {TableCellBox[]} boxes セル
- * @param {number} columnCount 列数
- * @returns {number[]}
+ * 各列の右端位置を返す。結合セルでも列境界を出す
+ * @param boxes - セル
+ * @param columnCount - 列数
+ * @returns 各列の右端位置を返す。結合セルでも列境界を出す
  */
 export function computeColumnRightEdges(boxes: TableCellBox[], columnCount: number): number[] {
 	const edges = Array.from({ length: columnCount }, () => 0);
@@ -536,10 +560,10 @@ export function computeColumnRightEdges(boxes: TableCellBox[], columnCount: numb
 }
 
 /**
- * 各列の幅を返す。結合セルは幅を列数で割る。
- * @param {TableCellBox[]} boxes セル
- * @param {number} columnCount 列数
- * @returns {number[]}
+ * 各列の幅を返す。結合セルは幅を列数で割る
+ * @param boxes - セル
+ * @param columnCount - 列数
+ * @returns 各列の幅を返す。結合セルは幅を列数で割る
  */
 export function computeColumnWidths(boxes: TableCellBox[], columnCount: number): number[] {
 	const widths = Array.from({ length: columnCount }, () => 0);
@@ -560,12 +584,11 @@ export function computeColumnWidths(boxes: TableCellBox[], columnCount: number):
 }
 
 /**
- * @param {HTMLElement} handle ハンドル
- * @param {HTMLTableElement} table 表
- * @param {string} key 保存キー
- * @param {TableResizeHit} hit ヒット
- * @param {HTMLElement} overlay オーバーレイ
- * @returns {void}
+ * @param handle - ハンドル
+ * @param table - 表
+ * @param key - 保存キー
+ * @param hit - ヒット
+ * @param overlay - オーバーレイ
  */
 function bindResizeHandle(
 	handle: HTMLElement,
@@ -591,12 +614,11 @@ function bindResizeHandle(
 }
 
 /**
- * @param {HTMLTableElement} table 表
- * @param {string} _key 互換用（ドラッグ中は共有メモリへ書かない）
- * @param {TableResizeHit} hit ヒット
- * @param {PointerEvent} event 開始イベント
- * @param {() => void} onSync ハンドル再配置
- * @returns {void}
+ * @param table - 表
+ * @param _key - 互換用（ドラッグ中は共有メモリへ書かない）
+ * @param hit - ヒット
+ * @param event - 開始イベント
+ * @param onSync - ハンドル再配置
  */
 function startTableResize(
 	table: HTMLTableElement,
@@ -624,8 +646,7 @@ function startTableResize(
 	}
 
 	/**
-	 * @param {PointerEvent} moveEvent 移動
-	 * @returns {void}
+	 * @param moveEvent - 移動
 	 */
 	const onMove = (moveEvent: PointerEvent): void => {
 		if (!resizing && !hasTableResizePointerMoved(hit, start, {
@@ -658,8 +679,7 @@ function startTableResize(
 	};
 
 	/**
-	 * @param {PointerEvent} endEvent 終了
-	 * @returns {void}
+	 * @param endEvent - 終了
 	 */
 	const onUp = (endEvent: PointerEvent): void => {
 		if (resizing) {
@@ -692,14 +712,14 @@ function startTableResize(
 }
 
 /**
- * @param {HTMLTableElement} table 表
- * @param {number} columnCount 列数
- * @returns {HTMLTableColElement} colgroup
+ * @param table - 表
+ * @param columnCount - 列数
+ * @returns colgroup
  */
 /**
- * 表の論理列数を返す。
- * @param {HTMLTableElement} table 表
- * @returns {number}
+ * 表の論理列数を返す
+ * @param table - 表
+ * @returns 表の論理列数
  */
 export function getRenderedColumnCount(table: HTMLTableElement): number {
 	const fromData = Number(table.dataset.columnCount);
@@ -718,9 +738,9 @@ export function getRenderedColumnCount(table: HTMLTableElement): number {
 }
 
 /**
- * @param {HTMLTableElement} table 表
- * @param {number} columnCount 列数
- * @returns {HTMLTableColElement} colgroup
+ * @param table - 表
+ * @param columnCount - 列数
+ * @returns colgroup
  */
 function ensureColGroup(table: HTMLTableElement, columnCount: number): HTMLTableColElement {
 	let group = table.querySelector('colgroup');
@@ -741,8 +761,7 @@ function ensureColGroup(table: HTMLTableElement, columnCount: number): HTMLTable
 }
 
 /**
- * @param {HTMLTableElement} table 表
- * @returns {void}
+ * @param table - 表
  */
 function clearColWidths(table: HTMLTableElement): void {
 	table.querySelectorAll('col').forEach((column) => {
@@ -751,8 +770,7 @@ function clearColWidths(table: HTMLTableElement): void {
 }
 
 /**
- * @param {HTMLTableElement} table 表
- * @returns {void}
+ * @param table - 表
  */
 function clearRowHeights(table: HTMLTableElement): void {
 	[...table.rows].forEach((row) => {

@@ -1,13 +1,18 @@
+/**
+ * 選択範囲から、ソース表示する行とプレビュー装飾する行を判定する
+ * 状態は持たず、渡された EditorState の選択を読むだけである
+ * @file
+ */
 import type { EditorState } from '@codemirror/state';
 import type { Text } from '@codemirror/state';
 
 /**
- * ドキュメント位置が属する行番号（1始まり）を返す
- * 行境界（前行の to === 次行の from）では assoc で帰属行を決める
- * @param {Text} doc ドキュメント
- * @param {number} pos 位置
- * @param {number} [assoc] 行境界の帰属（-1: 前行, 1: 次行）
- * @returns {number}
+ * ドキュメント位置が属する行番号を返す
+ * 行境界（前行の to と次行の from が同じ）では assoc で帰属行を決める
+ * @param doc - 行へ位置を解決するドキュメント
+ * @param pos - ドキュメント先頭からの文字位置。範囲外は先頭行または最終行
+ * @param assoc - 行境界の帰属。0 以下は前行、正は次行。省略時は次行
+ * @returns 行番号。1 始まり
  */
 export function lineNumberAtPosition(doc: Text, pos: number, assoc: number = 1): number {
 	if (pos <= 0) {
@@ -30,10 +35,10 @@ export function lineNumberAtPosition(doc: Text, pos: number, assoc: number = 1):
 }
 
 /**
- * ソース表示する行番号（1始まり）を収集する
- * カーソル位置および選択範囲に含まれる行が対象
- * @param {EditorState} state エディタ状態
- * @returns {Set<number>} 行番号集合
+ * ソース表示する行番号を集める
+ * カーソル位置と、選択範囲に含まれる行が対象
+ * @param state - 選択範囲を読むエディタ状態。文書の変更はしない
+ * @returns ソース表示する行番号。1 始まり。選択が空ならカーソル行だけ
  */
 export function collectSourceLineNumbers(state: EditorState): Set<number> {
 	const lines = new Set<number>();
@@ -61,42 +66,45 @@ export function collectSourceLineNumbers(state: EditorState): Set<number> {
 }
 
 /**
- * 指定行がソース表示か判定する
- * @param {EditorState} state エディタ状態
- * @param {number} lineNumber 行番号（1始まり）
- * @returns {boolean}
+ * 指定行をソース表示にするかを判定する
+ * 選択から行集合を作り直すため、同じ判定を繰り返すときは isPreviewLineNumber を使う
+ * @param state - 選択範囲を読むエディタ状態
+ * @param lineNumber - 判定する行番号。1 始まり
+ * @returns カーソルまたは選択がその行を含むなら true
  */
 export function isSourceLine(state: EditorState, lineNumber: number): boolean {
 	return collectSourceLineNumbers(state).has(lineNumber);
 }
 
 /**
- * 指定行がライブプレビュー装飾対象か判定する
- * @param {EditorState} state エディタ状態
- * @param {number} lineNumber 行番号（1始まり）
- * @returns {boolean}
+ * 指定行がライブプレビュー装飾の対象かを判定する
+ * ソース行の裏返しであり、選択の読み方は isSourceLine と同じ
+ * @param state - 選択範囲を読むエディタ状態
+ * @param lineNumber - 判定する行番号。1 始まり
+ * @returns ソース行でなければ true
  */
 export function isPreviewLine(state: EditorState, lineNumber: number): boolean {
 	return !isSourceLine(state, lineNumber);
 }
 
 /**
- * ソース行集合からプレビュー行か判定する
- * @param {number} lineNumber 行番号（1始まり）
- * @param {Set<number>} sourceLineNumbers ソース行集合
- * @returns {boolean}
+ * 既に集めたソース行集合から、プレビュー行かを判定する
+ * 行ごとの判定で選択を読み直さないための入口
+ * @param lineNumber - 判定する行番号。1 始まり
+ * @param sourceLineNumbers - collectSourceLineNumbers が返した行番号
+ * @returns 集合に含まれなければ true
  */
 export function isPreviewLineNumber(lineNumber: number, sourceLineNumbers: Set<number>): boolean {
 	return !sourceLineNumbers.has(lineNumber);
 }
 
 /**
- * 現在のカーソルまたは選択範囲が指定範囲と交差するか判定する。
- * 空選択は範囲境界を含めず、記法の直前・直後ではプレビューを維持する。
- * @param {EditorState} state エディタ状態
- * @param {number} from 開始位置
- * @param {number} to 終了位置
- * @returns {boolean}
+ * 現在のカーソルまたは選択範囲が指定範囲と交差するかを判定する
+ * 空選択は範囲境界を含めず、記法の直前・直後ではプレビューを維持する
+ * @param state - 選択範囲を読むエディタ状態
+ * @param from - 判定範囲の開始位置。to 以上なら交差しない
+ * @param to - 判定範囲の終端。from 以上なら交差しない
+ * @returns 空選択が範囲の内側にある、または非空選択が範囲と重なれば true
  */
 export function selectionIntersectsRange(state: EditorState, from: number, to: number): boolean {
 	if (from >= to) {

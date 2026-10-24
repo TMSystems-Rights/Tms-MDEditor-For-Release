@@ -1,17 +1,24 @@
+// ==============================================
+// 改行の集計と統一
+// ==============================================
+
+// 状態は持たない。FileService が読み書きの前後に呼び、混在の判定と保存前の統一に使う
+
 using TmsMdEditor.Models;
 
 namespace TmsMdEditor.Services;
 
 /// <summary>
-/// 改行コード判定・変換
+/// 本文中の CR、LF、CRLF を数え、最も多い種別を主改行とする
+/// 同数のときは CRLF、次に LF を優先する。改行が無ければ CRLF で、混在ではない
 /// </summary>
 internal static class EolAnalyzer
 {
 	/// <summary>
-	/// 改行コード分布を解析する
+	/// 本文の改行を種別ごとに数える。CRLF は CR と LF に分解しない
 	/// </summary>
-	/// <param name="text">テキスト</param>
-	/// <returns>解析結果</returns>
+	/// <param name="text">数える本文。空文字は改行なしとして CRLF を主とする</param>
+	/// <returns>主改行、混在かどうか、CRLF / LF / CR の個数</returns>
 	public static EolAnalysis Analyze(string text)
 	{
 		int crlfCount = 0;
@@ -66,11 +73,11 @@ internal static class EolAnalyzer
 	}
 
 	/// <summary>
-	/// 改行コードを指定種別へ統一する
+	/// 本文の改行をいったん LF へ寄せてから、指定した種別へ戻す
 	/// </summary>
-	/// <param name="text">テキスト</param>
-	/// <param name="target">統一先</param>
-	/// <returns>変換後テキスト</returns>
+	/// <param name="text">変換する本文。改行以外の文字は変えない</param>
+	/// <param name="target">統一先。CRLF、LF、CR 以外のときは本文をそのまま返す</param>
+	/// <returns>統一した本文。未知の <paramref name="target"/> では引数のまま</returns>
 	public static string NormalizeEol(string text, EolKind target)
 	{
 		string normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal)
@@ -86,10 +93,11 @@ internal static class EolAnalyzer
 	}
 
 	/// <summary>
-	/// 文字列から改行コード種別を解決する
+	/// 設定の文字列を改行種別に対応付ける。前後の空白と大文字小文字は無視する
 	/// </summary>
-	/// <param name="value">設定値</param>
-	/// <returns>改行コード種別</returns>
+	/// <param name="value">crlf、lf、cr のいずれか。null や空、未知の名前は失敗</param>
+	/// <returns>対応する改行種別</returns>
+	/// <exception cref="InvalidOperationException"><paramref name="value"/> が null、空、または crlf / lf / cr 以外</exception>
 	public static EolKind ParseEolKind(string? value)
 	{
 		return value?.Trim().ToLowerInvariant() switch
@@ -101,6 +109,13 @@ internal static class EolAnalyzer
 		};
 	}
 
+	/// <summary>
+	/// 個数が最も多い種別を返す。同数なら CRLF、その次は LF を優先する
+	/// </summary>
+	/// <param name="crlfCount">CRLF の個数</param>
+	/// <param name="lfCount">単独 LF の個数</param>
+	/// <param name="crCount">単独 CR の個数</param>
+	/// <returns>主改行。すべて 0 のときは CRLF</returns>
 	private static EolKind ResolvePrimaryEol(int crlfCount, int lfCount, int crCount)
 	{
 		if (crlfCount == 0 && lfCount == 0 && crCount == 0)

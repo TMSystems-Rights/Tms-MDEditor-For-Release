@@ -1,3 +1,8 @@
+/**
+ * 列幅と行高の下限、ヒット判定、レイアウト記憶を検証する
+ * CSS と実装ソースは読み取り専用の定数で、ドラッグ中の DOM は作らない
+ * @file
+ */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,10 +28,18 @@ import {
 	shouldWrapTableCell,
 } from './tableResize';
 
+/**
+ * リサイズ用クラスが載っているかを見る、ライブプレビュー CSS
+ * テスト中は読み取るだけで、書き換えない
+ */
 const livePreviewCss    = readFileSync(
 	join(dirname(fileURLToPath(import.meta.url)), '../styles/livePreview.css'),
 	'utf8',
 );
+/**
+ * 下限の数値が実装とずれていないかを見る、tableResize のソース
+ * テスト中は読み取るだけで、書き換えない
+ */
 const tableResizeSource = readFileSync(fileURLToPath(new URL('./tableResize.ts', import.meta.url)), 'utf8');
 
 describe('tableResize', () => {

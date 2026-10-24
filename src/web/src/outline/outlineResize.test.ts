@@ -1,3 +1,7 @@
+/**
+ * アウトライン幅が左右の境界と最低幅を守ることを確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { calculateOutlineWidth, clampOutlineWidth } from './outlineResize';
 

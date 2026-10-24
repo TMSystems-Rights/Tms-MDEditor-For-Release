@@ -1,3 +1,8 @@
+/**
+ * 表、画像、Mermaid、HTML 表をウィジェットへ置き換える条件を検証する
+ * EditorState はヘルパーが都度作り、ホストのファイル読み込みはモックに置き換える
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { history, undo } from '@codemirror/commands';
@@ -57,9 +62,10 @@ import { collectHtmlDecorationEntries } from './htmlInline';
 import { collectHtmlBreakDecorationEntries } from './htmlBreak';
 
 /**
- * @param {string} doc ドキュメント
- * @param {number} [cursor] カーソル位置
- * @returns {EditorState}
+ * ノートパス付きの Markdown 状態を作る
+ * @param doc - ドキュメント全文
+ * @param cursor - カーソル位置。省略時は文書先頭
+ * @returns 文書文脈と TMS Markdown を載せた状態
  */
 function createState(doc: string, cursor: number = 0): EditorState {
 	return EditorState.create({
@@ -76,16 +82,17 @@ function createState(doc: string, cursor: number = 0): EditorState {
 }
 
 /**
- * @param {EditorState} state 状態
- * @param {string} name ノード名
- * @returns {import('@lezer/common').SyntaxNode | null}
+ * 構文木から、指定名の最初のノードを探す
+ * @param state - 構文木を読む状態
+ * @param name - 探すノード名
+ * @returns 最初のノード。無ければ null
  */
 function findNode(state: EditorState, name: string) {
 	let found: import('@lezer/common').SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
-		 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-		 * @returns {boolean | void}
+		 * @param ref - ノード
+		 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 		 */
 		enter(ref) {
 			if (ref.name === name) {
@@ -101,7 +108,7 @@ describe('blockWidgets', () => {
 	it('行列選択ヘッダーは表本体と余白が変わるラッパーの両方を監視する', () => {
 		const observed = [] as Element[];
 		const observer = {
-			/** @param {Element} element 監視対象 */
+			/** @param element - 監視対象 */
 			observe(element: Element) {
 				observed.push(element);
 			},
@@ -138,7 +145,7 @@ describe('blockWidgets', () => {
 			const calls: string[] = [];
 			const cell            = {
 				dataset: { editing: 'true' },
-				ownerDocument: { defaultView: { /**
+				ownerDocument: { defaultView: {					/**
 				 *
 				 */
 					getSelection: () => null } },
@@ -272,8 +279,8 @@ describe('blockWidgets', () => {
 		const tables: import('@lezer/common').SyntaxNode[] = [];
 		syntaxTree(state).iterate({
 			/**
-			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-			 * @returns {boolean | void}
+			 * @param ref - ノード
+			 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 			 */
 			enter(ref) {
 				if (ref.name === 'Table') {
@@ -333,11 +340,11 @@ describe('blockWidgets', () => {
 		const widget  = new TableWidget(extractTableData(aligned, findNode(aligned, 'Table')!));
 		const names   = new Set<string>(['cm-md-table-wrap']);
 		const cells   = [
-			{ dataset: { tableRow: '0', tableColumn: '0', source: '' }, classList: { /**
+			{ dataset: { tableRow: '0', tableColumn: '0', source: '' }, classList: {				/**
 			 *
 			 */
 				[Symbol.iterator]: () => [][Symbol.iterator]() } },
-			{ dataset: { tableRow: '1', tableColumn: '0', source: '100' }, classList: { /**
+			{ dataset: { tableRow: '1', tableColumn: '0', source: '100' }, classList: {				/**
 			 *
 			 */
 				[Symbol.iterator]: () => [][Symbol.iterator]() } },
@@ -345,8 +352,8 @@ describe('blockWidgets', () => {
 		const dom     = {
 			classList: {
 				/**
-				 * @param {string} name クラス
-				 * @returns {boolean}
+				 * @param name - クラス
+				 * @returns 同一なら true
 				 */
 				contains(name: string) {
 					return names.has(name);
@@ -354,7 +361,7 @@ describe('blockWidgets', () => {
 			},
 			dataset: {},
 			/**
-			 * @returns {typeof cells} セル
+			 * @returns セル
 			 */
 			querySelectorAll() {
 				return cells;
@@ -371,13 +378,13 @@ describe('blockWidgets', () => {
 		const cells   = [
 			{
 				dataset  : { tableRow: '0', tableColumn: '0', source: '', editableText: '' },
-				classList: { /**
+				classList: {					/**
 				 *
 				 */
-					[Symbol.iterator]: () => header.values(), /**
+					[Symbol.iterator]: () => header.values(),					/**
 				 *
 				 */
-					add() {}, /**
+					add() {},					/**
 				 *
 				 */
 					remove() {} },
@@ -385,13 +392,13 @@ describe('blockWidgets', () => {
 			},
 			{
 				dataset  : { tableRow: '1', tableColumn: '0', source: '100{align=right}', editableText: '100' },
-				classList: { /**
+				classList: {					/**
 				 *
 				 */
-					[Symbol.iterator]: () => data.values(), /**
+					[Symbol.iterator]: () => data.values(),					/**
 				 *
 				 */
-					add() {}, /**
+					add() {},					/**
 				 *
 				 */
 					remove() {} },
@@ -401,8 +408,8 @@ describe('blockWidgets', () => {
 		const dom     = {
 			classList: {
 				/**
-				 * @param {string} name クラス
-				 * @returns {boolean}
+				 * @param name - クラス
+				 * @returns 同一なら true
 				 */
 				contains(name: string) {
 					return name === 'cm-md-table-wrap';
@@ -410,7 +417,7 @@ describe('blockWidgets', () => {
 			},
 			dataset: {},
 			/**
-			 * @returns {typeof cells} セル
+			 * @returns セル
 			 */
 			querySelectorAll() {
 				return cells;
@@ -425,8 +432,8 @@ describe('blockWidgets', () => {
 		const tables: import('@lezer/common').SyntaxNode[] = [];
 		syntaxTree(state).iterate({
 			/**
-			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-			 * @returns {boolean | void}
+			 * @param ref - ノード
+			 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 			 */
 			enter(ref) {
 				if (ref.name === 'Table') {
@@ -446,8 +453,7 @@ describe('blockWidgets', () => {
 		const view  = {
 			state: createState(`${block}\n\n${block}\n`),
 			/**
-			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
 				this.state = this.state.update(spec).state;
@@ -456,8 +462,8 @@ describe('blockWidgets', () => {
 		const tables: import('@lezer/common').SyntaxNode[] = [];
 		syntaxTree(view.state).iterate({
 			/**
-			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-			 * @returns {boolean | void}
+			 * @param ref - ノード
+			 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 			 */
 			enter(ref) {
 				if (ref.name === 'Table') {
@@ -477,8 +483,8 @@ describe('blockWidgets', () => {
 		const after: import('@lezer/common').SyntaxNode[] = [];
 		syntaxTree(view.state).iterate({
 			/**
-			 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-			 * @returns {boolean | void}
+			 * @param ref - ノード
+			 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 			 */
 			enter(ref) {
 				if (ref.name === 'Table') {
@@ -505,8 +511,7 @@ describe('blockWidgets', () => {
 		const view  = {
 			state,
 			/**
-			 * @param {import('@codemirror/state').TransactionSpec} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: import('@codemirror/state').TransactionSpec) {
 				this.state = this.state.update(spec).state;
@@ -523,7 +528,6 @@ describe('blockWidgets', () => {
 		const view  = {
 			state,
 			/**
-			 * @returns {void}
 			 */
 			dispatch() {
 				throw new Error('dispatchされないこと');
@@ -560,8 +564,7 @@ describe('blockWidgets', () => {
 		const view = {
 			state,
 			/**
-			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
 				this.state = this.state.update(spec).state;
@@ -591,8 +594,7 @@ describe('blockWidgets', () => {
 		const view     = {
 			state,
 			/**
-			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
 				this.state = this.state.update(spec).state;
@@ -601,7 +603,8 @@ describe('blockWidgets', () => {
 		const wrap = {
 			dataset: { imagePath: path.replaceAll('\\', '/') },
 			/**
-			 * @returns {null}
+			 * 祖先を探すモック。このケースでは表の枠を持たない
+			 * @returns 常に null
 			 */
 			closest() {
 				return null;
@@ -658,8 +661,7 @@ describe('blockWidgets', () => {
 		const view = {
 			state: createState(doc, 0),
 			/**
-			 * @param {{ changes: { from: number; to: number; insert: string } }} spec 更新
-			 * @returns {void}
+			 * @param spec - 更新
 			 */
 			dispatch(spec: { changes: { from: number; to: number; insert: string } }) {
 				this.state = this.state.update(spec).state;
@@ -960,9 +962,9 @@ describe('blockWidgets', () => {
 
 	it('表セルの上下キーだけを同一列の縦移動として扱う', () => {
 		/**
-		 * 修飾キーなしのキーイベント相当値を作る。
-		 * @param {string} value キー名
-		 * @returns {object} キーイベント相当値
+		 * 修飾キーなしのキーイベント相当値を作る
+		 * @param value - キー名
+		 * @returns キーイベント相当値
 		 */
 		const key = (value: string) => ({
 			ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, key: value,
@@ -1163,8 +1165,7 @@ describe('blockWidgets', () => {
 		const names: string[] = [];
 		syntaxTree(state).iterate({
 			/**
-			 * @param {{ name: string }} node ノード
-			 * @returns {void}
+			 * @param node - ノード
 			 */
 			enter(node) {
 				names.push(node.name);

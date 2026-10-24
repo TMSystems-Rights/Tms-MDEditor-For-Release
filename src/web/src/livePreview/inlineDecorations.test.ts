@@ -1,3 +1,8 @@
+/**
+ * 強調、コード、リンクのインライン装飾が、選択中はソースのまま残ることを検証する
+ * 構文木は TMS Markdown 拡張で作り、装飾文字列だけを比較する
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
@@ -7,8 +12,8 @@ import { buildDecorationSet, buildInlineDecorationsForTest, collectInlineDecorat
 
 /**
  * TMS Markdown 付き EditorState を生成する
- * @param {string} doc ドキュメント
- * @returns {EditorState}
+ * @param doc - ドキュメント
+ * @returns TMS Markdown 付き EditorState
  */
 function createMarkdownState(doc: string): EditorState {
 	return EditorState.create({
@@ -19,16 +24,16 @@ function createMarkdownState(doc: string): EditorState {
 
 /**
  * 最初の Link ノードを取得する
- * @param {EditorState} state エディタ状態
- * @returns {import('@lezer/common').SyntaxNode | null}
+ * @param state - エディタ状態
+ * @returns 最初の Link ノード。無ければ null
  */
 function findFirstLinkNode(state: EditorState) {
 	let linkNode: import('@lezer/common').SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
 		 * Link ノードを探索する
-		 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード参照
-		 * @returns {boolean | void}
+		 * @param ref - ノード参照
+		 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 		 */
 		enter(ref) {
 			if (ref.name === 'Link') {

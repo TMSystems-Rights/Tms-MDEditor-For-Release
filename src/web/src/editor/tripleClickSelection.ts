@@ -1,3 +1,9 @@
+/**
+ * トリプルクリックで論理行の内容だけを選択する
+ * 行末の改行は選択に含めず、キャレットは選択した行の末尾に置く
+ * 単クリックとダブルクリックは既定のマウス選択へ返し、本ファイルは detail が 3 以上のときだけスタイルを返す
+ * @file
+ */
 import {
 	EditorSelection,
 	EditorState,
@@ -7,20 +13,24 @@ import {
 } from '@codemirror/state';
 import { EditorView, type MouseSelectionStyle } from '@codemirror/view';
 
+// ----------------------------------------------
+// 選択スタイル
+// ----------------------------------------------
+
 /**
- * トリプルクリック以上で、論理行の内容だけを選択するマウス選択を登録する。
- * 行末の改行は含めない。キャレットは選択した行の末尾に置く。
- * @returns {Extension} マウス選択拡張
+ * トリプルクリック以上で、論理行の内容だけを選択するマウス選択を登録する
+ * 行末の改行は含めない。キャレットは選択した行の末尾に置く
+ * @returns 既定のマウス選択より優先する Extension
  */
 export function createTripleClickSelectionExtension(): Extension {
 	return Prec.high(EditorView.mouseSelectionStyle.of(tripleClickMouseSelectionStyle));
 }
 
 /**
- * トリプルクリックの選択スタイルを返す。単クリックとダブルクリックは既定の処理へ返す。
- * @param {EditorView} view エディタビュー
- * @param {MouseEvent} event マウスダウン
- * @returns {MouseSelectionStyle | null} 行選択スタイル。対象外なら null
+ * トリプルクリックの選択スタイルを返す。単クリックとダブルクリックは既定の処理へ返す
+ * @param view - 座標から文書位置を取るエディタ
+ * @param event - マウスダウン。左ボタンかつ detail が 3 未満のときは対象外
+ * @returns 行選択スタイル。左ボタンのトリプルクリック以上でないときは null
  */
 export function tripleClickMouseSelectionStyle(
 	view: EditorView,
@@ -34,9 +44,8 @@ export function tripleClickMouseSelectionStyle(
 	let startSelection = view.state.selection;
 	return {
 		/**
-		 * ドラッグ中の文書変更に開始位置を追従させる
-		 * @param {import('@codemirror/view').ViewUpdate} update ビュー更新
-		 * @returns {void}
+		 * ドラッグ中の文書変更に、開始位置と開始時の選択を追従させる
+		 * @param update - ビュー更新。文書が変わったときだけ位置をマップする
 		 */
 		update(update) {
 			if (!update.docChanged) {
@@ -51,10 +60,10 @@ export function tripleClickMouseSelectionStyle(
 		},
 		/**
 		 * クリック位置の論理行、またはドラッグ先までの行範囲を返す
-		 * @param {MouseEvent} currentEvent 現在のマウスイベント
-		 * @param {boolean} extend 既存選択を拡張するか
-		 * @param {boolean} multiple 選択範囲を追加するか
-		 * @returns {EditorSelection} 新しい選択
+		 * @param currentEvent - 現在のマウスイベント。座標が取れないときは開始位置を使う
+		 * @param extend - true のとき開始時の選択を、クリック行の内容まで拡張する
+		 * @param multiple - true のとき開始時の選択へ行範囲を追加する。extend が true のときは見ない
+		 * @returns 新しい選択。同一行ではキャレットをその行末へ置く
 		 */
 		get(currentEvent, extend, multiple) {
 			const current    = view.posAndSideAtCoords(
@@ -79,12 +88,16 @@ export function tripleClickMouseSelectionStyle(
 	};
 }
 
+// ----------------------------------------------
+// 行範囲
+// ----------------------------------------------
+
 /**
- * 指定位置の論理行を、行末改行を含めずに選択する。
- * 空行は次行へ移らないキャレットにする。
- * @param {EditorState} state エディタ状態
- * @param {number} pos 文書位置
- * @returns {SelectionRange} 行内容の選択範囲
+ * 指定位置の論理行を、行末改行を含めずに選択する
+ * 空行は次行へ移らないキャレットにする
+ * @param state - 行を取る文書
+ * @param pos - 文書位置。範囲外や非数は文書内へ収めてから行を決める
+ * @returns 行内容の選択。空行は行頭の空キャレット
  */
 export function selectionRangeForLine(state: EditorState, pos: number): SelectionRange {
 	const line = state.doc.lineAt(clampDocumentPos(state, pos));
@@ -96,12 +109,12 @@ export function selectionRangeForLine(state: EditorState, pos: number): Selectio
 }
 
 /**
- * トリプルクリックのドラッグ範囲を、両端の行末改行を含めずに作る。
- * 同一行ではキャレットを常にその行末へ置く。
- * @param {EditorState} state エディタ状態
- * @param {number} startPos ドラッグ開始位置
- * @param {number} currentPos 現在位置
- * @returns {SelectionRange} 選択範囲
+ * トリプルクリックのドラッグ範囲を、両端の行末改行を含めずに作る
+ * 同一行ではキャレットを常にその行末へ置く
+ * @param state - 行範囲を取る文書
+ * @param startPos - ドラッグ開始の文書位置
+ * @param currentPos - 現在の文書位置。開始行より前なら選択の向きを逆にする
+ * @returns 行末改行を含まない選択
  */
 export function selectionForTripleClick(
 	state: EditorState,
@@ -124,9 +137,9 @@ export function selectionForTripleClick(
 
 /**
  * 文書範囲へ位置を収める
- * @param {EditorState} state エディタ状態
- * @param {number} pos 文書位置
- * @returns {number} 有効な文書位置
+ * @param state - 範囲の基準となる文書
+ * @param pos - 収める文書位置。非数は 0、小数は切り捨てる
+ * @returns 0 以上、文書長以下の整数位置
  */
 function clampDocumentPos(state: EditorState, pos: number): number {
 	if (!Number.isFinite(pos)) {

@@ -1,9 +1,21 @@
+// ==============================================
+// 貼り付け画像の保存先解決を固定する
+// ==============================================
+
+// 未指定はピクチャ配下の既定フォルダにし、相対パスは拒否し、環境変数と UNC は絶対パスへ解決する
+
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// 保存先パスの解決だけを見る。ディレクトリの作成や画像の書き込みはしない
+/// </summary>
 public class AttachmentFolderTests
 {
+	/// <summary>
+	/// 既定の保存先はピクチャ配下の TMS-MDEditor\Screenshots で、絶対パスである
+	/// </summary>
 	[Fact]
 	public void GetDefaultFolder_uses_pictures_and_product_name()
 	{
@@ -14,6 +26,9 @@ public class AttachmentFolderTests
 		Assert.True(Path.IsPathFullyQualified(folder));
 	}
 
+	/// <summary>
+	/// 空白だけの指定はエラーにせず、既定の保存先へ解決する
+	/// </summary>
 	[Fact]
 	public void TryResolve_empty_uses_default()
 	{
@@ -22,6 +37,9 @@ public class AttachmentFolderTests
 		Assert.Equal(AttachmentFolder.GetDefaultFolder(), folder);
 	}
 
+	/// <summary>
+	/// 相対パスは空の保存先と、絶対パスを求めるエラーにする
+	/// </summary>
 	[Fact]
 	public void TryResolve_rejects_relative_path()
 	{
@@ -30,6 +48,9 @@ public class AttachmentFolderTests
 		Assert.Equal("貼り付け画像の保存先は絶対パスで指定してください。", error);
 	}
 
+	/// <summary>
+	/// ローカルの絶対パスと UNC は、エラーなしで絶対パスのまま受け入れる
+	/// </summary>
 	[Fact]
 	public void TryResolve_accepts_local_absolute_and_unc()
 	{
@@ -43,6 +64,9 @@ public class AttachmentFolderTests
 		Assert.StartsWith(@"\\server\share\", unc, StringComparison.OrdinalIgnoreCase);
 	}
 
+	/// <summary>
+	/// 環境変数を含む指定は展開し、% が残らない絶対パスにする
+	/// </summary>
 	[Fact]
 	public void TryResolve_expands_environment_variables()
 	{

@@ -1,3 +1,8 @@
+/**
+ * 表の最大幅が、表示領域から余白を引き、横スクロールでは変わらず、負にならないことを検証する
+ * DOM は測らず、resolveTableMaxWidth の計算だけを見る
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { resolveTableMaxWidth } from './tableMaxWidth';
 

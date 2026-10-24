@@ -1,3 +1,8 @@
+/**
+ * ショートカットの正規化、一致、競合、Windows の予約キーを検証する
+ * @file
+ */
+
 import { describe, expect, it } from 'vitest';
 import {
 	findShortcutConflicts,
@@ -8,8 +13,9 @@ import {
 } from './keybindings';
 
 /**
- * @param {Partial<KeyboardEvent>} partial 部分イベント
- * @returns {KeyboardEvent}
+ * テスト用のキーボードイベントを、指定したキーと修飾だけ埋めて作る
+ * @param partial - key は押した文字、ctrlKey / shiftKey / altKey は修飾、code は物理キー。省略した修飾は false、code は空
+ * @returns ショートカット判定へ渡す最小のキーボードイベント
  */
 function createKeyEvent(partial: {
 	key: string;

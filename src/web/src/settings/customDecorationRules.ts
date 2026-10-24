@@ -1,18 +1,35 @@
+/**
+ * 設定画面で編集するカスタム装飾ルールを作り、検証し、保存前に正規化する
+ * エディタへの適用は持たない
+ * @file
+ */
 import type { CustomDecorationRule } from '../types/app';
 import { isSafeCssClassName } from '../livePreview/customDecorations';
 
+/**
+ * 検証エラーが指す入力欄
+ * 名前、正規表現、CSS クラスのいずれか
+ */
 export type CustomDecorationRuleField = 'name' | 'pattern' | 'cssClass';
 
+/**
+ * 1 件のルール検証エラー
+ * 無効なルールは検証しないため、ここには載らない
+ */
 export type CustomDecorationValidationError = {
+	/** ルール配列の位置。0 始まり */
 	index: number;
+	/** エラーを表示する入力欄 */
 	field: CustomDecorationRuleField;
+	/** その欄の下に出す説明 */
 	message: string;
 };
 
 /**
- * 設定画面から追加する新規ルールを生成する。
- * @param {CustomDecorationRule[]} current 現在のルール
- * @returns {CustomDecorationRule} 新規ルール
+ * 設定画面から追加する新規ルールを生成する
+ * CSS クラスは既存と重ならない `tms-custom-N` にし、追加直後は無効
+ * @param current - すでに並んでいるルール。クラス名の重複回避に使う
+ * @returns 未保存の新規ルール。区切り記号は隠す初期値
  */
 export function createNewCustomDecorationRule(current: CustomDecorationRule[]): CustomDecorationRule {
 	let suffix = current.length + 1;
@@ -30,9 +47,10 @@ export function createNewCustomDecorationRule(current: CustomDecorationRule[]): 
 }
 
 /**
- * GUIで編集したカスタム装飾ルールを検証する。
- * @param {CustomDecorationRule[]} rules ルール一覧
- * @returns {CustomDecorationValidationError[]} 検証エラー
+ * GUI で編集したカスタム装飾ルールを検証する
+ * 無効なルールは不正でも保存できるよう、検証をスキップする
+ * @param rules - 画面上のルール一覧。無効なものはエラーにしない
+ * @returns 有効なルールの入力エラー。問題が無ければ空配列
  */
 export function validateCustomDecorationRules(
 	rules: CustomDecorationRule[],
@@ -40,7 +58,7 @@ export function validateCustomDecorationRules(
 	const errors: CustomDecorationValidationError[] = [];
 
 	rules.forEach((rule, index) => {
-		// 不正な旧ルールでも、まず無効化して保存できるようにする。
+		// 不正な旧ルールでも、まず無効化して保存できるようにする
 		if (rule.enabled === false) {
 			return;
 		}
@@ -75,9 +93,10 @@ export function validateCustomDecorationRules(
 }
 
 /**
- * 保存用に文字列項目を正規化する。
- * @param {CustomDecorationRule[]} rules ルール一覧
- * @returns {CustomDecorationRule[]} 正規化済みルール
+ * 保存用に文字列項目を正規化する
+ * 名前と CSS クラスの前後空白を除き、有効フラグと区切り隠しを boolean に揃える。パターンは変えない
+ * @param rules - 画面上のルール一覧
+ * @returns 保存へ渡すルール。入力配列は変えない
  */
 export function normalizeCustomDecorationRules(rules: CustomDecorationRule[]): CustomDecorationRule[] {
 	return rules.map((rule) => ({

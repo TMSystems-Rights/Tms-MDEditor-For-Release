@@ -1,3 +1,8 @@
+/**
+ * 利用者が定義した正規表現をコンパイルし、プレビュー行の mark と区切り隠しへ変える
+ * ルールの保存は持たず、Facet に載った配列を読む
+ * @file
+ */
 import { Decoration } from '@codemirror/view';
 import type { EditorState, Extension } from '@codemirror/state';
 import { Facet, StateEffect, StateField } from '@codemirror/state';
@@ -6,13 +11,20 @@ import { isPreviewLineNumber, collectSourceLineNumbers } from './cursorLine';
 import { pushHiddenReplace } from './hiddenContent';
 import type { DecorationEntry } from './inlineDecorations';
 
+// ----------------------------------------------
+// コンパイル済みルール
+// ----------------------------------------------
 /**
  * コンパイル済みカスタム装飾ルール
  */
 export type CompiledCustomDecorationRule = {
+	/** 設定上のルール名。空のときは (unnamed) */
 	name: string;
+	/** d と g を付けた正規表現。行ごとに lastIndex を戻して使う */
 	regexp: RegExp;
+	/** 最初のキャプチャの外側を隠すなら true */
 	hideDelimiters: boolean;
+	/** mark に付けるクラス。安全な識別子だけ */
 	cssClass: string;
 };
 
@@ -20,7 +32,9 @@ export type CompiledCustomDecorationRule = {
  * ルールコンパイル結果
  */
 export type CompileCustomDecorationsResult = {
+	/** コンパイルできたルール。不正なパターンは含めない */
 	rules: CompiledCustomDecorationRule[];
+	/** スキップしたルール名。無名は (unnamed) */
 	invalidNames: string[];
 };
 
@@ -28,20 +42,27 @@ export type CompileCustomDecorationsResult = {
  * ドキュメント絶対座標のカスタム装飾範囲
  */
 export type CustomDecorationRange = {
+	/** 一致全体の開始。文書上の文字位置 */
 	fullFrom: number;
+	/** 一致全体の終端。文書上の文字位置 */
 	fullTo: number;
+	/** 装飾する範囲の開始。キャプチャが無ければ fullFrom */
 	from: number;
+	/** 装飾する範囲の終端 */
 	to: number;
+	/** その範囲に付けるクラス */
 	cssClass: string;
+	/** キャプチャの外側を隠すか。ルールから写す */
 	hideDelimiters: boolean;
 };
 
+/** クラス名として許す文字。英字か _ で始まり、以降は英数字と _ と -。実行中は変えない */
 const CSS_CLASS_PATTERN = /^[A-Za-z_][\w-]*$/;
 
 /**
  * cssClass が安全な識別子か
- * @param {string} cssClass クラス名
- * @returns {boolean}
+ * @param cssClass - クラス名
+ * @returns cssClass が安全な識別子かなら true
  */
 export function isSafeCssClassName(cssClass: string): boolean {
 	return CSS_CLASS_PATTERN.test(cssClass);
@@ -49,8 +70,8 @@ export function isSafeCssClassName(cssClass: string): boolean {
 
 /**
  * config のルールをコンパイルする（不正 regex はスキップ）
- * @param {CustomDecorationRule[] | undefined | null} rawRules 生ルール
- * @returns {CompileCustomDecorationsResult}
+ * @param rawRules - 生ルール
+ * @returns config のルールをコンパイルする（不正 regex はスキップ）
  */
 export function compileCustomDecorationRules(
 	rawRules: CustomDecorationRule[] | undefined | null,
@@ -100,10 +121,10 @@ export function compileCustomDecorationRules(
 
 /**
  * 1 テキストに対するカスタム装飾範囲を収集する
- * @param {string} text 対象テキスト
- * @param {CompiledCustomDecorationRule[]} rules ルール
- * @param {number} [baseOffset] ドキュメント先頭からのオフセット
- * @returns {CustomDecorationRange[]}
+ * @param text - 対象テキスト
+ * @param rules - ルール
+ * @param baseOffset - ドキュメント先頭からのオフセット。省略可
+ * @returns 集めた1 テキストに対するカスタム装飾範囲。該当が無ければ空
  */
 export function collectCustomDecorationRangesFromText(
 	text: string,
@@ -147,9 +168,9 @@ export function collectCustomDecorationRangesFromText(
 
 /**
  * ドキュメント全行からカスタム装飾範囲を収集する
- * @param {{ lines: number; line: (n: number) => { from: number; text: string } }} doc ドキュメント
- * @param {CompiledCustomDecorationRule[]} rules ルール
- * @returns {CustomDecorationRange[]}
+ * @param doc - ドキュメント
+ * @param rules - ルール
+ * @returns 集めたドキュメント全行からカスタム装飾範囲。該当が無ければ空
  */
 export function collectCustomDecorationRangesFromDoc(
 	doc: { lines: number; line: (n: number) => { from: number; text: string } },
@@ -168,6 +189,9 @@ export function collectCustomDecorationRangesFromDoc(
 	return ranges;
 }
 
+// ----------------------------------------------
+// エディタ状態
+// ----------------------------------------------
 /**
  * カスタム装飾ルールを更新する Effect
  */
@@ -181,8 +205,9 @@ export const customDecorationsFacet = Facet.define<
 	CompiledCustomDecorationRule[]
 >({
 	/**
-	 * @param {readonly CompiledCustomDecorationRule[][]} values 提供値
-	 * @returns {CompiledCustomDecorationRule[]}
+	 * 提供されたルールのうち、最後の1件を現在値にする
+	 * @param values - この Facet へ提供されたルール。空ならルール無し
+	 * @returns 最後のルール配列。提供が無ければ空
 	 */
 	combine(values) {
 		return values.length > 0 ? values[values.length - 1]! : [];
@@ -194,15 +219,17 @@ export const customDecorationsFacet = Facet.define<
  */
 export const customDecorationsField = StateField.define<CompiledCustomDecorationRule[]>({
 	/**
-	 * @returns {CompiledCustomDecorationRule[]}
+	 * ルールの無い初期値を返す
+	 * @returns 空のルール配列
 	 */
 	create() {
 		return [];
 	},
 	/**
-	 * @param {CompiledCustomDecorationRule[]} value 現在値
-	 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-	 * @returns {CompiledCustomDecorationRule[]}
+	 * setCustomDecorationsEffect があれば、そのルールで置き換える
+	 * @param value - 更新前のルール
+	 * @param transaction - ルール更新 Effect を含み得るトランザクション
+	 * @returns 置き換えたルール。Effect が無ければ value
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
@@ -214,16 +241,16 @@ export const customDecorationsField = StateField.define<CompiledCustomDecoration
 		return value;
 	},
 	/**
-	 * @param {StateField<CompiledCustomDecorationRule[]>} field フィールド
-	 * @returns {Extension}
+	 * @param field - フィールド
+	 * @returns エディタへ渡す拡張
 	 */
 	provide: (field) => customDecorationsFacet.from(field),
 });
 
 /**
  * カスタム装飾拡張を生成する
- * @param {CompiledCustomDecorationRule[]} initial 初期ルール
- * @returns {Extension[]}
+ * @param initial - 初期ルール
+ * @returns カスタム装飾拡張
  */
 export function createCustomDecorationsExtensions(
 	initial: CompiledCustomDecorationRule[],
@@ -235,11 +262,10 @@ export function createCustomDecorationsExtensions(
 
 /**
  * 1 行に対してルールを適用した Decoration エントリを追加する
- * @param {DecorationEntry[]} entries エントリ
- * @param {string} lineText 行テキスト
- * @param {number} lineFrom 行先頭位置
- * @param {CompiledCustomDecorationRule} rule ルール
- * @returns {void}
+ * @param entries - エントリ
+ * @param lineText - 行テキスト
+ * @param lineFrom - 行先頭位置
+ * @param rule - ルール
  */
 function pushMatchesForLine(
 	entries: DecorationEntry[],
@@ -288,12 +314,15 @@ function pushMatchesForLine(
 	}
 }
 
+// ----------------------------------------------
+// 装飾の収集
+// ----------------------------------------------
 /**
  * カスタム装飾の Decoration エントリを収集する
- * @param {EditorState} state 状態
- * @param {Set<number>} [sourceLineNumbers] ソース行
- * @param {CompiledCustomDecorationRule[]} [rules] ルール（省略時は Facet）
- * @returns {DecorationEntry[]}
+ * @param state - 状態
+ * @param sourceLineNumbers - ソース行。省略可
+ * @param rules - ルール（省略時は Facet）
+ * @returns 集めたカスタム装飾の Decoration エントリ。該当が無ければ空
  */
 export function collectCustomDecorationEntries(
 	state: EditorState,

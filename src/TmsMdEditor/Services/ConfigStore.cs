@@ -1,3 +1,10 @@
+// ==============================================
+// dataDir の config.json を読み書きする
+// ==============================================
+
+// 設定文書のキャッシュと、ブートストラップが指す dataDir をこの型が持つ
+// ホストは読み書きと項目リセットを頼み、ファイルの原子的置換は JsonFileHelper が行う
+
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using TmsMdEditor.Models;
@@ -5,18 +12,49 @@ using TmsMdEditor.Models;
 namespace TmsMdEditor.Services;
 
 /// <summary>
-/// dataDir 配下 config.json の読み書き・移行
+/// config.json を読み、欠落を既定で埋め、スキーマ差分を保存し直す
+/// dataDir が無ければ既定へは移さず失敗を返し、壊れたファイルはバックアップから戻す
 /// </summary>
 internal sealed class ConfigStore
 {
+	// ==============================================
+	// スキーマとキャッシュ
+	// ==============================================
+
+	/// <summary>
+	/// このストアが書く schemaVersion。読み込み時の移行判断にも使う
+	/// </summary>
 	public const int CurrentSchemaVersion = 9;
 
+	/// <summary>
+	/// 設定バックアップのファイル名接頭辞。世代の削除もこの名前だけで行う
+	/// </summary>
 	private const string ConfigBackupPrefix = "config";
+
+	/// <summary>
+	/// schemaVersion 1 の置換ショートカット既定値。移行時だけ新しい既定へ寄せる
+	/// </summary>
 	private const string LegacyDefaultReplaceShortcut = "Ctrl+H";
+
+	/// <summary>
+	/// schemaVersion 2 までの分割解除ショートカット。Windows へ届かない予約と重なるため、移行時だけ置き換える
+	/// </summary>
 	private const string LegacyDefaultUnsplitShortcut = "Ctrl+Shift+0";
+
+	/// <summary>
+	/// schemaVersion 4 までの既定下線パターン。取り消し線記法と競合するため、残っているときだけ置き換える
+	/// </summary>
 	private const string LegacyDefaultUnderlinePattern = "~([^~\\n]+)~";
+
+	/// <summary>
+	/// 現行の既定下線パターン。新規と、旧既定のままのルールへ書く
+	/// </summary>
 	private const string DefaultUnderlinePattern = "_v(.+?)_v";
 
+	/// <summary>
+	/// 個別リセットを許す settings の dot 記法キー。dataDir はここへ入れず、移行で扱う
+	/// 実行中は増やさない
+	/// </summary>
 	private static readonly HashSet<string> ResettableSettingKeys =
 	[
 		"theme",
@@ -81,16 +119,35 @@ internal sealed class ConfigStore
 		"contextMenu.tabHidden",
 	];
 
+	/// <summary>
+	/// 読み書きの失敗と dataDir の固定を記録するログ。設定ファイルは所有しない
+	/// </summary>
 	private readonly Logger _logger;
-	private readonly BootstrapConfigStore _bootstrapConfigStore;
-	private AppConfigDocument? _cachedConfig;
-	private string? _cachedDataDir;
 
 	/// <summary>
-	/// 設定ストアを初期化する
+	/// app-config.json の dataDir を読むストア。config.json 本体はここが書く
 	/// </summary>
-	/// <param name="logger">ロガー</param>
-	/// <param name="bootstrapConfigStore">ブートストラップ設定ストア</param>
+	private readonly BootstrapConfigStore _bootstrapConfigStore;
+
+	/// <summary>
+	/// 最後に読み書きした設定。未ロードは null。保存のたびに正規化後の値へ置き換える
+	/// </summary>
+	private AppConfigDocument? _cachedConfig;
+
+	/// <summary>
+	/// キャッシュが指す dataDir。未ロードは null。ブートストラップとずれたままにしない
+	/// </summary>
+	private string? _cachedDataDir;
+
+	// ==============================================
+	// 読み込みと保存
+	// ==============================================
+
+	/// <summary>
+	/// ログとブートストラップを受け取る。最初の Load まで config.json は読まない
+	/// </summary>
+	/// <param name="logger">読み書きの失敗を記録するログ</param>
+	/// <param name="bootstrapConfigStore">dataDir の読み書き先。このストアでは破棄しない</param>
 	public ConfigStore(Logger logger, BootstrapConfigStore bootstrapConfigStore)
 	{
 		_logger               = logger;
@@ -98,19 +155,19 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// キャッシュ済み設定を取得する
+	/// 最後に読み書きした設定。Load 前は null。呼び出し側はこれを変更してもファイルへは戻らない
 	/// </summary>
 	public AppConfigDocument? CachedConfig => _cachedConfig;
 
 	/// <summary>
-	/// キャッシュ済み dataDir を取得する
+	/// キャッシュが指す dataDir。Load 前は null
 	/// </summary>
 	public string? CachedDataDir => _cachedDataDir;
 
 	/// <summary>
-	/// 設定を読み込む
+	/// config.json を読む。無ければ既定を作り、壊れればバックアップ、それも無ければ既定で起動を続ける
 	/// </summary>
-	/// <returns>読込結果</returns>
+	/// <returns>成否、正規化済み設定、利用者向けメッセージ。例外は出さない</returns>
 	public LoadConfigResult Load()
 	{
 		try
@@ -240,10 +297,10 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 設定を保存する
+	/// 正規化した設定を、現在の dataDir へバックアップ付きで書く。dataDir が無く既定でもなければ保存しない
 	/// </summary>
-	/// <param name="config">設定</param>
-	/// <returns>保存結果</returns>
+	/// <param name="config">保存する設定。schema と欠落は正規化で埋める。引数自体は変更しない</param>
+	/// <returns>成否と正規化後の設定。失敗時はメッセージを入れ、例外は出さない</returns>
 	public SaveConfigResult Save(AppConfigDocument config)
 	{
 		try
@@ -282,10 +339,10 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// settings の一部を更新する
+	/// settings の一部だけを現在値へ重ねて保存する。オブジェクトは再帰し、配列とスカラーは置き換える
 	/// </summary>
-	/// <param name="partialSettings">更新内容</param>
-	/// <returns>保存結果</returns>
+	/// <param name="partialSettings">camelCase の差分。無いキーは現在値のまま</param>
+	/// <returns>正規化して保存した結果。キャッシュが無ければ先に Load する</returns>
 	public SaveConfigResult UpdateSettings(JsonElement partialSettings)
 	{
 		AppConfigDocument current = _cachedConfig ?? Load().Config;
@@ -302,10 +359,10 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 設定項目を既定値へリセットする
+	/// 1 項目を既定へ戻して保存する。dataDir だけはファイル移動になり、未知のキーは保存しない
 	/// </summary>
-	/// <param name="itemKey">settings 配下 dot 記法キー</param>
-	/// <returns>保存結果</returns>
+	/// <param name="itemKey">settings 配下の dot 記法。dataDir はブートストラップ側の移行</param>
+	/// <returns>保存または移行の成否。未知キーと既定値なしは失敗メッセージ</returns>
 	public SaveConfigResult ResetSettingItem(string itemKey)
 	{
 		if (itemKey.Equals("dataDir", StringComparison.OrdinalIgnoreCase))
@@ -374,9 +431,9 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// dataDir 参照情報を取得する
+	/// 現在の dataDir、既定 dataDir、ポータブルかを返す。フォルダの有無は見ない
 	/// </summary>
-	/// <returns>参照情報</returns>
+	/// <returns>ブートストラップを読み直した参照情報。キャッシュは更新しない</returns>
 	public DataDirInfo GetDataDirInfo()
 	{
 		BootstrapConfigDocument bootstrap = _bootstrapConfigStore.Load();
@@ -390,10 +447,10 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// dataDir を移行する
+	/// dataDir を移し、設定とセッションとスニペットを足りない分だけコピーする。ポータブルは拒否する
 	/// </summary>
-	/// <param name="newDataDir">新しい dataDir</param>
-	/// <returns>移行結果</returns>
+	/// <param name="newDataDir">移動先。空白は失敗。相対パスはカレントから絶対パスにする</param>
+	/// <returns>成否と移動後の dataDir。ブートストラップ更新後に失敗したら元の dataDir へ戻す</returns>
 	public MigrateDataDirResult MigrateDataDir(string newDataDir)
 	{
 		if (AppPaths.IsPortable)
@@ -488,10 +545,14 @@ internal sealed class ConfigStore
 		}
 	}
 
+	// ==============================================
+	// 既定値とファイル操作
+	// ==============================================
+
 	/// <summary>
-	/// 既定設定を生成する
+	/// 未保存の既定 config を作る。ウィンドウサイズ、下線の装飾、現行 schema だけを持ち、最近使ったファイルは空
 	/// </summary>
-	/// <returns>既定 config.json</returns>
+	/// <returns>ファイルへまだ書いていない既定。呼び出しのたびに新しいインスタンス</returns>
 	public static AppConfigDocument CreateDefaultConfig()
 	{
 		return new AppConfigDocument
@@ -519,19 +580,19 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 現在の dataDir を取得する
+	/// 保存先 dataDir を、キャッシュが無ければブートストラップから読む
 	/// </summary>
-	/// <returns>dataDir</returns>
+	/// <returns>現在の dataDir。フォルダの有無は見ない</returns>
 	private string GetCurrentDataDir()
 	{
 		return _cachedDataDir ?? _bootstrapConfigStore.Load().DataDir;
 	}
 
 	/// <summary>
-	/// カスタム装飾ルールを更新する
+	/// カスタム装飾だけを差し替えて保存する。ウィンドウ、settings、最近使ったファイルは維持する
 	/// </summary>
-	/// <param name="decorations">保存するルール一覧</param>
-	/// <returns>保存結果</returns>
+	/// <param name="decorations">保存するルール。空なら空のまま残し、schema は現行にする</param>
+	/// <returns>保存結果。キャッシュが無ければ先に Load する</returns>
 	public SaveConfigResult UpdateCustomDecorations(IEnumerable<CustomDecorationRule> decorations)
 	{
 		AppConfigDocument current = _cachedConfig ?? Load().Config;
@@ -547,7 +608,7 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 指定した dataDir が既定値かどうかを判定する。
+	/// 指定した dataDir が既定値かどうかを判定する
 	/// </summary>
 	/// <param name="dataDir">dataDir</param>
 	/// <returns>既定値の場合 true</returns>
@@ -559,11 +620,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 設定を保存する（内部）
+	/// 必要フォルダを作り、必要ならバックアップしてから config.json を原子的に書く。キャッシュは更新しない
 	/// </summary>
-	/// <param name="dataDir">dataDir</param>
-	/// <param name="config">設定</param>
-	/// <param name="createBackup">バックアップ作成有無</param>
+	/// <param name="dataDir">書く dataDir。無ければ作る</param>
+	/// <param name="config">書く設定。正規化済みであることを呼び出し側が保証する</param>
+	/// <param name="createBackup">既存ファイルを世代バックアップするとき true。新規作成時は false</param>
 	private void SaveInternal(string dataDir, AppConfigDocument config, bool createBackup)
 	{
 		EnsureDataDirectories(dataDir);
@@ -580,9 +641,9 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// dataDir 配下の必要フォルダを確保する
+	/// dataDir と backups、snippets を作る。既にあってもそのまま成功する
 	/// </summary>
-	/// <param name="dataDir">dataDir</param>
+	/// <param name="dataDir">作る dataDir</param>
 	private static void EnsureDataDirectories(string dataDir)
 	{
 		Directory.CreateDirectory(dataDir);
@@ -591,10 +652,10 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 移行対象ファイルをコピーする
+	/// 設定、セッション、表示位置、スニペット、バックアップを、宛先に無いものだけコピーする
 	/// </summary>
-	/// <param name="oldDir">旧 dataDir</param>
-	/// <param name="newDir">新 dataDir</param>
+	/// <param name="oldDir">コピー元 dataDir。無くても各ファイルのコピーはスキップする</param>
+	/// <param name="newDir">コピー先 dataDir</param>
 	private static void CopyMigrationArtifacts(string oldDir, string newDir)
 	{
 		CopyFileIfMissing(AppPaths.GetConfigPath(oldDir), AppPaths.GetConfigPath(newDir));
@@ -605,7 +666,7 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// インストーラが予約した dataDir 移行を適用する。
+	/// インストーラが予約した dataDir 移行を適用する
 	/// </summary>
 	/// <param name="bootstrap">ブートストラップ設定</param>
 	private void TryApplyPendingMigration(BootstrapConfigDocument bootstrap)
@@ -689,41 +750,46 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 設定の妥当性を検証する
+	/// バックアップ復旧に使ってよいかを、schema が正で settings があるかだけで見る
 	/// </summary>
-	/// <param name="config">設定</param>
-	/// <returns>妥当なら true</returns>
+	/// <param name="config">復旧候補。中身の各項目は見ない</param>
+	/// <returns>schemaVersion が 1 以上で settings があれば true</returns>
 	private static bool IsValidConfig(AppConfigDocument config)
 	{
 		return config.SchemaVersion > 0 && config.Settings is not null;
 	}
 
+	// ==============================================
+	// 正規化
+	// ==============================================
+
 	/// <summary>
-	/// 設定を正規化する
+	/// 欠落を既定で埋め、schema が古いときだけショートカット、下線、アウトライン初期表示を移行する
+	/// 旧下線ルールの Pattern は、渡された同じインスタンスを書き換える
 	/// </summary>
-	/// <param name="config">設定</param>
-	/// <returns>正規化後</returns>
+	/// <param name="config">読み込んだ設定。空の装飾は旧 schema のときだけ既定リストへ差し替える</param>
+	/// <returns>現行 schema の新しい文書。ウィンドウと settings は新しいインスタンス</returns>
 	private static AppConfigDocument NormalizeConfig(AppConfigDocument config)
 	{
 		AppConfigDocument defaults = CreateDefaultConfig();
 		AppSettings settings       = NormalizeSettings(config.Settings ?? defaults.Settings);
 
-		// schemaVersion 1 では置換ショートカットの既定値が Ctrl+H だった。
-		// schemaVersion 2 への移行時だけ Ctrl+R へ寄せ、移行後のユーザー再設定は尊重する。
+		// schemaVersion 1 では置換ショートカットの既定値が Ctrl+H だった
+		// schemaVersion 2 への移行時だけ Ctrl+R へ寄せ、移行後のユーザー再設定は尊重する
 		if (config.SchemaVersion < 2 && ShortcutEquals(settings.Keybindings.Replace, LegacyDefaultReplaceShortcut))
 		{
 			settings.Keybindings.Replace = defaults.Settings.Keybindings.Replace;
 		}
 
-		// Ctrl+Shift+0 は Windows の入力言語切替予約により Win32 アプリへ届かない環境がある。
-		// schemaVersion 3 への移行時だけ新しい既定値へ寄せ、ユーザー設定は尊重する。
+		// Ctrl+Shift+0 は Windows の入力言語切替予約により Win32 アプリへ届かない環境がある
+		// schemaVersion 3 への移行時だけ新しい既定値へ寄せ、ユーザー設定は尊重する
 		if (config.SchemaVersion < 3 && ShortcutEquals(settings.Keybindings.Unsplit, LegacyDefaultUnsplitShortcut))
 		{
 			settings.Keybindings.Unsplit = defaults.Settings.Keybindings.Unsplit;
 		}
 
-		// schemaVersion 3 以前は customDecorations: [] が未設定状態として残ることがあった。
-		// v4 への移行時だけ既定の下線を補完し、v4 でユーザーが全削除した空配列は保持する。
+		// schemaVersion 3 以前は customDecorations: [] が未設定状態として残ることがあった
+		// v4 への移行時だけ既定の下線を補完し、v4 でユーザーが全削除した空配列は保持する
 		List<CustomDecorationRule> decorations = config.CustomDecorations ?? [];
 		if (config.SchemaVersion < 4 && decorations.Count == 0)
 		{
@@ -731,7 +797,7 @@ internal sealed class ConfigStore
 		}
 
 		// v4 までの既定下線は Markdown の取り消し線記法 ~~...~~ と競合し得るため、
-		// 既定値そのものが残っているルールだけを、Obsidian で未使用の _v..._v 記法へ移行する。
+		// 既定値そのものが残っているルールだけを、Obsidian で未使用の _v..._v 記法へ移行する
 		if (config.SchemaVersion < 5)
 		{
 			foreach (CustomDecorationRule decoration in decorations)
@@ -746,8 +812,8 @@ internal sealed class ConfigStore
 			}
 		}
 
-		// v8 以前には起動時のアウトライン表示設定がなく、常に非表示だった。
-		// 既存ユーザーの表示状態は維持し、新規インストールだけ新しい既定値（表示）を使う。
+		// v8 以前には起動時のアウトライン表示設定がなく、常に非表示だった
+		// 既存ユーザーの表示状態は維持し、新規インストールだけ新しい既定値（表示）を使う
 		if (config.SchemaVersion < 9)
 		{
 			settings.Outline.Visible = false;
@@ -790,11 +856,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// ウィンドウ設定を正規化する
+	/// ウィンドウ幅と高さを許可範囲の外なら既定へ戻す。範囲内の最大化はそのまま残す
 	/// </summary>
-	/// <param name="window">ウィンドウ設定</param>
-	/// <param name="defaults">既定値</param>
-	/// <returns>正規化後</returns>
+	/// <param name="window">読み込んだウィンドウ設定。null は既定を使う</param>
+	/// <param name="defaults">幅 600 未満や 4096 超、高さ 400 未満のときの代替</param>
+	/// <returns>範囲を確認した新しいウィンドウ設定</returns>
 	private static WindowConfig NormalizeWindow(WindowConfig? window, WindowConfig defaults)
 	{
 		window ??= defaults;
@@ -807,11 +873,15 @@ internal sealed class ConfigStore
 		};
 	}
 
+	// ----------------------------------------------
+	// settings
+	// ----------------------------------------------
+
 	/// <summary>
-	/// settings を正規化する
+	/// 列挙と数値を許可範囲へ戻し、空のフォントや文字コードは既定にする。未知の列挙値は既定へ落とす
 	/// </summary>
-	/// <param name="settings">settings</param>
-	/// <returns>正規化後</returns>
+	/// <param name="settings">読み込んだ settings。null プロパティは既定で埋める</param>
+	/// <returns>新しい settings。引数は変更しない</returns>
 	private static AppSettings NormalizeSettings(AppSettings settings)
 	{
 		AppSettings defaults = CreateDefaultConfig().Settings;
@@ -862,7 +932,7 @@ internal sealed class ConfigStore
 			{
 				Visible = settings.Outline?.Visible ?? defaults.Outline.Visible,
 				Side    = outlineSide,
-				// ウィンドウ最大幅まで本文の最低幅を残して拡張できるよう、UI側の可動範囲を狭めない。
+				// ウィンドウ最大幅まで本文の最低幅を残して拡張できるよう、UI側の可動範囲を狭めない
 				Width   = Clamp(settings.Outline?.Width ?? defaults.Outline.Width, 180, 4096, defaults.Outline.Width),
 			},
 			Export = new ExportSettings
@@ -905,11 +975,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 画像枠線設定を正規化する
+	/// 画像枠線の太さを範囲外なら既定へ戻し、色は 16 進でなければ代替にする
 	/// </summary>
-	/// <param name="source">元設定</param>
-	/// <param name="defaults">既定値</param>
-	/// <returns>正規化後</returns>
+	/// <param name="source">読み込んだ枠線。null は既定</param>
+	/// <param name="defaults">太さと通常色の代替。ホバー色の空は許す</param>
+	/// <returns>新しい枠線設定</returns>
 	private static ImageBorderSettings NormalizeImageBorder(ImageBorderSettings? source, ImageBorderSettings defaults)
 	{
 		source ??= defaults;
@@ -924,12 +994,12 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// CSS の 16進カラーを正規化する
+	/// CSS の 16 進色を、空と不正で分けて返す。前後の空白は除く
 	/// </summary>
-	/// <param name="value">入力</param>
-	/// <param name="fallback">不正時の代替</param>
-	/// <param name="allowEmpty">空を許可するか</param>
-	/// <returns>正規化後</returns>
+	/// <param name="value">入力。null は空として扱う</param>
+	/// <param name="fallback">空を許さないとき、または形式が違うときの代替</param>
+	/// <param name="allowEmpty">空をそのまま空文字で残すとき true。ホバー色用</param>
+	/// <returns>#RGB、#RRGGBB、#RRGGBBAA のどれか、空、または代替</returns>
 	private static string NormalizeCssHexColor(string? value, string fallback, bool allowEmpty)
 	{
 		string trimmed = value?.Trim() ?? string.Empty;
@@ -965,12 +1035,16 @@ internal sealed class ConfigStore
 		return true;
 	}
 
+	// ----------------------------------------------
+	// コンテキストメニュー
+	// ----------------------------------------------
+
 	/// <summary>
-	/// コンテキストメニュー設定を正規化する
+	/// エディタとタブの項目順と非表示一覧から、未知の ID と重複を除き、欠落した既定項目を補う
 	/// </summary>
-	/// <param name="source">元設定</param>
-	/// <param name="defaults">既定値</param>
-	/// <returns>正規化後</returns>
+	/// <param name="source">読み込んだメニュー設定。null は既定</param>
+	/// <param name="defaults">許す ID と、欠けたときに足す順</param>
+	/// <returns>新しいメニュー設定</returns>
 	private static ContextMenuSettings NormalizeContextMenu(ContextMenuSettings? source, ContextMenuSettings defaults)
 	{
 		source ??= defaults;
@@ -1111,11 +1185,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// キーバインド設定を正規化する
+	/// 空のショートカットだけを既定へ戻す。空でない利用者の割り当ては形式を検査しない
 	/// </summary>
-	/// <param name="source">元設定</param>
-	/// <param name="defaults">既定値</param>
-	/// <returns>正規化後</returns>
+	/// <param name="source">読み込んだキーバインド。null は既定</param>
+	/// <param name="defaults">空文字のときの代替</param>
+	/// <returns>新しいキーバインド</returns>
 	private static KeybindingsSettings NormalizeKeybindings(KeybindingsSettings? source, KeybindingsSettings defaults)
 	{
 		source ??= defaults;
@@ -1146,12 +1220,17 @@ internal sealed class ConfigStore
 		};
 	}
 
+	// ----------------------------------------------
+	// JSON の部分更新
+	// ----------------------------------------------
+
 	/// <summary>
-	/// JSON から settings をマージする
+	/// 差分 JSON を現在の settings へ重ね、その後に正規化する。オブジェクトは再帰し、それ以外は置き換える
 	/// </summary>
-	/// <param name="current">現在値</param>
-	/// <param name="partial">部分更新</param>
-	/// <returns>マージ結果</returns>
+	/// <param name="current">マージ先の現在値</param>
+	/// <param name="partial">camelCase の差分</param>
+	/// <returns>正規化後の settings</returns>
+	/// <exception cref="InvalidOperationException">現在値または差分を JSON へ変換できない</exception>
 	private static AppSettings MergeSettings(AppSettings current, JsonElement partial)
 	{
 		JsonSerializerOptions options = new()
@@ -1171,10 +1250,10 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// JSON ノードを再帰マージする
+	/// オブジェクト同士はキーごとに再帰し、配列とスカラーはパッチ側で置き換える
 	/// </summary>
-	/// <param name="target">マージ先</param>
-	/// <param name="patch">更新値</param>
+	/// <param name="target">マージ先。オブジェクトでなければ何もしない</param>
+	/// <param name="patch">更新値。オブジェクトでなければ何もしない</param>
 	private static void MergeJsonNodes(JsonNode target, JsonNode patch)
 	{
 		if (target is not JsonObject targetObject || patch is not JsonObject patchObject)
@@ -1195,11 +1274,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// dot 記法で settings 値を取得する
+	/// settings を camelCase の JSON にして、dot 記法の位置の値を返す
 	/// </summary>
-	/// <param name="settings">settings</param>
-	/// <param name="itemKey">キー</param>
-	/// <returns>値</returns>
+	/// <param name="settings">読む settings</param>
+	/// <param name="itemKey">theme や outline.width のようなキー。途中が無ければ null</param>
+	/// <returns>文字列、数値、bool、文字列配列。オブジェクトや null は null</returns>
 	private static object? GetSettingValue(AppSettings settings, string itemKey)
 	{
 		JsonElement element = JsonSerializer.SerializeToElement(settings, new JsonSerializerOptions
@@ -1220,12 +1299,12 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// dot 記法で settings 値を設定する
+	/// dot 記法の位置へ値を書き、settings へ戻す。途中のオブジェクトが無ければ作る
 	/// </summary>
-	/// <param name="settings">settings</param>
-	/// <param name="itemKey">キー</param>
-	/// <param name="value">値</param>
-	/// <returns>更新後 settings</returns>
+	/// <param name="settings">更新前の settings。引数は変更しない</param>
+	/// <param name="itemKey">書き込むキー。最後の区間がプロパティ名</param>
+	/// <param name="value">書く値。JSON 化できる必要がある</param>
+	/// <returns>更新後の settings。逆直列化に失敗したら引数をそのまま返す</returns>
 	private static AppSettings SetSettingValue(AppSettings settings, string itemKey, object value)
 	{
 		JsonNode? root = JsonSerializer.SerializeToNode(settings, new JsonSerializerOptions
@@ -1257,11 +1336,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// JSON を dot 記法で辿る
+	/// JSON オブジェクトを dot 記法でたどる。途中が無ければ失敗
 	/// </summary>
-	/// <param name="source">JSON</param>
-	/// <param name="itemKey">キー</param>
-	/// <returns>値</returns>
+	/// <param name="source">起点の JSON</param>
+	/// <param name="itemKey">ピリオド区切りのプロパティ名</param>
+	/// <returns>たどり着いた要素。無ければ null</returns>
 	private static JsonElement? NavigateJson(JsonElement source, string itemKey)
 	{
 		JsonElement current = source;
@@ -1279,14 +1358,18 @@ internal sealed class ConfigStore
 		return current;
 	}
 
+	// ----------------------------------------------
+	// 値の補正
+	// ----------------------------------------------
+
 	/// <summary>
-	/// 数値を範囲内に収める
+	/// 範囲外の数値を代替へ戻す。端へ切り詰めはしない
 	/// </summary>
-	/// <param name="value">値</param>
-	/// <param name="min">最小</param>
-	/// <param name="max">最大</param>
-	/// <param name="fallback">代替値</param>
-	/// <returns>調整後</returns>
+	/// <param name="value">調べる値</param>
+	/// <param name="min">含む下限</param>
+	/// <param name="max">含む上限</param>
+	/// <param name="fallback">範囲外のときに返す既定</param>
+	/// <returns>範囲内なら value、範囲外なら fallback</returns>
 	private static int Clamp(int value, int min, int max, int fallback)
 	{
 		if (value < min || value > max)
@@ -1298,11 +1381,11 @@ internal sealed class ConfigStore
 	}
 
 	/// <summary>
-	/// 空文字列を既定値で置換する
+	/// 空白だけの文字列を既定へ戻す。空白以外はそのまま返す
 	/// </summary>
-	/// <param name="value">値</param>
-	/// <param name="fallback">既定値</param>
-	/// <returns>結果</returns>
+	/// <param name="value">設定値。null も既定にする</param>
+	/// <param name="fallback">空のときの代替。トリムはしない</param>
+	/// <returns>空でなければ value、空なら fallback</returns>
 	private static string Coalesce(string? value, string fallback)
 	{
 		return string.IsNullOrWhiteSpace(value) ? fallback : value;

@@ -1,3 +1,8 @@
+/**
+ * 言語名の抽出、インラインコードの接頭辞、カタログ解決、本文範囲を検証する
+ * 動的 import の完了は待たず、同期に決まる結果だけを見る
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import {
 	collectInlineCodeContentRanges,
@@ -11,8 +16,10 @@ import { syntaxTree } from '@codemirror/language';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
 
 /**
- * @param {string} doc ドキュメント
- * @returns {import('@lezer/common').SyntaxNode | null}
+ * 文書中の最初の InlineCode ノードと、それを含む状態を返す
+ * 実画面は使わず、TMS の Markdown サポートだけで構文木を作る
+ * @param doc - 構文木を作る Markdown 本文
+ * @returns state は生成した EditorState。node は最初の InlineCode。無いときは null
  */
 function findInlineCode(doc: string) {
 	const state                                          = EditorState.create({
@@ -22,8 +29,11 @@ function findInlineCode(doc: string) {
 	let found: import('@lezer/common').SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
-		 * @param {{ name: string; node: import('@lezer/common').SyntaxNode }} ref ノード
-		 * @returns {boolean | void}
+		 * 最初の InlineCode を見つけたら探索を止める
+		 * @param ref - 走査中のノード
+		 * @param ref.name - Lezer のノード名。InlineCode のときだけ node を採用する
+		 * @param ref.node - 採用する構文ノード
+		 * @returns InlineCode を見つけたとき false。それ以外は未指定で探索を続ける
 		 */
 		enter(ref) {
 			if (ref.name === 'InlineCode') {

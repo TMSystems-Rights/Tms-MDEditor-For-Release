@@ -1,3 +1,8 @@
+/**
+ * インライン HTML の許可判定と、プレビュー装飾への反映を検証する
+ * EditorState はヘルパーが都度作り、危険な属性が mark に残らないことを見る
+ * @file
+ */
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
@@ -11,9 +16,10 @@ import {
 } from './htmlSanitizer';
 
 /**
- * @param {string} doc ドキュメント
- * @param {number} [cursor] カーソル位置
- * @returns {EditorState}
+ * カーソルを1つ持つ、Markdown 対応済みのテスト用状態を作る
+ * @param doc - ドキュメント全文
+ * @param cursor - カーソル位置。省略時は文書先頭
+ * @returns 指定の文書とカーソル、TMS Markdown 拡張を持つ状態
  */
 function createState(doc: string, cursor: number = 0): EditorState {
 	return EditorState.create({

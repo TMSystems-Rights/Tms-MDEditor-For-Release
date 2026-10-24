@@ -1,3 +1,7 @@
+/**
+ * タブバー空白のダブルクリックと、横スクロールバーの当たりを確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { isPointInHorizontalScrollbar, shouldOpenUntitledTabOnTabBarDoubleClick } from './tabBarEmptyClick';
 

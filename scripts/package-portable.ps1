@@ -1,6 +1,45 @@
-# 本体 publish 成果物と起動用 stub からポータブル ZIP と SHA-256 を生成する。
-# 完成ツリーをステージしてから固める。既存 dist\publish* は削除しない。
-# 出力 ZIP / sha256 ファイルは上書きする。今回作ったステージフォルダだけ削除する。
+<#
+.SYNOPSIS
+    本体の発行成果物からポータブル ZIP と SHA-256 を作る
+
+.DESCRIPTION
+    完成ツリーをステージしてから ZIP を作る
+    既存の発行ディレクトリは削除しない
+    出力 ZIP と .sha256 は上書きする。今回作ったステージディレクトリだけ、完了後に削除する
+
+.PARAMETER ProjectRoot
+    リポジトリのルート。未指定時は、このスクリプトの親ディレクトリ
+
+.PARAMETER Version
+    成果物のバージョン。未指定または空文字のときは Directory.Build.props の Version
+
+.PARAMETER PublishDir
+    本体の発行済みディレクトリ。未指定または空文字のときは dist\publish\win-x64
+
+.PARAMETER OutputDir
+    ZIP と SHA-256 の出力先。未指定または空文字のときは dist
+
+.PARAMETER StageDir
+    ZIP 化前のステージ先。未指定または空文字のときは dist\zip-stage-portable
+
+.PARAMETER LauncherPublishDir
+    ポータブル起動用 exe の発行先。未指定または空文字のときは dist\publish-portable-launcher\win-x64
+
+.OUTPUTS
+    なし。ZIP と .sha256 を OutputDir へファイルとして書く
+
+.EXAMPLE
+    pwsh -NoProfile -File scripts/package-portable.ps1
+
+.NOTES
+    例外:
+    - Directory.Build.props から Version を読めない場合は throw する
+    - publish 成果物、icon.ico、portable-mode.json、README-PORTABLE.txt が無い場合は throw する
+    - ステージ先または起動用の発行先が既にある場合は throw する。既存の配布物は削除しない
+    - 起動用プロジェクトが無い、または発行に失敗した場合は throw する
+    - 起動用 exe の表示名が TMS-MDEditor.portable でない場合は throw する
+    - ZIP の構成が仕様と違う場合は throw する
+#>
 param(
 	[string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
 	[string]$Version = '',
@@ -15,6 +54,32 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+# ----------------------------------------------
+# バージョン
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    Directory.Build.props から Version を読む
+
+.DESCRIPTION
+    ProjectRoot 配下の Directory.Build.props を XML として読む
+    ファイルは変更しない
+
+.PARAMETER Root
+    Directory.Build.props があるリポジトリルート。相対パスの解決はしない
+
+.OUTPUTS
+    System.String
+    Version 要素の文字列
+
+.EXAMPLE
+    $version = Get-ProjectVersion -Root $ProjectRoot
+
+.NOTES
+    例外:
+    - Version が無い、または空白だけのときは throw する
+#>
 function Get-ProjectVersion {
 	param([string]$Root)
 
@@ -28,6 +93,29 @@ function Get-ProjectVersion {
 	return [string]$version
 }
 
+# ----------------------------------------------
+# ZIP に入れないファイル
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    ポータブル ZIP に含めない発行ファイルかを返す
+
+.DESCRIPTION
+    利用者データ、クラッシュダンプ、文書化用 XML を除外する
+    portable-mode.json は XML でも除外しない。ファイルは変更しない
+
+.PARAMETER RelativePath
+    発行ディレクトリからの相対パス。区切りは \ でも / でもよい
+    空文字は除外しない
+
+.OUTPUTS
+    System.Boolean
+    除外するとき true。ZIP に含めるとき false
+
+.EXAMPLE
+    Test-ExcludedPortableSource -RelativePath 'data\session.json'
+#>
 function Test-ExcludedPortableSource {
 	param([string]$RelativePath)
 
@@ -49,6 +137,27 @@ function Test-ExcludedPortableSource {
 	return $false
 }
 
+<#
+.SYNOPSIS
+    ステージ内の相対パスを ZIP エントリ名にする
+
+.DESCRIPTION
+    区切りを / にそろえ、Prefix の下に連結する
+    ファイルは変更しない
+
+.PARAMETER Prefix
+    ZIP 内の親フォルダ名。空文字にはしない
+
+.PARAMETER RelativePath
+    Prefix の下に置く相対パス。空または空白だけのときは Prefix だけを返す
+
+.OUTPUTS
+    System.String
+    / 区切りのエントリ名
+
+.EXAMPLE
+    Convert-ToZipEntryName -Prefix 'TMS-MDEditor/app' -RelativePath 'icon.ico'
+#>
 function Convert-ToZipEntryName {
 	param(
 		[string]$Prefix,
@@ -64,6 +173,33 @@ function Convert-ToZipEntryName {
 	return "$Prefix/$normalized"
 }
 
+<#
+.SYNOPSIS
+    開いている ZIP にファイルを 1 件追加する
+
+.DESCRIPTION
+    Optimal でエントリを作り、SourcePath の内容をコピーする
+    Archive は Dispose しない。既存エントリは消さない
+
+.PARAMETER Archive
+    Create モードで開いている ZipArchive
+
+.PARAMETER EntryName
+    ZIP 内のエントリ名。/ 区切り
+
+.PARAMETER SourcePath
+    読むファイルのパス
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    Add-ZipFileEntry -Archive $archive -EntryName $entryName -SourcePath $file.FullName
+
+.NOTES
+    例外:
+    - ファイルを開けない、またはコピーに失敗したときは、その例外をそのまま送出する
+#>
 function Add-ZipFileEntry {
 	param(
 		[System.IO.Compression.ZipArchive]$Archive,
@@ -85,6 +221,23 @@ function Add-ZipFileEntry {
 	}
 }
 
+# ----------------------------------------------
+# 外部ツール
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    Native AOT に必要な C++ リンカがあるかを返す
+
+.DESCRIPTION
+    Visual Studio の vswhere で VC Tools のインストール先を探す
+    見つからなければ false を返し、発行方法の選択は呼び出し側が行う
+    ファイルは変更しない
+
+.OUTPUTS
+    System.Boolean
+    VC Tools があるとき true。Program Files (x86) または vswhere が無いとき false
+#>
 function Test-NativeAotLinker {
 	$programFilesX86 = (Get-Item -LiteralPath 'Env:ProgramFiles(x86)' -ErrorAction SilentlyContinue)?.Value
 	if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
@@ -100,6 +253,19 @@ function Test-NativeAotLinker {
 	return -not [string]::IsNullOrWhiteSpace($installPath)
 }
 
+<#
+.SYNOPSIS
+    最初に見つかった 7z.exe のパスを返す
+
+.DESCRIPTION
+    PATH、D:\Program Files\7-Zip、Program Files の順に探す
+    見つからなければ空の結果を返し、ZIP は ZipArchive で作る
+    ファイルは変更しない
+
+.OUTPUTS
+    System.String
+    存在する 7z.exe のパス。見つからないときは空
+#>
 function Get-SevenZipPath {
 	$candidates = @(
 		(Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
@@ -117,6 +283,35 @@ function Get-SevenZipPath {
 	return @($candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1)
 }
 
+# ----------------------------------------------
+# 起動用 exe の発行
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    ポータブル起動用 exe を発行する
+
+.DESCRIPTION
+    C++ リンカがあるときは Native AOT、無いときはトリムした単一ファイルで発行する
+    OutputDir の既存ファイルは削除しない。dotnet が出力する
+
+.PARAMETER Root
+    リポジトリルート。起動用 csproj はこの直下の src を基準にする
+
+.PARAMETER OutputDir
+    起動用 exe の発行先。未作成でもよい。この関数は中身を消さない
+
+.OUTPUTS
+    なし。TmsMdEditor.Portable.exe を OutputDir へ書く
+
+.EXAMPLE
+    Publish-PortableLauncher -Root $ProjectRoot -OutputDir $launcherPublishFull
+
+.NOTES
+    例外:
+    - 起動用 csproj が無いときは throw する
+    - dotnet publish が失敗したときは throw する
+#>
 function Publish-PortableLauncher {
 	param(
 		[string]$Root,
@@ -155,6 +350,35 @@ function Publish-PortableLauncher {
 	}
 }
 
+# ----------------------------------------------
+# ステージと ZIP
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    本体の発行ツリーを app ディレクトリへコピーする
+
+.DESCRIPTION
+    除外対象以外のファイルを相対パスのままコピーする
+    無いサブディレクトリは作る。コピー先の同名ファイルは上書きする
+    発行元は削除しない
+
+.PARAMETER PublishFull
+    本体発行ディレクトリのフルパス。末尾に区切り文字は付けない
+
+.PARAMETER AppDir
+    コピー先。ZIP 内の app ディレクトリに対応する
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    Copy-PublishTreeToAppDir -PublishFull $publishFull -AppDir $appDir
+
+.NOTES
+    例外:
+    - 発行ディレクトリを読めない、またはコピーに失敗したときは、その例外をそのまま送出する
+#>
 function Copy-PublishTreeToAppDir {
 	param(
 		[string]$PublishFull,
@@ -178,6 +402,35 @@ function Copy-PublishTreeToAppDir {
 	}
 }
 
+<#
+.SYNOPSIS
+    ステージしたフォルダからポータブル ZIP を作る
+
+.DESCRIPTION
+    7-Zip があるときは 7-Zip、無いときは ZipArchive で ZIP を作る
+    作業ファイル portable-out.zip は StageDir に作り、完成後に ZipPath へ上書きコピーする
+    ステージの中身は削除しない
+
+.PARAMETER StageDir
+    ステージのルート。直下に作業 ZIP を作る
+
+.PARAMETER LayoutFolderName
+    StageDir 直下の、ZIP へ含めるフォルダ名
+
+.PARAMETER ZipPath
+    完成 ZIP の出力パス。既存ファイルは上書きする
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    New-PortableZipFromStage -StageDir $stageFull -LayoutFolderName $zipRoot -ZipPath $zipPath
+
+.NOTES
+    例外:
+    - 7-Zip が 0 以外で終わったときは throw する
+    - ZIP の作成またはコピーに失敗したときは、その例外をそのまま送出する
+#>
 function New-PortableZipFromStage {
 	param(
 		[string]$StageDir,
@@ -221,6 +474,10 @@ function New-PortableZipFromStage {
 	Copy-Item -LiteralPath $builtZip -Destination $ZipPath -Force
 }
 
+# ----------------------------------------------
+# パスの解決
+# ----------------------------------------------
+
 if ([string]::IsNullOrWhiteSpace($Version)) {
 	$Version = Get-ProjectVersion -Root $ProjectRoot
 }
@@ -259,6 +516,10 @@ $layoutRoot = Join-Path $stageFull $zipRoot
 $appDir = Join-Path $layoutRoot 'app'
 $createdStage = $false
 
+# ----------------------------------------------
+# 事前確認
+# ----------------------------------------------
+
 if (-not (Test-Path -LiteralPath $exePath)) {
 	throw "publish 成果物が見つかりません: $exePath`nscripts/dist.ps1 の後に実行してください。"
 }
@@ -286,6 +547,10 @@ if (Test-Path -LiteralPath $launcherPublishFull) {
 if (-not (Test-Path -LiteralPath $outputFull)) {
 	New-Item -ItemType Directory -Path $outputFull | Out-Null
 }
+
+# ----------------------------------------------
+# 発行とステージ
+# ----------------------------------------------
 
 try {
 	Publish-PortableLauncher -Root $ProjectRoot -OutputDir $launcherPublishFull
@@ -321,10 +586,18 @@ try {
 	}
 }
 
+# ----------------------------------------------
+# ハッシュ
+# ----------------------------------------------
+
 $sha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $hashLine = "$sha256  $zipName`n"
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($hashPath, $hashLine, $utf8NoBom)
+
+# ----------------------------------------------
+# ZIP の検証
+# ----------------------------------------------
 
 $verify = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
 try {

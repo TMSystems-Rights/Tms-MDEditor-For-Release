@@ -1,3 +1,8 @@
+/**
+ * 再計測用トランザクションが、選択を変えずに select.caret を付けることを検証する
+ * 描画レイヤは持たず、Transaction の選択と userEvent だけを見る
+ * @file
+ */
 import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createCaretRedrawSpec } from './caretRedraw';

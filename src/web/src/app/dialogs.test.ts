@@ -1,3 +1,7 @@
+/**
+ * コンテキストメニューの位置と、非表示項目の間引きを確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { calculateContextMenuPosition, compactContextMenuEntries } from './dialogs';
 

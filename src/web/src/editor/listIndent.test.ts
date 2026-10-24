@@ -1,3 +1,8 @@
+/**
+ * リストのインデントと番号の振り直し、タスクマーカー直後へのキャレット移動を検証する
+ * 描画は持たず、コマンド適用後の行テキストと選択位置だけを見る
+ * @file
+ */
 import { EditorState, type StateCommand } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,19 +13,19 @@ import {
 } from './listIndent';
 
 /**
- * StateCommand を適用した後の EditorState を返す
- * @param {EditorState} state 初期状態
- * @param {StateCommand} command コマンド
- * @returns {EditorState}
+ * コマンドを 1 回適用し、dispatch 後の状態を返す
+ * dispatch が呼ばれないときは、渡した状態をそのまま返す
+ * @param state - 適用前の文書
+ * @param command - 適用するコマンド。カーソルは state の選択を使う
+ * @returns dispatch されたあとの状態。未適用なら state と同じ
  */
 function applyCommand(state: EditorState, command: StateCommand): EditorState {
 	let next = state;
 	command({
 		state,
 		/**
-		 * トランザクションを適用する
-		 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-		 * @returns {void}
+		 * コマンドが渡したトランザクションを、次の状態として保持する
+		 * @param transaction - コマンドが適用しようとしたトランザクション
 		 */
 		dispatch: (transaction) => {
 			next = transaction.state;
@@ -30,10 +35,11 @@ function applyCommand(state: EditorState, command: StateCommand): EditorState {
 }
 
 /**
- * 指定行の EditorState を生成する
- * @param {string[]} lines 行配列
- * @param {number} lineNumber カーソル行
- * @returns {EditorState}
+ * 指定行の先頭にカーソルを置いた EditorState を作る
+ * タブ幅は 4。Markdown 言語は付けない
+ * @param lines - 改行でつなぐ行
+ * @param lineNumber - カーソルを置く行番号。1 始まり。行頭のオフセットに anchor と head を置く
+ * @returns タブ幅 4 の状態
  */
 function createListState(lines: string[], lineNumber: number): EditorState {
 	const doc  = lines.join('\n');

@@ -1,3 +1,8 @@
+/**
+ * 見出しの収集、現在位置、アウトライン一覧のスクロール計算を検証する
+ * @file
+ */
+
 import { markdown } from '@codemirror/lang-markdown';
 import { EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
@@ -16,7 +21,11 @@ import {
 	preserveEditorFocusOnOutlineMouseDown,
 } from './outline';
 
-/** テスト用の Markdown EditorState を生成する。 */
+/**
+ * テスト用の Markdown EditorState を生成する
+ * @param text - 見出しを含む Markdown
+ * @returns 構文解析つきの文書状態
+ */
 function createMarkdownState(text: string): EditorState {
 	return EditorState.create({ doc: text, extensions: [markdown()] });
 }
@@ -97,6 +106,7 @@ describe('buildOutlineTree', () => {
 });
 
 describe('findActiveOutlineItemIndex', () => {
+	/** 現在見出しの判定に使う、開始位置つきの見出し */
 	const items = [
 		{ level: 1, title: 'A', from: 5 },
 		{ level: 2, title: 'B', from: 20 },
@@ -115,6 +125,7 @@ describe('findActiveOutlineItemIndex', () => {
 });
 
 describe('collectOutlineAncestorFroms', () => {
+	/** 祖先判定に使う見出し。レベルが親子関係を表す */
 	const items = [
 		{ level: 1, title: 'A', from: 0 },
 		{ level: 3, title: 'B', from: 10 },
@@ -189,9 +200,9 @@ describe('jumpToOutlineItem', () => {
 		const transactionSpecs: TransactionSpec[] = [];
 
 		jumpToOutlineItem({
-			/** フォーカス呼出を記録する。 */
+			/** フォーカス呼出を記録する */
 			focus: () => calls.push('focus'),
-			/** dispatch呼出と指定内容を記録する。 */
+			/** dispatch呼出と指定内容を記録する */
 			dispatch: (spec) => {
 				calls.push('dispatch');
 				transactionSpecs.push(spec);
@@ -278,7 +289,7 @@ describe('preserveEditorFocusOnOutlineMouseDown', () => {
 		let prevented = false;
 		preserveEditorFocusOnOutlineMouseDown({
 			button: 0,
-			/** preventDefault 呼び出しを記録する。 */
+			/** preventDefault 呼び出しを記録する */
 			preventDefault: () => {
 				prevented = true;
 			},
@@ -291,7 +302,7 @@ describe('preserveEditorFocusOnOutlineMouseDown', () => {
 		let prevented = false;
 		preserveEditorFocusOnOutlineMouseDown({
 			button: 2,
-			/** preventDefault 呼び出しを記録する。 */
+			/** preventDefault 呼び出しを記録する */
 			preventDefault: () => {
 				prevented = true;
 			},

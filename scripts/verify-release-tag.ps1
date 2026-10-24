@@ -1,4 +1,24 @@
-# Release 公開後に、ローカルとリモートのリリースタグが一致しているか検証する。
+<#
+.SYNOPSIS
+    ローカルとリモートのリリースタグが同じコミットを指すか検証する
+
+.DESCRIPTION
+    v<Version> のローカル SHA と origin のタグ SHA を比べる
+    タグの作成や上書きはしない
+
+.PARAMETER Version
+    検証する版。未指定時は Directory.Build.props の Version。先頭の v は付けない
+
+.OUTPUTS
+    なし。一致したときは終了コード 0 で SHA を表示する
+
+.EXAMPLE
+    pwsh -NoProfile -File scripts/verify-release-tag.ps1 -Version 1.7.2
+
+.NOTES
+    例外:
+    - ローカルまたはリモートにタグが無いとき、または SHA が違うときは Write-Error のあと終了コード 1 で終了する
+#>
 param(
 	[string]$Version
 )

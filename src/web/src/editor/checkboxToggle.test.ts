@@ -1,3 +1,8 @@
+/**
+ * タスクマーカーの判定とトグルを、描画なしの EditorState で検証する
+ * コマンドの dispatch はテスト内で次の状態へ置き換えるだけで、ビューは持たない
+ * @file
+ */
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState, type StateCommand } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
@@ -8,19 +13,19 @@ import {
 } from './checkboxToggle';
 
 /**
- * StateCommand を適用した後の EditorState を返す
- * @param {EditorState} state 初期状態
- * @param {StateCommand} command コマンド
- * @returns {EditorState}
+ * コマンドを 1 回適用し、dispatch 後の状態を返す
+ * dispatch が呼ばれないときは、渡した状態をそのまま返す
+ * @param state - 適用前の文書
+ * @param command - 適用するコマンド。主カーソルは state の選択を使う
+ * @returns dispatch されたあとの状態。未適用なら state と同じ
  */
 function applyCommand(state: EditorState, command: StateCommand): EditorState {
 	let next = state;
 	command({
 		state,
 		/**
-		 * トランザクションを適用する
-		 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-		 * @returns {void}
+		 * コマンドが渡したトランザクションを、次の状態として保持する
+		 * @param transaction - コマンドが適用しようとしたトランザクション
 		 */
 		dispatch: (transaction) => {
 			next = transaction.state;
@@ -30,10 +35,10 @@ function applyCommand(state: EditorState, command: StateCommand): EditorState {
 }
 
 /**
- * GFM（TaskList 含む）付き EditorState を生成する
- * @param {string} doc ドキュメント
- * @param {number} head カーソル位置
- * @returns {EditorState}
+ * GFM のタスクリストを解釈できる EditorState を作る
+ * @param doc - 文書本文
+ * @param head - 主カーソルの文書オフセット。anchor も同じ位置にする
+ * @returns タスクリスト付き Markdown を有効にした状態
  */
 function createState(doc: string, head: number): EditorState {
 	return EditorState.create({
@@ -86,7 +91,7 @@ describe('checkboxToggle', () => {
 		const result = toggleCheckboxCommand({
 			state,
 			/**
-			 * @returns {void}
+			 * 非タスク行では呼ばれないことの確認用。呼ばれたら印を付ける
 			 */
 			dispatch: () => {
 				called = true;

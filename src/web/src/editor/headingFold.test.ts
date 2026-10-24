@@ -1,3 +1,8 @@
+/**
+ * 見出しの折りたたみ範囲、復元、選択を隠す展開を検証する
+ * 画面は持たず、EditorState の範囲と折りたたみ位置だけを見る
+ * @file
+ */
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
@@ -10,7 +15,11 @@ import {
 } from './headingFold';
 import { codeFolding, foldEffect } from '@codemirror/language';
 
-/** テスト用Markdown EditorStateを作る。 */
+/**
+ * 見出し折りたたみを解釈できる EditorState を作る
+ * @param doc - Markdown 本文
+ * @returns TMS の Markdown サポートと codeFolding を付けた状態
+ */
 function state(doc: string): EditorState {
 	return EditorState.create({ doc, extensions: [createTmsMarkdownSupport(), codeFolding()] });
 }

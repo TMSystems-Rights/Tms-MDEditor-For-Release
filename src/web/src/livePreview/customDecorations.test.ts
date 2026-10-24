@@ -1,3 +1,8 @@
+/**
+ * 利用者が定義した正規表現のコンパイルと、プレビュー行への mark 反映を検証する
+ * 不正な正規表現は戻り値の名前で見、DOM は作らない
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
@@ -13,9 +18,10 @@ import { collectSourceLineNumbers } from './cursorLine';
 import { viewModeField } from './livePreviewPlugin';
 
 /**
- * @param {string} doc ドキュメント
- * @param {object} [options] オプション
- * @returns {EditorState}
+ * カスタム装飾ルールを載せたテスト用状態を作る
+ * @param doc - ドキュメント全文
+ * @param options - カーソルと初期ルール。省略時は先頭カーソルでルール無し
+ * @returns 表示モードと装飾ルールを持つ状態
  */
 function createState(
 	doc: string,

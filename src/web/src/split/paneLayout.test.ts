@@ -1,3 +1,7 @@
+/**
+ * 分割木の追加、削除、比率の上限を確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { createPaneLayout, findAdjacentPaneId, listPaneIds, removePane, splitPane, updateSplitRatio, type PaneLayoutNode } from './paneLayout';
 

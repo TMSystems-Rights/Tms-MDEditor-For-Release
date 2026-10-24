@@ -1,6 +1,12 @@
+/**
+ * 表メニューの有効状態が、カーソル位置と編集可否で変わることを検証する
+ * @file
+ */
+
 import { describe, expect, it } from 'vitest';
 import { buildTableMenuEnabledState, type TableMenuRuntimeContext } from './tableMenu';
 
+/** 表の外にいるライブプレビューのカーソル。各テストが必要な項目だけ上書きする */
 const base: TableMenuRuntimeContext = {
 	hasView       : true,
 	viewMode      : 'live-preview',

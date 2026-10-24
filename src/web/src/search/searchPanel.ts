@@ -1,3 +1,8 @@
+/**
+ * 検索パネルの開閉、一致の移動、置換、スクロール補正をエディタ状態へつなぐ
+ * @file
+ */
+
 import {
 	EditorSelection,
 	Facet,
@@ -37,29 +42,41 @@ import { calloutFoldField, isCalloutCollapsed, setCalloutFoldEffect } from '../l
 import { findCalloutContainingRange } from '../livePreview/lineDecorations';
 import type { SearchSettings } from '../types/app';
 
+/**
+ * 検索パネルのモード
+ * `find` は検索だけ、`replace` は置換欄も出す
+ */
 type SearchPanelMode = 'find' | 'replace';
 
+/**
+ * 検索の移動がコールアウトの開閉を戻すかどうか
+ */
 type SearchBehaviorSettings = {
+	/** 次の一致へ移ったあと、検索で開いたコールアウトを元の折りたたみへ戻すか */
 	restoreCalloutFoldStateOnMove: boolean;
 };
 
+/** パネルを検索か置換のどちらで開くかを渡す effect */
 const setSearchPanelModeEffect     = StateEffect.define<SearchPanelMode>();
+/** CodeMirror 標準の一致へのスクロールを置き換える印。位置合わせはこちらの補正が行う */
 const noSearchScrollEffect         = StateEffect.define<void>();
+/** 検索で開いたコールアウトの開始位置を更新する effect。null は自動展開が無い */
 const setAutoExpandedCalloutEffect = StateEffect.define<number | null>({
 	/**
 	 * ドキュメント変更後も自動展開コールアウト位置を追従させる
-	 * @param {number | null} value コールアウト開始位置
-	 * @param {ChangeDesc} changes 変更情報
-	 * @returns {number | null} 変更後のコールアウト開始位置
+	 * @param value - コールアウト開始位置
+	 * @param changes - 変更情報
+	 * @returns 変更後のコールアウト開始位置
 	 */
 	map: (value, changes) => value === null ? null : changes.mapPos(value, 1),
 });
+/** いま強調する一致範囲を更新する effect。null は強調を消す */
 const setCurrentSearchMatchEffect  = StateEffect.define<SearchMatchRange | null>({
 	/**
 	 * ドキュメント変更後も検索一致範囲を可能な限り追従させる
-	 * @param {SearchMatchRange | null} value 現在一致範囲
-	 * @param {ChangeDesc} changes 変更情報
-	 * @returns {SearchMatchRange | null} 変更後の一致範囲
+	 * @param value - 現在一致範囲
+	 * @param changes - 変更情報
+	 * @returns 変更後の一致範囲
 	 */
 	map: (value, changes) => value
 		? {
@@ -69,21 +86,28 @@ const setCurrentSearchMatchEffect  = StateEffect.define<SearchMatchRange | null>
 		: null,
 });
 
+/** スクロール補正の requestMeasure を、他の計測と区別するキー */
 const searchScrollCorrectionKey    = {};
+/** 一致をビューポート上端から何割の位置へ置くか */
 const SEARCH_SCROLL_VIEWPORT_RATIO = 0.35;
+/** 端に近すぎるときに再調整する余白（px） */
 const SEARCH_SCROLL_MARGIN_PX      = 24;
+/** DOM 計測で位置を合わせ直す回数 */
 const SEARCH_SCROLL_FINE_ATTEMPTS  = 5;
+/** 選択の反映を待ってからスクロールを始めるミリ秒 */
 const SEARCH_SCROLL_DELAY_MS       = 35;
 
+/** 設定が無いときの検索挙動。移動後にコールアウトは閉じ直さない */
 const defaultSearchBehaviorSettings: SearchBehaviorSettings = {
 	restoreCalloutFoldStateOnMove: false,
 };
 
+/** エディタへ渡した検索設定を、パネルが読む形へ揃える */
 const searchBehaviorSettingsFacet = Facet.define<SearchSettings | undefined, SearchBehaviorSettings>({
 	/**
 	 * 検索挙動設定を統合する
-	 * @param {readonly (SearchSettings | undefined)[]} values 設定値
-	 * @returns {SearchBehaviorSettings} 正規化後設定
+	 * @param values - 設定値
+	 * @returns 正規化後設定
 	 */
 	combine(values: readonly (SearchSettings | undefined)[]): SearchBehaviorSettings {
 		const latest = [...values].reverse().find((value) => value);
@@ -94,35 +118,49 @@ const searchBehaviorSettingsFacet = Facet.define<SearchSettings | undefined, Sea
 	},
 });
 
+/** いまの一致に付ける装飾。標準の検索ハイライトとは別に出す */
 const currentSearchMatchDecoration = Decoration.mark({
 	class: 'cm-searchMatch cm-searchMatch-selected tms-mde-search-current-match',
 });
 
+/**
+ * 1 回の DOM 計測で分かった、スクロールの修正量
+ */
 type SearchScrollCorrectionMeasure = {
+	/** 一致を目標位置へ動かすスクロール量（px）。正は下方向 */
 	delta: number;
+	/** 高さが変わったため、もう一度測るか */
 	needsRetry: boolean;
 };
 
+/**
+ * ビューポート上で測った、いまの一致の上下端
+ */
 type SearchScrollTargetRect = {
+	/** ビューポート上端からの一致の上端（px） */
 	top: number;
+	/** ビューポート上端からの一致の下端（px） */
 	bottom: number;
 };
 
+/** スクロール補正が追う一致範囲。null は補正をやめる */
 type SearchScrollTarget = SearchMatchRange | null;
 
+/** 新しい移動が始まったら true を返し、遅れた補正を捨てる */
 type SearchScrollCancelCheck = () => boolean;
 
+/** パネルが検索か置換かを保持する状態 */
 const searchPanelModeField = StateField.define<SearchPanelMode>({
 	/**
 	 * 検索モードの初期値を返す
-	 * @returns {SearchPanelMode} 初期モード
+	 * @returns 初期モード
 	 */
 	create: () => 'find',
 	/**
 	 * パネルモード変更を状態へ反映する
-	 * @param {SearchPanelMode} value 現在のモード
-	 * @param {Transaction} transaction トランザクション
-	 * @returns {SearchPanelMode} 更新後のモード
+	 * @param value - 現在のモード
+	 * @param transaction - トランザクション
+	 * @returns 更新後のモード
 	 */
 	update: (value: SearchPanelMode, transaction: Transaction) => {
 		for (const effect of transaction.effects) {
@@ -135,17 +173,18 @@ const searchPanelModeField = StateField.define<SearchPanelMode>({
 	},
 });
 
+/** 検索移動で開いたコールアウトの開始位置。閉じ直すときに使う */
 const autoExpandedCalloutField = StateField.define<number | null>({
 	/**
 	 * 検索移動で自動展開したコールアウト位置の初期値を返す
-	 * @returns {number | null} コールアウト開始位置
+	 * @returns コールアウト開始位置
 	 */
 	create: () => null,
 	/**
 	 * 自動展開コールアウト位置の更新を状態へ反映する
-	 * @param {number | null} value 現在位置
-	 * @param {Transaction} transaction トランザクション
-	 * @returns {number | null} 更新後位置
+	 * @param value - 現在位置
+	 * @param transaction - トランザクション
+	 * @returns 更新後位置
 	 */
 	update: (value: number | null, transaction: Transaction) => {
 		let nextValue = transaction.docChanged && value !== null
@@ -162,17 +201,18 @@ const autoExpandedCalloutField = StateField.define<number | null>({
 	},
 });
 
+/** いまの一致範囲。文書編集後も追従する */
 const currentSearchMatchField = StateField.define<SearchMatchRange | null>({
 	/**
 	 * 現在の検索一致範囲の初期値を返す
-	 * @returns {SearchMatchRange | null} 初期一致範囲
+	 * @returns 初期一致範囲
 	 */
 	create: () => null,
 	/**
 	 * 検索一致範囲の更新を状態へ反映する
-	 * @param {SearchMatchRange | null} value 現在一致範囲
-	 * @param {Transaction} transaction トランザクション
-	 * @returns {SearchMatchRange | null} 更新後の一致範囲
+	 * @param value - 現在一致範囲
+	 * @param transaction - トランザクション
+	 * @returns 更新後の一致範囲
 	 */
 	update: (value: SearchMatchRange | null, transaction: Transaction) => {
 		let nextValue = transaction.docChanged && value
@@ -196,8 +236,8 @@ const currentSearchMatchField = StateField.define<SearchMatchRange | null>({
 	},
 	/**
 	 * 現在一致範囲をライブプレビューと干渉しにくい独自マーカーで描画する
-	 * @param {StateField<SearchMatchRange | null>} field 状態フィールド
-	 * @returns {Extension} デコレーション拡張
+	 * @param field - 状態フィールド
+	 * @returns デコレーション拡張
 	 */
 	provide: (field) => EditorView.decorations.from(field, (match): DecorationSet => (
 		match && match.from < match.to
@@ -208,8 +248,8 @@ const currentSearchMatchField = StateField.define<SearchMatchRange | null>({
 
 /**
  * 検索パネルを検索モードで開く
- * @param {EditorView} view エディタビュー
- * @returns {boolean} コマンド処理結果
+ * @param view - エディタビュー
+ * @returns コマンド処理結果
  */
 export function openFindPanel(view: EditorView): boolean {
 	view.dispatch({ effects: setSearchPanelModeEffect.of('find') });
@@ -220,8 +260,8 @@ export function openFindPanel(view: EditorView): boolean {
 
 /**
  * 検索パネルを置換モードで開く
- * @param {EditorView} view エディタビュー
- * @returns {boolean} コマンド処理結果
+ * @param view - エディタビュー
+ * @returns コマンド処理結果
  */
 export function openReplacePanel(view: EditorView): boolean {
 	view.dispatch({ effects: setSearchPanelModeEffect.of('replace') });
@@ -232,8 +272,8 @@ export function openReplacePanel(view: EditorView): boolean {
 
 /**
  * 検索パネルが開いている場合に閉じる
- * @param {EditorView} view エディタビュー
- * @returns {boolean} 閉じた場合 true
+ * @param view - エディタビュー
+ * @returns 閉じた場合 true
  */
 export function closeOpenSearchPanel(view: EditorView): boolean {
 	if (!searchPanelOpen(view.state)) {
@@ -246,9 +286,9 @@ export function closeOpenSearchPanel(view: EditorView): boolean {
 
 /**
  * 現在の検索条件で次 / 前の一致へ移動する
- * @param {EditorView} view エディタビュー
- * @param {SearchMatchDirection} direction 検索方向
- * @returns {boolean} 移動した場合 true
+ * @param view - エディタビュー
+ * @param direction - 検索方向
+ * @returns 移動した場合 true
  */
 export function moveToSearchMatch(view: EditorView, direction: SearchMatchDirection): boolean {
 	const query = getSearchQuery(view.state);
@@ -269,11 +309,11 @@ export function moveToSearchMatch(view: EditorView, direction: SearchMatchDirect
 
 /**
  * 検索条件更新と現在一致への移動を同一トランザクションで反映する
- * @param {EditorView} view エディタビュー
- * @param {SearchQuery} query 検索条件
- * @param {number} position 検索基準位置
- * @param {SearchMatchDirection} direction 検索方向
- * @returns {boolean} 移動先がある場合 true
+ * @param view - エディタビュー
+ * @param query - 検索条件
+ * @param position - 検索基準位置
+ * @param direction - 検索方向
+ * @returns 移動先がある場合 true
  */
 function setSearchQueryAndMoveFromPosition(
 	view: EditorView,
@@ -305,9 +345,8 @@ function setSearchQueryAndMoveFromPosition(
 
 /**
  * 現在の検索一致範囲を反映し、実選択はカーソルだけへ畳む
- * @param {EditorView} view エディタビュー
- * @param {SearchMatchRange} match 検索一致範囲
- * @returns {void}
+ * @param view - エディタビュー
+ * @param match - 検索一致範囲
  */
 function setCurrentSearchMatch(view: EditorView, match: SearchMatchRange): void {
 	view.dispatch({
@@ -319,9 +358,9 @@ function setCurrentSearchMatch(view: EditorView, match: SearchMatchRange): void 
 
 /**
  * 検索一致を表示するために必要な Effect を生成する
- * @param {EditorView} view エディタビュー
- * @param {SearchMatchRange} match 検索一致範囲
- * @returns {StateEffect<unknown>[]} 検索一致反映 Effect
+ * @param view - エディタビュー
+ * @param match - 検索一致範囲
+ * @returns 検索一致反映 Effect
  */
 function getSearchMatchEffects(view: EditorView, match: SearchMatchRange): StateEffect<unknown>[] {
 	const effects: StateEffect<unknown>[] = [];
@@ -367,8 +406,8 @@ function getSearchMatchEffects(view: EditorView, match: SearchMatchRange): State
 
 /**
  * 検索一致解除時に必要な Effect を生成する
- * @param {EditorView} view エディタビュー
- * @returns {StateEffect<unknown>[]} 検索一致解除 Effect
+ * @param view - エディタビュー
+ * @returns 検索一致解除 Effect
  */
 function getClearSearchEffects(view: EditorView): StateEffect<unknown>[] {
 	const effects: StateEffect<unknown>[] = [];
@@ -392,9 +431,9 @@ function getClearSearchEffects(view: EditorView): StateEffect<unknown>[] {
 
 /**
  * コールアウトが現在折りたたみ中かを判定する
- * @param {EditorView} view エディタビュー
- * @param {{calloutFrom: number; foldDefault: 'none' | 'collapsed' | 'expanded'}} callout コールアウト情報
- * @returns {boolean} 折りたたみ中なら true
+ * @param view - エディタビュー
+ * @param callout - コールアウト情報
+ * @returns 折りたたみ中なら true
  */
 function isTargetCalloutCollapsed(
 	view: EditorView,
@@ -406,8 +445,7 @@ function isTargetCalloutCollapsed(
 
 /**
  * 現在の検索一致範囲をクリアする
- * @param {EditorView} view エディタビュー
- * @returns {void}
+ * @param view - エディタビュー
  */
 function clearCurrentSearchMatch(view: EditorView): void {
 	view.dispatch({ effects: getClearSearchEffects(view) });
@@ -415,9 +453,9 @@ function clearCurrentSearchMatch(view: EditorView): void {
 
 /**
  * 検索スクロール対象が同じかを判定する
- * @param {SearchScrollTarget} left 比較対象
- * @param {SearchScrollTarget} right 比較対象
- * @returns {boolean} 同じ場合 true
+ * @param left - 比較対象
+ * @param right - 比較対象
+ * @returns 同じ場合 true
  */
 function isSameSearchScrollTarget(left: SearchScrollTarget, right: SearchScrollTarget): boolean {
 	if (!left || !right) {
@@ -429,9 +467,9 @@ function isSameSearchScrollTarget(left: SearchScrollTarget, right: SearchScrollT
 
 /**
  * 現在状態が指定スクロール対象をまだ指しているかを判定する
- * @param {EditorView} view エディタビュー
- * @param {SearchScrollTarget} target スクロール対象
- * @returns {boolean} 有効な対象の場合 true
+ * @param view - エディタビュー
+ * @param target - スクロール対象
+ * @returns 有効な対象の場合 true
  */
 function isActiveSearchScrollTarget(view: EditorView, target: SearchScrollTarget): boolean {
 	return isSameSearchScrollTarget(view.state.field(currentSearchMatchField), target);
@@ -439,8 +477,8 @@ function isActiveSearchScrollTarget(view: EditorView, target: SearchScrollTarget
 
 /**
  * 現在ヒットの DOM 座標を取得する
- * @param {EditorView} view エディタビュー
- * @returns {SearchScrollTargetRect | null} 座標。未描画の場合 null
+ * @param view - エディタビュー
+ * @returns 座標。未描画の場合 null
  */
 function getCurrentSearchMatchRect(view: EditorView): SearchScrollTargetRect | null {
 	const element = view.dom.querySelector('.tms-mde-search-current-match');
@@ -461,8 +499,8 @@ function getCurrentSearchMatchRect(view: EditorView): SearchScrollTargetRect | n
 
 /**
  * 現在ヒットの DOM が未描画の場合にカーソル座標を取得する
- * @param {EditorView} view エディタビュー
- * @returns {SearchScrollTargetRect | null} 座標。取得不可の場合 null
+ * @param view - エディタビュー
+ * @returns 座標。取得不可の場合 null
  */
 function getSearchCursorRect(view: EditorView): SearchScrollTargetRect | null {
 	const selection = view.state.selection.main;
@@ -480,8 +518,8 @@ function getSearchCursorRect(view: EditorView): SearchScrollTargetRect | null {
 
 /**
  * 現在の独自ハイライト一致を置換して次へ移動する
- * @param {EditorView} view エディタビュー
- * @returns {boolean} 置換した場合 true
+ * @param view - エディタビュー
+ * @returns 置換した場合 true
  */
 function replaceCurrentSearchMatch(view: EditorView): boolean {
 	const current = view.state.field(currentSearchMatchField);
@@ -510,8 +548,8 @@ function replaceCurrentSearchMatch(view: EditorView): boolean {
 
 /**
  * すべて置換して現在一致範囲をクリアする
- * @param {EditorView} view エディタビュー
- * @returns {boolean} 置換した場合 true
+ * @param view - エディタビュー
+ * @returns 置換した場合 true
  */
 function replaceAllSearchMatches(view: EditorView): boolean {
 	const handled = replaceAll(view);
@@ -524,10 +562,9 @@ function replaceAllSearchMatches(view: EditorView): boolean {
 
 /**
  * 検索選択位置へ行番号ベースで直接スクロールする
- * @param {EditorView} view エディタビュー
- * @param {SearchScrollTarget} target スクロール対象
- * @param {SearchScrollCancelCheck} isCanceled キャンセル判定
- * @returns {void}
+ * @param view - エディタビュー
+ * @param target - スクロール対象
+ * @param isCanceled - キャンセル判定
  */
 function scrollSearchSelectionIntoView(
 	view: EditorView,
@@ -562,11 +599,10 @@ function scrollSearchSelectionIntoView(
 
 /**
  * 実 DOM 座標を使って検索選択位置のスクロールを微調整する
- * @param {EditorView} view エディタビュー
- * @param {SearchScrollTarget} target スクロール対象
- * @param {SearchScrollCancelCheck} isCanceled キャンセル判定
- * @param {number} attempts 残り試行回数
- * @returns {void}
+ * @param view - エディタビュー
+ * @param target - スクロール対象
+ * @param isCanceled - キャンセル判定
+ * @param attempts - 残り試行回数
  */
 function correctSearchScrollFromDom(
 	view: EditorView,
@@ -582,8 +618,8 @@ function correctSearchScrollFromDom(
 		key: searchScrollCorrectionKey,
 		/**
 		 * 選択位置の実 DOM 座標から追加スクロール量を計算する
-		 * @param {EditorView} measuredView エディタビュー
-		 * @returns {SearchScrollCorrectionMeasure} 補正情報
+		 * @param measuredView - エディタビュー
+		 * @returns 補正情報
 		 */
 		read(measuredView) {
 			if (isCanceled() || !isActiveSearchScrollTarget(measuredView, target)) {
@@ -620,9 +656,8 @@ function correctSearchScrollFromDom(
 		},
 		/**
 		 * 追加スクロール量を反映する
-		 * @param {SearchScrollCorrectionMeasure} measure 補正情報
-		 * @param {EditorView} measuredView エディタビュー
-		 * @returns {void}
+		 * @param measure - 補正情報
+		 * @param measuredView - エディタビュー
 		 */
 		write(measure, measuredView) {
 			if (isCanceled() || !isActiveSearchScrollTarget(measuredView, target)) {
@@ -652,7 +687,6 @@ const searchScrollPlugin = ViewPlugin.define((view) => {
 
 	/**
 	 * 予約済みスクロールを取り消す
-	 * @returns {void}
 	 */
 	const cancelPendingScroll = (): void => {
 		scrollGeneration += 1;
@@ -665,8 +699,7 @@ const searchScrollPlugin = ViewPlugin.define((view) => {
 	return {
 		/**
 		 * エディタ更新を監視する
-		 * @param {ViewUpdate} update 更新情報
-		 * @returns {void}
+		 * @param update - 更新情報
 		 */
 		update(update: ViewUpdate): void {
 			if (!update.selectionSet || !update.transactions.some((transaction) => transaction.isUserEvent('select.search'))) {
@@ -689,7 +722,6 @@ const searchScrollPlugin = ViewPlugin.define((view) => {
 		},
 		/**
 		 * プラグイン破棄時に予約済みスクロールを取り消す
-		 * @returns {void}
 		 */
 		destroy(): void {
 			cancelPendingScroll();
@@ -699,8 +731,8 @@ const searchScrollPlugin = ViewPlugin.define((view) => {
 
 /**
  * TMS-MDEditor の検索拡張を生成する
- * @param {SearchSettings} [settings] 検索設定
- * @returns {Extension[]} 検索拡張
+ * @param settings - 検索設定
+ * @returns 検索拡張
  */
 export function createSearchExtensions(settings?: SearchSettings): Extension[] {
 	return [
@@ -713,14 +745,14 @@ export function createSearchExtensions(settings?: SearchSettings): Extension[] {
 			top: true,
 			/**
 			 * 検索一致のスクロールは searchScrollPlugin 側で行う
-			 * @param {SelectionRange} range 一致範囲
-			 * @returns {StateEffect<unknown>} スクロール効果
+			 * @param range - 一致範囲
+			 * @returns スクロール効果
 			 */
 			scrollToMatch: () => noSearchScrollEffect.of(),
 			/**
 			 * 日本語検索パネルを生成する
-			 * @param {EditorView} view エディタビュー
-			 * @returns {Panel} 検索パネル
+			 * @param view - エディタビュー
+			 * @returns 検索パネル
 			 */
 			createPanel: (view) => new TmsSearchPanel(view),
 		}),
@@ -731,39 +763,54 @@ export function createSearchExtensions(settings?: SearchSettings): Extension[] {
  * 日本語 UI の検索・置換パネル
  */
 class TmsSearchPanel implements Panel {
+	/** パネルのルート。CodeMirror がこの要素をエディタの上へ置く */
 	public readonly dom: HTMLElement;
 
+	/** エディタ上部へ出す。false なら下部 */
 	public readonly top = true;
 
+	/** パネルの並び順。大きいほど後ろ */
 	public readonly pos = 80;
 
+	/** いまパネルが編集している検索条件 */
 	private query: SearchQuery;
 
+	/** 検索か置換か */
 	private mode: SearchPanelMode;
 
+	/** 検索文字列の入力 */
 	private readonly searchInput: HTMLInputElement;
 
+	/** 置換後文字列の入力 */
 	private readonly replaceInput: HTMLInputElement;
 
+	/** 大文字小文字を区別するチェック */
 	private readonly caseInput: HTMLInputElement;
 
+	/** 正規表現として扱うチェック */
 	private readonly regexpInput: HTMLInputElement;
 
+	/** 単語単位で探すチェック */
 	private readonly wordInput: HTMLInputElement;
 
+	/** 置換モードのときだけ出す行 */
 	private readonly replaceRow: HTMLElement;
 
+	/** 一致件数の表示 */
 	private readonly matchStatus: HTMLElement;
 
+	/** 正規表現のエラー表示 */
 	private readonly errorStatus: HTMLElement;
 
+	/** 検索中に無効にするボタン */
 	private readonly actionButtons: HTMLButtonElement[] = [];
 
+	/** パネルを開いたときのキャレット位置。次の一致の起点 */
 	private readonly searchAnchor: number;
 
 	/**
 	 * 検索パネルを初期化する
-	 * @param {EditorView} view エディタビュー
+	 * @param view - エディタビュー
 	 */
 	public constructor(private readonly view: EditorView) {
 		this.query        = getSearchQuery(view.state);
@@ -805,7 +852,6 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * パネルをマウントした直後に検索欄を選択する
-	 * @returns {void}
 	 */
 	public mount(): void {
 		this.searchInput.select();
@@ -813,8 +859,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * エディタ更新をパネルへ反映する
-	 * @param {ViewUpdate} update 更新情報
-	 * @returns {void}
+	 * @param update - 更新情報
 	 */
 	public update(update: ViewUpdate): void {
 		const nextMode = update.state.field(searchPanelModeField);
@@ -835,7 +880,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * 検索行を生成する
-	 * @returns {HTMLElement} 検索行
+	 * @returns 検索行
 	 */
 	private createFindRow(): HTMLElement {
 		const row     = document.createElement('div');
@@ -852,7 +897,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * 検索オプション行を生成する
-	 * @returns {HTMLElement} オプション行
+	 * @returns オプション行
 	 */
 	private createOptionsRow(): HTMLElement {
 		const row     = document.createElement('div');
@@ -867,7 +912,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * 置換行を生成する
-	 * @returns {HTMLElement} 置換行
+	 * @returns 置換行
 	 */
 	private createReplaceRow(): HTMLElement {
 		const row     = document.createElement('div');
@@ -882,9 +927,9 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * テキスト入力を生成する
-	 * @param {string} placeholder プレースホルダー
-	 * @param {string} name フィールド名
-	 * @returns {HTMLInputElement} 入力要素
+	 * @param placeholder - プレースホルダー
+	 * @param name - フィールド名
+	 * @returns 入力要素
 	 */
 	private createTextInput(placeholder: string, name: string): HTMLInputElement {
 		const input       = document.createElement('input');
@@ -898,9 +943,9 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * チェックボックスを生成する
-	 * @param {string} name フィールド名
-	 * @param {boolean} checked 初期状態
-	 * @returns {HTMLInputElement} チェックボックス
+	 * @param name - フィールド名
+	 * @param checked - 初期状態
+	 * @returns チェックボックス
 	 */
 	private createCheckbox(name: string, checked: boolean): HTMLInputElement {
 		const input   = document.createElement('input');
@@ -912,9 +957,9 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * チェックボックスラベルを生成する
-	 * @param {HTMLInputElement} input チェックボックス
-	 * @param {string} text ラベル
-	 * @returns {HTMLLabelElement} ラベル要素
+	 * @param input - チェックボックス
+	 * @param text - ラベル
+	 * @returns ラベル要素
 	 */
 	private createCheckboxLabel(input: HTMLInputElement, text: string): HTMLLabelElement {
 		const label = document.createElement('label');
@@ -924,11 +969,11 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * ボタンを生成する
-	 * @param {string} text 表示文言
-	 * @param {string} ariaLabel アクセシブル名
-	 * @param {() => boolean} action 実行処理
-	 * @param {string} [className] 追加クラス
-	 * @returns {HTMLButtonElement} ボタン
+	 * @param text - 表示文言
+	 * @param ariaLabel - アクセシブル名
+	 * @param action - 実行処理
+	 * @param className - 追加クラス
+	 * @returns ボタン
 	 */
 	private createButton(
 		text: string,
@@ -950,19 +995,16 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * 入力変更を検索状態へ反映する
-	 * @returns {void}
 	 */
 	private bindInputs(): void {
 		/**
 		 * 現在の入力値を検索状態へ反映する
-		 * @returns {void}
 		 */
 		const commit        = (): void => {
 			this.commitQuery();
 		};
 		/**
 		 * 検索条件を反映して現在の一致へ移動する
-		 * @returns {void}
 		 */
 		const commitAndMove = (): void => {
 			this.commitQuery(true);
@@ -976,8 +1018,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * 現在のフォーム値を検索クエリへ反映する
-	 * @param {boolean} moveToMatch 検索一致へ移動する場合 true
-	 * @returns {void}
+	 * @param moveToMatch - 検索一致へ移動する場合 true
 	 */
 	private commitQuery(moveToMatch = false): void {
 		const query = new SearchQuery({
@@ -1002,8 +1043,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * 外部から更新された検索クエリをフォームへ反映する
-	 * @param {SearchQuery} query 検索クエリ
-	 * @returns {void}
+	 * @param query - 検索クエリ
 	 */
 	private setQuery(query: SearchQuery): void {
 		this.query               = query;
@@ -1016,8 +1056,7 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * パネル内キーボード操作を処理する
-	 * @param {KeyboardEvent} event キーボードイベント
-	 * @returns {void}
+	 * @param event - キーボードイベント
 	 */
 	private handleKeydown(event: KeyboardEvent): void {
 		if (event.key === 'Escape') {
@@ -1036,7 +1075,6 @@ class TmsSearchPanel implements Panel {
 
 	/**
 	 * モード、件数、エラー表示を更新する
-	 * @returns {void}
 	 */
 	private render(): void {
 		this.replaceRow.hidden = this.mode !== 'replace' || this.view.state.readOnly;

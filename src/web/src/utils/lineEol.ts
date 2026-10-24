@@ -1,32 +1,54 @@
+/**
+ * 行ごとの改行を、CodeMirror が使う LF 本文とは別に保持する
+ * ファイルへの書き込みは持たず、渡された文字列と配列を変換する
+ * @file
+ */
 import type { EolKind } from '../types/app';
 
-/** 行末の改行。null は終端改行なし（最終行のみ） */
+/**
+ * 1 行の末尾改行
+ * null は終端改行が無いことで、最終行だけに使う
+ */
 export type LineEol = EolKind | null;
 
+/**
+ * 原文を行本文と行末改行へ分けた結果
+ * `lines` と `eols` は同じ長さで、同じ添字が 1 行に対応する
+ */
 export type SplitEolResult = {
+	/** 改行を除いた行本文。空文書でも 1 要素の空文字 */
 	lines: string[];
+	/** 各行の末尾改行。最終行に終端が無いときは null */
 	eols: LineEol[];
 };
 
+/**
+ * CodeMirror 用テキストの行情報
+ * 改行は LF に正規化済みで、元の CR や CRLF は含まない
+ */
 export type Cm6LineInfo = {
+	/** LF で分けた行本文。末尾改行の後の空要素は含めない */
 	lines: string[];
+	/** テキストが LF で終わっているか。false の最終行は終端改行なし */
 	endsWithNewline: boolean;
 };
 
 /**
  * 行末マップの内容が同じか判定する
- * @param {LineEol[]} left 比較元
- * @param {LineEol[]} right 比較先
- * @returns {boolean} 同じ場合 true
+ * 長さかいずれかの要素が違えば false。配列の同一性は見ない
+ * @param left - 比較元の行末マップ
+ * @param right - 比較先の行末マップ
+ * @returns 長さと各要素が同じ場合 true
  */
 export function areLineEolsEqual(left: LineEol[], right: LineEol[]): boolean {
 	return left.length === right.length && left.every((eol, index) => eol === right[index]);
 }
 
 /**
- * 改行文字へ変換する
- * @param {EolKind} eol 改行種別
- * @returns {string} 改行文字列
+ * 改行種別を改行文字へ変換する
+ * CRLF は `\r\n`、CR は `\r`、それ以外は `\n`
+ * @param eol - 改行種別
+ * @returns その種別の改行文字列
  */
 export function eolToString(eol: EolKind): string {
 	switch (eol) {
@@ -40,9 +62,10 @@ export function eolToString(eol: EolKind): string {
 }
 
 /**
- * 原文を行本文と行末改行に分解する（混在を保持）
- * @param {string} text 原文
- * @returns {SplitEolResult} 分解結果
+ * 原文を行本文と行末改行に分解する
+ * 混在した CRLF、LF、CR を行ごとに残す。空文字は終端なしの 1 行として返す
+ * @param text - 分解する原文。改行の混在を保持する
+ * @returns 行本文と、同じ長さの行末マップ
  */
 export function splitPreservingEol(text: string): SplitEolResult {
 	const lines: string[] = [];
@@ -82,10 +105,11 @@ export function splitPreservingEol(text: string): SplitEolResult {
 }
 
 /**
- * 行本文 + 行末改行から CM6 用テキスト（LF のみ）を作る
- * @param {string[]} lines 行本文
- * @param {LineEol[]} eols 行末改行
- * @returns {string} CM6 テキスト
+ * 行本文と行末改行から、CodeMirror 用の LF テキストを作る
+ * 行の途中の改行種別は捨て、最終行の終端があるときだけ末尾 LF を付ける
+ * @param lines - 改行を含まない行本文。空配列は空文字
+ * @param eols - 行末マップ。最後が null なら末尾改行を付けない
+ * @returns LF だけの本文。元の CR や CRLF は含まない
  */
 export function toCm6Text(lines: string[], eols: LineEol[]): string {
 	if (lines.length === 0) {
@@ -98,9 +122,10 @@ export function toCm6Text(lines: string[], eols: LineEol[]): string {
 }
 
 /**
- * CM6 テキストを内容行へ分解する
- * @param {string} cm6Text CM6 テキスト
- * @returns {Cm6LineInfo} 行情報
+ * CodeMirror テキストを内容行へ分解する
+ * 空文字は終端なしの 1 行。末尾 LF の後にできる空要素は行に数えない
+ * @param cm6Text - LF に正規化した本文
+ * @returns 行本文と、末尾改行の有無
  */
 export function getCm6LineInfo(cm6Text: string): Cm6LineInfo {
 	if (cm6Text.length === 0) {
@@ -114,11 +139,12 @@ export function getCm6LineInfo(cm6Text: string): Cm6LineInfo {
 }
 
 /**
- * CM6 テキストと行末マップから原文改行を復元する
- * @param {string} cm6Text CM6 テキスト
- * @param {LineEol[]} eols 行末マップ
- * @param {EolKind} fallback 不足時の既定改行
- * @returns {string} 復元テキスト
+ * CodeMirror テキストと行末マップから原文の改行を復元する
+ * マップが短い行は `fallback` を使う。末尾改行が無い最終行には改行を付けない
+ * @param cm6Text - LF に正規化した本文
+ * @param eols - 行ごとの元改行。不足分は `fallback`
+ * @param fallback - マップに無い行、または null の終端行へ使う既定改行
+ * @returns 行末を戻した全文
  */
 export function reconstructWithLineEols(cm6Text: string, eols: LineEol[], fallback: EolKind): string {
 	const { lines, endsWithNewline } = getCm6LineInfo(cm6Text);
@@ -143,9 +169,10 @@ export function reconstructWithLineEols(cm6Text: string, eols: LineEol[], fallba
 
 /**
  * 全行の改行を統一したマップを作る
- * @param {string} cm6Text CM6 テキスト
- * @param {EolKind} target 統一先
- * @returns {LineEol[]} 行末マップ
+ * 末尾改行が無いテキストの最終行だけ null にする
+ * @param cm6Text - LF に正規化した本文。行数の根拠にする
+ * @param target - 終端がある行へ入れる改行
+ * @returns 行数と同じ長さの行末マップ
  */
 export function createUniformLineEols(cm6Text: string, target: EolKind): LineEol[] {
 	const { lines, endsWithNewline } = getCm6LineInfo(cm6Text);
@@ -159,12 +186,13 @@ export function createUniformLineEols(cm6Text: string, target: EolKind): LineEol
 }
 
 /**
- * 編集後の CM6 テキストに合わせて行末マップを同期する
- * @param {LineEol[]} previousEols 編集前マップ
- * @param {string} previousCm6 編集前 CM6 テキスト
- * @param {string} nextCm6 編集後 CM6 テキスト
- * @param {EolKind} fallback 新規行の改行
- * @returns {LineEol[]} 同期後マップ
+ * 編集後の CodeMirror テキストに合わせて行末マップを同期する
+ * 行数が同じなら添字を保ち、変わった範囲の新しい行には `fallback` を入れる。内容が同じなら編集前の配列を返す
+ * @param previousEols - 編集前の行末マップ
+ * @param previousCm6 - 編集前の LF 本文。共通の前後を見つけるために使う
+ * @param nextCm6 - 編集後の LF 本文
+ * @param fallback - 新しく増えた行へ入れる改行
+ * @returns 編集後の行数に合う行末マップ。内容が同じなら `previousEols` そのもの
  */
 export function syncLineEols(
 	previousEols: LineEol[],
@@ -228,20 +256,22 @@ export function syncLineEols(
 
 /**
  * 内容が同じなら既存の配列を再利用する
- * @param {LineEol[]} previousEols 編集前マップ
- * @param {LineEol[]} nextEols 編集後マップ
- * @returns {LineEol[]} 同一内容なら編集前マップ
+ * 参照が変わらないことで、変更なしの編集を呼び出し側が区別できる
+ * @param previousEols - 編集前のマップ。同一内容のときに返す
+ * @param nextEols - 編集後に計算したマップ
+ * @returns 内容が同じなら `previousEols`、違えば `nextEols`
  */
 function reusePreviousLineEols(previousEols: LineEol[], nextEols: LineEol[]): LineEol[] {
 	return areLineEolsEqual(previousEols, nextEols) ? previousEols : nextEols;
 }
 
 /**
- * 末尾改行の有無に合わせて最終行の LineEol を調整する
- * @param {LineEol[]} eols マップ
- * @param {boolean} endsWithNewline 末尾改行あり
- * @param {EolKind} fallback 既定改行
- * @returns {LineEol[]} 調整後マップ
+ * 末尾改行の有無に合わせて最終行の行末を調整する
+ * 末尾改行が無ければ最終行を null、あれば null を `fallback` に戻す。入力配列は変えない
+ * @param eols - 調整前のマップ。空ならそのまま返す
+ * @param endsWithNewline - 編集後テキストが LF で終わるか
+ * @param fallback - 終端があるのに最終行が null のとき入れる改行
+ * @returns 最終行だけを直した新しいマップ。空のときは同じ配列
  */
 function finalizeTrailing(eols: LineEol[], endsWithNewline: boolean, fallback: EolKind): LineEol[] {
 	if (eols.length === 0) {

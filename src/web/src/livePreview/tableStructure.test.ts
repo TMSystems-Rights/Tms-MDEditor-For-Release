@@ -1,3 +1,8 @@
+/**
+ * 行と列の挿入、削除、移動が Markdown の表をどう変えるかを検証する
+ * 結合の占有は本番の tableMerge を使い、エディタ画面は開かない
+ * @file
+ */
 import { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { describe, expect, it } from 'vitest';
@@ -13,20 +18,25 @@ import {
 } from './tableStructure';
 
 /**
- *
+ * Markdown 対応済みのテスト用状態を作る。選択は付けない
+ * @param doc - ドキュメント全文
+ * @returns 指定の文書と TMS Markdown 拡張だけを持つ状態
  */
 function createState(doc: string): EditorState {
 	return EditorState.create({ doc, extensions: [createTmsMarkdownSupport()] });
 }
 
 /**
- *
+ * 文書中の最初の Table から、表示用の表データを取り出す
+ * @param state - 構文木を読むテスト用状態
+ * @returns 最初の表。表が無ければ呼び出し側の非 null 前提で失敗する
  */
 function tableData(state: EditorState): TableData {
 	let result: TableData | null = null;
 	syntaxTree(state).iterate({
 		/**
-		 *
+		 * 最初の Table ノードのデータを result へ入れる
+		 * @param node - 走査中の構文ノード
 		 */
 		enter(node) {
 			if (node.name === 'Table') result = extractTableData(state, node.node);
@@ -36,7 +46,10 @@ function tableData(state: EditorState): TableData {
 }
 
 /**
- *
+ * 文書変更を適用したあとの全文を返す。画面は更新しない
+ * @param state - 変更前の状態
+ * @param change - 置換する範囲と挿入文字列。from と to は文字位置
+ * @returns 適用後のドキュメント全文
  */
 function applyChange(state: EditorState, change: { from: number; to: number; insert: string }): string {
 	return state.update({ changes: change }).state.doc.toString();

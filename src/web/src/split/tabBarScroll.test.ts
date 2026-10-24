@@ -1,3 +1,7 @@
+/**
+ * タブバーのホイールを横スクロールへ変える量と、見切れたタブの移動量を確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { applyTabBarWheelScroll, computeTabRevealScrollLeft, getTabBarWheelScrollDelta } from './tabBarScroll';
 

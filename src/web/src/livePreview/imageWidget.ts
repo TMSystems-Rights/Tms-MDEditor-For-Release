@@ -1,17 +1,28 @@
+/**
+ * プレビューの画像をウィジェットで描き、読み込んだ Data URL をプロセス内にキャッシュする
+ * 幅のノートへの保存は imageResize へ渡し、このファイルは表示と読み込みの境界を持つ
+ * @file
+ */
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import type { DecorationEntry } from './inlineDecorations';
 import { rememberCellImageWidth, recallCellImageWidth } from './cellImageWidthMemory';
 import { applyImageDisplayWidth, applyImageWidthByPath, applyImageWidthOnDocumentLine } from './imageResize';
 
+// ----------------------------------------------
+// ラッパに束縛する参照
+// ----------------------------------------------
+/** 画像ラッパからパスへの対応。要素が捨てられると消える */
 const imageWrapPaths      = new WeakMap<HTMLElement, string>();
+/** 表セルなど、DOM から EditorView を引けないときの束縛 */
 const imageWrapViews      = new WeakMap<HTMLElement, EditorView>();
+/** 表セル専用の幅の書き戻し。無ければ imageResize の通常経路 */
 const imageWrapPersisters = new WeakMap<HTMLElement, (width: number) => boolean>();
 
 /**
  * 画像ラッパに保持したパスを返す
- * @param {HTMLElement} wrap ラッパ
- * @returns {string}
+ * @param wrap - ラッパ
+ * @returns 画像ラッパに保持したパス
  */
 export function getImageWrapPath(wrap: HTMLElement): string {
 	return imageWrapPaths.get(wrap) ?? wrap.dataset.imagePath ?? '';
@@ -19,9 +30,8 @@ export function getImageWrapPath(wrap: HTMLElement): string {
 
 /**
  * 表セルなど findFromDOM が使えない場所へ EditorView を束縛する
- * @param {HTMLElement} wrap ラッパ
- * @param {EditorView} view エディタ
- * @returns {void}
+ * @param wrap - ラッパ
+ * @param view - エディタ
  */
 export function bindImageWrapEditorView(wrap: HTMLElement, view: EditorView): void {
 	imageWrapViews.set(wrap, view);
@@ -29,24 +39,31 @@ export function bindImageWrapEditorView(wrap: HTMLElement, view: EditorView): vo
 
 /**
  * 表セル専用の幅書き戻しを束縛する
- * @param {HTMLElement} wrap ラッパ
- * @param {(width: number) => boolean} persist 書き戻し
- * @returns {void}
+ * @param wrap - ラッパ
+ * @param persist - 書き戻し
  */
 export function bindImageResizePersister(wrap: HTMLElement, persist: (width: number) => boolean): void {
 	imageWrapPersisters.set(wrap, persist);
 }
 
+/** 画像参照の種類。URL、絶対パス、ノート相対、Wiki 埋め込み */
 export type ImageSourceKind = 'url' | 'absolute' | 'relative' | 'embed';
 
+/** 1枚の画像を描くための参照と表示サイズ。幅の保存前の値 */
 export type ImageSpec = {
+	/** サイズ指定を除いた alt。空でもよい */
 	alt: string;
+	/** 記法に書かれたパスまたは URL。解決前 */
 	raw: string;
+	/** 参照の種類。読み込み方を決める */
 	kind: ImageSourceKind;
 	/** ドキュメントファイルの絶対パス（相対・埋め込み解決用） */
 	documentPath: string | null;
+	/** リモート URL を読むか。false のときは読み込まない */
 	loadRemoteImages: boolean;
+	/** 表示幅（px）。指定が無ければ null */
 	width: number | null;
+	/** 表示高さ（px）。幅だけなら null */
 	height: number | null;
 	/** 表セル内など、posAtDOM が使えないときのソース位置 */
 	sourceFrom?: number;
@@ -54,19 +71,25 @@ export type ImageSpec = {
 	sourceTo?: number;
 };
 
+/** ホストが返した画像読み込み結果。失敗時は ok が false */
 type ReadImageResult = {
+	/** Data URL を返せたら true */
 	ok: boolean;
+	/** 読み込んだ Data URL。失敗時は未設定 */
 	dataUrl?: string;
+	/** 解決したファイルパス。失敗時は未設定 */
 	resolvedPath?: string;
+	/** 失敗理由。成功時は未設定 */
 	error?: string;
 };
 
+/** キャッシュキーから Data URL。失敗は入れない。実行中だけ持つ */
 const imageCache = new Map<string, string>();
 
 /**
  * 画像ソースの種別を判定する
- * @param {string} raw 生のパス / URL
- * @returns {ImageSourceKind}
+ * @param raw - 生のパス / URL
+ * @returns 画像ソースの種別を判定する
  */
 export function classifyImageSource(raw: string): ImageSourceKind {
 	const trimmed = raw.trim();
@@ -84,8 +107,8 @@ export function classifyImageSource(raw: string): ImageSourceKind {
 
 /**
  * キャッシュキーを生成する
- * @param {ImageSpec} spec 画像仕様
- * @returns {string}
+ * @param spec - 画像仕様
+ * @returns キャッシュキー
  */
 function cacheKeyFor(spec: ImageSpec): string {
 	return `${spec.kind}|${spec.documentPath ?? ''}|${spec.raw}`;
@@ -93,8 +116,8 @@ function cacheKeyFor(spec: ImageSpec): string {
 
 /**
  * ローカル画像を Data URL として読み込む
- * @param {ImageSpec} spec 画像仕様
- * @returns {Promise<string | null>}
+ * @param spec - 画像仕様
+ * @returns ローカル画像を Data URL として読み込む。無ければ null
  */
 async function loadLocalImageDataUrl(spec: ImageSpec): Promise<string | null> {
 	const key    = cacheKeyFor(spec);
@@ -122,8 +145,8 @@ async function loadLocalImageDataUrl(spec: ImageSpec): Promise<string | null> {
 
 /**
  * 絶対パスの埋め込みは未保存でも解決できる
- * @param {ImageSpec} spec 画像仕様
- * @returns {boolean}
+ * @param spec - 画像仕様
+ * @returns 絶対パスの埋め込みは未保存でも解決できるなら true
  */
 function needsDocumentPath(spec: ImageSpec): boolean {
 	if (spec.kind === 'relative') {
@@ -137,14 +160,18 @@ function needsDocumentPath(spec: ImageSpec): boolean {
 	return false;
 }
 
+// ----------------------------------------------
+// 画像の描画
+// ----------------------------------------------
 /**
  * 画像ウィジェット
  */
 export class ImageWidget extends WidgetType {
+	/** 描く画像の参照とサイズ。生成後は別インスタンスへ作り直す */
 	readonly spec: ImageSpec;
 
 	/**
-	 * @param {ImageSpec} spec 画像仕様
+	 * @param spec - 画像仕様
 	 */
 	constructor(spec: ImageSpec) {
 		super();
@@ -152,8 +179,8 @@ export class ImageWidget extends WidgetType {
 	}
 
 	/**
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * @param other - 比較対象
+	 * @returns 同一なら true
 	 */
 	eq(other: WidgetType): boolean {
 		if (!(other instanceof ImageWidget)) {
@@ -172,8 +199,8 @@ export class ImageWidget extends WidgetType {
 	}
 
 	/**
-	 * @param {EditorView} [view] エディタ（表セルから渡す／CodeMirror が渡す）
-	 * @returns {HTMLElement}
+	 * @param view - エディタ（表セルから渡す／CodeMirror が渡す）。省略可
+	 * @returns 生成した要素
 	 */
 	toDOM(view?: EditorView): HTMLElement {
 		const wrap     = document.createElement('span');
@@ -212,8 +239,7 @@ export class ImageWidget extends WidgetType {
 
 		/**
 		 * 破損プレースホルダを表示する
-		 * @param {string} [message] 追加メッセージ
-		 * @returns {void}
+		 * @param message - 追加メッセージ。省略可
 		 */
 		const showFallback = (message?: string): void => {
 			img.remove();
@@ -262,7 +288,7 @@ export class ImageWidget extends WidgetType {
 	}
 
 	/**
-	 * @returns {number}
+	 * @returns 見積もった高さ
 	 */
 	get estimatedHeight(): number {
 		return this.spec.width ? Math.max(80, Math.round(this.spec.width * 0.6)) : 120;
@@ -270,7 +296,7 @@ export class ImageWidget extends WidgetType {
 
 	/**
 	 * クリックでキャレットを記法上へ置かない（ソース展開でハンドルが消えるのを防ぐ）
-	 * @returns {boolean}
+	 * @returns クリックでキャレットを記法上へ置かない（ソース展開でハンドルが消えるのを防ぐ）なら true
 	 */
 	ignoreEvent(): boolean {
 		return true;
@@ -279,9 +305,8 @@ export class ImageWidget extends WidgetType {
 
 /**
  * 指定幅があれば適用し、未指定なら既定キャップを使う
- * @param {HTMLImageElement} img 画像
- * @param {ImageSpec} spec 仕様
- * @returns {void}
+ * @param img - 画像
+ * @param spec - 仕様
  */
 function applyImageDisplayStyle(img: HTMLImageElement, spec: ImageSpec): void {
 	const width = spec.width && spec.width > 0
@@ -305,19 +330,17 @@ function applyImageDisplayStyle(img: HTMLImageElement, spec: ImageSpec): void {
 
 /**
  * 右下ハンドルのドラッグで幅を変え、mouseup でソースへ書き戻す
- * @param {HTMLElement} wrap ラッパ
- * @param {HTMLImageElement} img 画像
- * @param {HTMLElement} handle ハンドル
- * @returns {void}
+ * @param wrap - ラッパ
+ * @param img - 画像
+ * @param handle - ハンドル
  */
 function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle: HTMLElement): void {
 	let dragging = false;
 
 	/**
 	 * ハンドルのドラッグを開始する
-	 * @param {number} clientX 開始 X
-	 * @param {number} [pointerId] Pointer Capture 用 ID
-	 * @returns {void}
+	 * @param clientX - 開始 X
+	 * @param pointerId - Pointer Capture 用 ID。省略可
 	 */
 	const startDrag = (clientX: number, pointerId?: number): void => {
 		if (dragging) {
@@ -342,8 +365,7 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 
 		/**
 		 * ドラッグ中の幅を更新する
-		 * @param {number} moveX ポインタ X
-		 * @returns {void}
+		 * @param moveX - ポインタ X
 		 */
 		const applyMove = (moveX: number): void => {
 			const next = Math.min(maxWidth, Math.max(24, startWidth + (moveX - startX)));
@@ -361,7 +383,6 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 
 		/**
 		 * ドラッグ終了時にソースへ書き戻す
-		 * @returns {void}
 		 */
 		const finish = (): void => {
 			if (finished) {
@@ -396,16 +417,14 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 		};
 
 		/**
-		 * @param {PointerEvent} moveEvent ポインタ移動
-		 * @returns {void}
+		 * @param moveEvent - ポインタ移動
 		 */
 		const onPointerMove = (moveEvent: PointerEvent): void => {
 			applyMove(moveEvent.clientX);
 		};
 
 		/**
-		 * @param {MouseEvent} moveEvent マウス移動
-		 * @returns {void}
+		 * @param moveEvent - マウス移動
 		 */
 		const onMouseMove = (moveEvent: MouseEvent): void => {
 			applyMove(moveEvent.clientX);
@@ -442,11 +461,11 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 }
 
 /**
- * ドラッグ結果を Markdown へ書き戻す。
- * 表セルでは findFromDOM が失敗しても、束縛した view / 書き戻しでソースへ残す。
- * @param {HTMLElement} wrap 画像ラッパ
- * @param {number} width 幅
- * @returns {boolean} 更新したか
+ * ドラッグ結果を Markdown へ書き戻す
+ * 表セルでは findFromDOM が失敗しても、束縛した view / 書き戻しでソースへ残す
+ * @param wrap - 画像ラッパ
+ * @param width - 幅
+ * @returns 更新したか
  */
 export function persistImageResizeWidth(wrap: HTMLElement, width: number): boolean {
 	const path      = getImageWrapPath(wrap);
@@ -498,11 +517,10 @@ export function persistImageResizeWidth(wrap: HTMLElement, width: number): boole
 
 /**
  * 画像ノードをウィジェットへ置換する
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} from 開始位置
- * @param {number} to 終了位置
- * @param {ImageSpec} spec 画像仕様
- * @returns {void}
+ * @param entries - エントリ配列
+ * @param from - 開始位置
+ * @param to - 終了位置
+ * @param spec - 画像仕様
  */
 export function pushImageReplace(
 	entries: DecorationEntry[],

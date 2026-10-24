@@ -1,8 +1,23 @@
 <!doctype html>
+<!-- ============================================== -->
+<!-- エディタとアウトラインの領域を定義する -->
+<!-- ============================================== -->
+
+<!--
+  エディタ、アウトライン、ステータスバーの領域を定義する
+  表示文言の更新と操作の接続は TypeScript が行う。このファイルには画面の骨格だけを置く
+-->
 <html lang="ja">
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<!-- ---------------------------------------------- -->
+		<!-- 起動前のテーマ -->
+		<!-- ---------------------------------------------- -->
+		<!--
+		  スタイル読込前に OS のダーク設定を記録し、初回描画の背景ちらつきを避ける
+		  明示テーマは起動後に TypeScript が body の class へ反映する
+		-->
 		<script>
 			if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
 				document.documentElement.dataset.osTheme = 'dark';
@@ -17,9 +32,16 @@
 		<link rel="stylesheet" href="/src/styles/toast.css" />
 	</head>
 	<body class="tms-mde-body">
+		<!-- ---------------------------------------------- -->
+		<!-- 作業領域 -->
+		<!-- ---------------------------------------------- -->
 		<div id="tmsMdeAppRoot" class="tms-mde-app-root">
 			<main id="tmsMdeWorkspace" class="tms-mde-workspace">
 				<div id="tmsMdeEditorHost" class="tms-mde-editor-host"></div>
+				<!-- ---------------------------------------------- -->
+				<!-- アウトライン -->
+				<!-- ---------------------------------------------- -->
+				<!-- 初期状態は閉じる。表示と幅は TypeScript が hidden と幅の変数を更新する -->
 				<aside id="tmsMdeOutlinePanel" class="tms-mde-outline-panel" aria-label="アウトライン" hidden>
 					<div id="tmsMdeOutlineResizer" class="tms-mde-outline-resizer" role="separator" aria-label="アウトラインの幅を変更" aria-orientation="vertical" tabindex="0"></div>
 					<header class="tms-mde-outline-header">
@@ -36,6 +58,9 @@
 					<p id="tmsMdeOutlineEmpty" class="tms-mde-outline-empty">見出しはありません</p>
 				</aside>
 			</main>
+			<!-- -------------------------------------------------- -->
+			<!-- ステータスバー（レイアウト崩れしないようデフォルト値で埋めておく） -->
+			<!-- -------------------------------------------------- -->
 			<footer class="tms-mde-status-bar">
 				<button id="tmsMdeStatusCursor" type="button" class="tms-mde-status-item tms-mde-status-static">行 1, 列 1</button>
 				<button id="tmsMdeStatusCharCount" type="button" class="tms-mde-status-item tms-mde-status-static">0 文字</button>
@@ -43,10 +68,14 @@
 				<button id="tmsMdeStatusEol" type="button" class="tms-mde-status-item">CRLF</button>
 				<button id="tmsMdeStatusViewMode" type="button" class="tms-mde-status-item">ソース</button>
 				<button id="tmsMdeStatusZoom" type="button" class="tms-mde-status-item tms-mde-status-static" aria-label="表示倍率">100%</button>
+				<!-- tmsMdeStatusLargeFile：大ファイル時だけ表示する。通常時は hidden -->
 				<button id="tmsMdeStatusLargeFile" type="button" class="tms-mde-status-item tms-mde-status-warning" hidden>大ファイル（ソース固定）</button>
 				<span id="tmsMdeStatusVersion" class="tms-mde-status-item tms-mde-status-static tms-mde-status-version">v0.0.0</span>
 			</footer>
 		</div>
+		<!-- ---------------------------------------------- -->
+		<!-- 起動スクリプト -->
+		<!-- ---------------------------------------------- -->
 		<script type="module" src="/src/main.ts"></script>
 	</body>
 </html>

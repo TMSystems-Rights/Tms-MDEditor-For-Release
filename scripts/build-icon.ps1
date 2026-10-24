@@ -1,4 +1,30 @@
-# Launcher 共通のベース画像から、TMS-MDEditor 識別用 MD ラベル付き PNG/ICO を生成する。
+<#
+.SYNOPSIS
+    共通のベース画像から、MD ラベル付きの PNG と ICO を作る
+
+.DESCRIPTION
+    ベース PNG を正方形に切り抜き、サイズごとの MD バッジを描いて PNG と複数サイズの ICO を書く
+    ベース画像は変更しない。PngPath と IcoPath は上書きする
+
+.PARAMETER BasePngPath
+    入力 PNG。未指定時は build\icon-base.png。このスクリプトからの相対パス
+
+.PARAMETER PngPath
+    出力 PNG。未指定時は build\icon.png。BasePngPath と同じパスは不可
+
+.PARAMETER IcoPath
+    出力 ICO。未指定時は build\icon.ico。16 から 256 のサイズを格納する
+
+.OUTPUTS
+    なし。PNG と ICO をファイルとして書く
+
+.EXAMPLE
+    pwsh -NoProfile -File scripts/build-icon.ps1
+
+.NOTES
+    例外:
+    - ベース画像が読めない、または BasePngPath と PngPath が同じときは throw する
+#>
 param(
 	[string]$BasePngPath = (Join-Path $PSScriptRoot '..\build\icon-base.png'),
 	[string]$PngPath = (Join-Path $PSScriptRoot '..\build\icon.png'),
@@ -17,6 +43,31 @@ if ([StringComparer]::OrdinalIgnoreCase.Equals($resolvedBasePng, $resolvedPng)) 
 	throw 'BasePngPath と PngPath は別ファイルにしてください。'
 }
 
+# ----------------------------------------------
+# バッジの描画
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    角丸矩形の GraphicsPath を作る
+
+.DESCRIPTION
+    四隅に円弧を置き、閉じたパスを返す
+    呼び出し側が Dispose する。半径が辺より大きいときの縮小はしない
+
+.PARAMETER Rect
+    角丸を描く範囲。単位はピクセル
+
+.PARAMETER Radius
+    角の半径。単位はピクセル
+
+.OUTPUTS
+    System.Drawing.Drawing2D.GraphicsPath
+    閉じた角丸矩形。呼び出し側が Dispose する
+
+.EXAMPLE
+    $path = New-RoundedRectanglePath -Rect $labelRect -Radius $radius
+#>
 function New-RoundedRectanglePath {
 	param(
 		[System.Drawing.RectangleF]$Rect,
@@ -39,6 +90,26 @@ function New-RoundedRectanglePath {
 	return $path
 }
 
+<#
+.SYNOPSIS
+    小さいアイコンへ、円形の MD バッジを描く
+
+.DESCRIPTION
+    一辺の中央に影、緑の円、MD の文字を描く
+    ブラシとフォントは関数内で破棄する。Graphics は破棄しない
+
+.PARAMETER Graphics
+    描画先。Dispose しない
+
+.PARAMETER Size
+    アイコンの一辺。単位はピクセル。48 以下を想定する
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    Add-SmallIconBadge -Graphics $Graphics -Size 32
+#>
 function Add-SmallIconBadge {
 	param([System.Drawing.Graphics]$Graphics, [int]$Size)
 
@@ -69,6 +140,27 @@ function Add-SmallIconBadge {
 	} finally { $borderPen.Dispose(); $badgeBrush.Dispose(); $shadowBrush.Dispose() }
 }
 
+<#
+.SYNOPSIS
+    大きいアイコンへ、角丸の MD ラベルを描く
+
+.DESCRIPTION
+    128 以上はラベルを小さめにし、絵柄の中央を残す
+    それ未満はラベルを広げて文字を読める大きさにする
+    パスとブラシは関数内で破棄する。Graphics は破棄しない
+
+.PARAMETER Graphics
+    描画先。Dispose しない
+
+.PARAMETER Size
+    アイコンの一辺。単位はピクセル
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    Add-LargeIconLabel -Graphics $Graphics -Size 256
+#>
 function Add-LargeIconLabel {
 	param([System.Drawing.Graphics]$Graphics, [int]$Size)
 
@@ -118,6 +210,26 @@ function Add-LargeIconLabel {
 	}
 }
 
+<#
+.SYNOPSIS
+    サイズに応じて MD バッジの描き方を選ぶ
+
+.DESCRIPTION
+    48 以下は円形バッジにする。角丸ラベルは小さいサイズでは潰れる
+    49 以上は角丸ラベルにする。Graphics は破棄しない
+
+.PARAMETER Graphics
+    描画先。Dispose しない
+
+.PARAMETER Size
+    アイコンの一辺。単位はピクセル
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    Add-IconBadge -Graphics $g -Size $Size
+#>
 function Add-IconBadge {
 	param([System.Drawing.Graphics]$Graphics, [int]$Size)
 
@@ -128,6 +240,31 @@ function Add-IconBadge {
 	}
 }
 
+# ----------------------------------------------
+# 画像の生成
+# ----------------------------------------------
+
+<#
+.SYNOPSIS
+    元画像を正方形に切り抜き、MD バッジを載せたビットマップを作る
+
+.DESCRIPTION
+    縦横の短い辺に合わせて中央を切り抜き、Size へ拡大縮小してからバッジを描く
+    Source は破棄しない。戻り値の Bitmap は呼び出し側が Dispose する
+
+.PARAMETER Source
+    元画像。Dispose しない
+
+.PARAMETER Size
+    出力の一辺。単位はピクセル
+
+.OUTPUTS
+    System.Drawing.Bitmap
+    32bpp ARGB。呼び出し側が Dispose する
+
+.EXAMPLE
+    $bmp = New-BadgedBitmap -Source $source -Size 256
+#>
 function New-BadgedBitmap {
 	param([System.Drawing.Image]$Source, [int]$Size)
 
@@ -149,6 +286,31 @@ function New-BadgedBitmap {
 	return $bmp
 }
 
+<#
+.SYNOPSIS
+    バッジ付き PNG を上書き保存する
+
+.DESCRIPTION
+    出力の一辺は、元画像の短い辺と同じにする
+    Path の既存ファイルは上書きする。親ディレクトリは作らない
+    作業ビットマップは関数内で破棄する
+
+.PARAMETER Source
+    元画像。Dispose しない
+
+.PARAMETER Path
+    書き出す PNG のパス
+
+.OUTPUTS
+    なし
+
+.EXAMPLE
+    Save-BadgedPng -Source $source -Path $resolvedPng
+
+.NOTES
+    例外:
+    - PNG の保存に失敗したときは、その例外をそのまま送出する
+#>
 function Save-BadgedPng {
 	param([System.Drawing.Image]$Source, [string]$Path)
 
@@ -158,6 +320,28 @@ function Save-BadgedPng {
 	finally { $bmp.Dispose() }
 }
 
+<#
+.SYNOPSIS
+    ICO の 1 サイズ分の DIB バイト列を作る
+
+.DESCRIPTION
+    BITMAPINFOHEADER、下から上の BGRA、AND マスクの順に並べる
+    アルファが 128 未満の画素をマスクで透明にする
+    作業ビットマップは関数内で破棄する。戻り値はバイト配列のまま返す
+
+.PARAMETER Source
+    元画像。Dispose しない
+
+.PARAMETER Size
+    このエントリの一辺。単位はピクセル
+
+.OUTPUTS
+    System.Byte[]
+    ICO ディレクトリから指す画像バイト
+
+.EXAMPLE
+    $bytes = New-IconDibBytes -Source $source -Size 32
+#>
 function New-IconDibBytes {
 	param([System.Drawing.Image]$Source, [int]$Size)
 
@@ -177,6 +361,10 @@ function New-IconDibBytes {
 		$writer.Flush(); return , $ms.ToArray()
 	} finally { $writer.Dispose(); $ms.Dispose(); $bmp.Dispose() }
 }
+
+# ----------------------------------------------
+# PNG と ICO の書き出し
+# ----------------------------------------------
 
 $source = [System.Drawing.Image]::FromFile($resolvedBasePng)
 try {

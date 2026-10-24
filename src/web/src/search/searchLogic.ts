@@ -1,22 +1,44 @@
+/**
+ * 文書内の検索一致を数える、または前後へ移動する範囲を返す
+ * パネルの描画とスクロールは持たない
+ * @file
+ */
 import { type EditorState } from '@codemirror/state';
 import { type SearchQuery } from '@codemirror/search';
 
+/**
+ * 検索ヒットの現在位置と総数
+ * ヒットが無いときは両方 0。現在位置は 1 始まり
+ */
 export type SearchMatchStatus = {
+	/** 現在位置。1 始まり。ヒットが無いときは 0 */
 	current: number;
+	/** 文書内のヒット総数。無いときは 0 */
 	total: number;
 };
 
+/**
+ * 一致を辿る方向
+ * `next` は文書の後ろ、`previous` は前。端では反対の端へ戻る
+ */
 export type SearchMatchDirection = 'next' | 'previous';
 
+/**
+ * 文書上の 1 件の一致
+ * `from` は含み、`to` は含まない
+ */
 export type SearchMatchRange = {
+	/** 一致の開始位置。文書先頭からの文字数 */
 	from: number;
+	/** 一致の終了位置。この位置は含まない */
 	to: number;
 };
 
 /**
  * CodeMirror の正規表現検索と同じフラグで構文を検証する
- * @param {string} pattern 正規表現パターン
- * @returns {string | null} エラーメッセージ。妥当な場合は null
+ * 空のパターンはエラーにしない。不正なときは日本語の説明を返す
+ * @param pattern - 検証する正規表現。空文字は妥当とみなす
+ * @returns 日本語のエラーメッセージ。妥当なときは null
  */
 export function getRegularExpressionError(pattern: string): string | null {
 	if (!pattern) {
@@ -34,10 +56,11 @@ export function getRegularExpressionError(pattern: string): string | null {
 }
 
 /**
- * 検索ヒット総数と現在位置を数える
- * @param {EditorState} state エディタ状態
- * @param {SearchQuery} query 検索条件
- * @returns {SearchMatchStatus} 現在位置と総数
+ * 検索ヒット総数と、選択から見た現在位置を数える
+ * 選択と完全一致、選択を含む一致、次の一致の順で現在位置を決める。次が無いときは 1 件目を現在とする
+ * @param state - 検索対象のエディタ状態。主選択を現在位置の基準にする
+ * @param query - 検索条件。無効なクエリは 0 件
+ * @returns 1 始まりの現在位置と総数。ヒットが無いときは両方 0
  */
 export function countSearchMatches(state: EditorState, query: SearchQuery): SearchMatchStatus {
 	const matches = getSearchMatches(state, query);
@@ -68,11 +91,12 @@ export function countSearchMatches(state: EditorState, query: SearchQuery): Sear
 }
 
 /**
- * 現在選択から見た次 / 前の検索一致範囲を返す
- * @param {EditorState} state エディタ状態
- * @param {SearchQuery} query 検索条件
- * @param {SearchMatchDirection} direction 検索方向
- * @returns {SearchMatchRange | null} 一致範囲。該当なしの場合 null
+ * 現在選択から見た次または前の検索一致範囲を返す
+ * 選択と完全一致するヒットがあればその隣へ進み、端では反対の端へ戻る
+ * @param state - 検索対象のエディタ状態。主選択を基準にする
+ * @param query - 検索条件。無効なクエリは一致なし
+ * @param direction - `next` は後ろ、`previous` は前
+ * @returns 移動先の一致。ヒットが無いときは null
  */
 export function findSearchMatch(
 	state: EditorState,
@@ -112,12 +136,13 @@ export function findSearchMatch(
 }
 
 /**
- * 指定位置から見た次 / 前の検索一致範囲を返す
- * @param {EditorState} state エディタ状態
- * @param {SearchQuery} query 検索条件
- * @param {number} position 検索基準位置
- * @param {SearchMatchDirection} direction 検索方向
- * @returns {SearchMatchRange | null} 一致範囲。該当なしの場合 null
+ * 指定位置から見た次または前の検索一致範囲を返す
+ * 位置は文書長へ収め、次は終了が位置以降の最初、前は開始が位置以前の最後を返す
+ * @param state - 検索対象のエディタ状態
+ * @param query - 検索条件。無効なクエリは一致なし
+ * @param position - 基準の文書位置。範囲外は 0 から文書長へ収める
+ * @param direction - `next` は後ろ、`previous` は前
+ * @returns 移動先の一致。ヒットが無いときは null
  */
 export function findSearchMatchFromPosition(
 	state: EditorState,
@@ -147,12 +172,13 @@ export function findSearchMatchFromPosition(
 }
 
 /**
- * 現在一致範囲を基準に次 / 前の検索一致範囲を返す
- * @param {EditorState} state エディタ状態
- * @param {SearchQuery} query 検索条件
- * @param {SearchMatchRange | null} current 現在一致範囲
- * @param {SearchMatchDirection} direction 検索方向
- * @returns {SearchMatchRange | null} 一致範囲。該当なしの場合 null
+ * 現在の一致範囲を基準に、次または前の検索一致範囲を返す
+ * 現在範囲が無いときは選択基準の `findSearchMatch` へ委譲する。端では反対の端へ戻る
+ * @param state - 検索対象のエディタ状態
+ * @param query - 検索条件。無効なクエリは一致なし
+ * @param current - いま表示している一致。null のときは選択を基準にする
+ * @param direction - `next` は後ろ、`previous` は前
+ * @returns 移動先の一致。ヒットが無いときは null
  */
 export function findSearchMatchFromRange(
 	state: EditorState,
@@ -195,9 +221,10 @@ export function findSearchMatchFromRange(
 
 /**
  * 検索条件に一致する範囲を文書全体から列挙する
- * @param {EditorState} state エディタ状態
- * @param {SearchQuery} query 検索条件
- * @returns {SearchMatchRange[]} 一致範囲一覧
+ * 無効なクエリは空配列。並びは文書順
+ * @param state - 検索対象のエディタ状態
+ * @param query - 検索条件。`valid` が false なら列挙しない
+ * @returns 文書順の一致範囲。無いときは空配列
  */
 function getSearchMatches(state: EditorState, query: SearchQuery): SearchMatchRange[] {
 	if (!query.valid) {

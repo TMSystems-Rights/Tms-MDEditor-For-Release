@@ -1,3 +1,10 @@
+// ==============================================
+// ブリッジ要求を API へ振り分ける
+// ==============================================
+
+// method 名で各 API へ振り分け、id があるときだけ JSON 応答を返す
+// 処理中の例外はログへ残し、呼び出し元へは error 応答として返す。未対応の method も同様
+
 using System.Text.Json;
 using TmsMdEditor.Models;
 using TmsMdEditor.Services;
@@ -5,30 +12,78 @@ using TmsMdEditor.Services;
 namespace TmsMdEditor.Bridge;
 
 /// <summary>
-/// Web 層からの JSON-RPC 風要求をディスパッチする
+/// Web 層からの JSON 要求を、設定、ファイル、更新などの API へ振り分ける
+/// 応答の往復は MainForm が行い、このクラスはウィンドウを直接閉じない
 /// </summary>
 internal sealed class BridgeRouter
 {
+	/// <summary>
+	/// 設定、ログ、ノート位置の参照先。ルーターより長く生き、ここからは破棄しない
+	/// </summary>
 	private readonly AppContext _appContext;
+
+	/// <summary>
+	/// config:* の取得と保存。コンストラクタで作り、要求のたびに使い回す
+	/// </summary>
 	private readonly ConfigApi _configApi;
+
+	/// <summary>
+	/// file:* の読み書きとダイアログ。コンストラクタで作り、要求のたびに使い回す
+	/// </summary>
 	private readonly FileApi _fileApi;
+
+	/// <summary>
+	/// recent:* の一覧更新。保存成功時にメニューも更新する
+	/// </summary>
 	private readonly RecentApi _recentApi;
+
+	/// <summary>
+	/// window:* のタイトルとタブ切り離し
+	/// </summary>
 	private readonly WindowApi _windowApi;
+
+	/// <summary>
+	/// shell:* とフォルダ選択。CSS スニペットのフォルダを開くときも使う
+	/// </summary>
 	private readonly ShellApi _shellApi;
+
+	/// <summary>
+	/// 閉じる判断と、シェルメニューの更新
+	/// </summary>
 	private readonly AppApi _appApi;
+
+	/// <summary>
+	/// clipboard:* の読み書きと、エディタ向けの貼り付け変換
+	/// </summary>
 	private readonly ClipboardApi _clipboardApi;
+
+	/// <summary>
+	/// CSS スニペットの一覧とフォルダパス。ルーターと同時に作り、設定ストアを借用する
+	/// </summary>
 	private readonly CssSnippetService _cssSnippetService;
+
+	/// <summary>
+	/// update:* の確認、取得、適用。起動時チェックもここから始める
+	/// </summary>
 	private readonly UpdateApi _updateApi;
+
+	/// <summary>
+	/// session:save。副ウィンドウでは保存しない
+	/// </summary>
 	private readonly SessionApi _sessionApi;
+
+	/// <summary>
+	/// HTML の PDF 出力と印刷 UI。所有は MainForm にあり、ルーターは破棄しない
+	/// </summary>
 	private readonly PrintExportService _printExportService;
 
 	/// <summary>
-	/// ブリッジルーターを初期化する
+	/// 各 API を作り、セッション保存の所有者を SessionApi へ渡す
 	/// </summary>
-	/// <param name="mainForm">メインフォーム</param>
-	/// <param name="appContext">アプリコンテキスト</param>
-	/// <param name="isSessionOwner">セッション保存の所有者か</param>
-	/// <param name="printExportService">印刷・PDF サービス</param>
+	/// <param name="mainForm">メニュー、タイトル、イベント送信の宛先。null は渡さない</param>
+	/// <param name="appContext">設定、ファイル、ログの参照先。ルーターより長く生きる</param>
+	/// <param name="isSessionOwner">true のときだけ session:save がタブ構成を書く</param>
+	/// <param name="printExportService">印刷と PDF。フォームの終了時に破棄される。null は渡さない</param>
 	public BridgeRouter(MainForm mainForm, AppContext appContext, bool isSessionOwner, PrintExportService printExportService)
 	{
 		_appContext = appContext;
@@ -46,9 +101,10 @@ internal sealed class BridgeRouter
 	}
 
 	/// <summary>
-	/// Web 層からの要求を処理する
+	/// method に対応する処理を実行し、id があるときだけ JSON 応答を返す
+	/// 例外と未対応の method はログへ残し、id があるときは error 応答に変える。id の無い通知は null
 	/// </summary>
-	/// <param name="request">要求 JSON</param>
+	/// <param name="request">method を持つ要求 JSON。params が無いときは空として各 API へ渡す</param>
 	/// <returns>応答 JSON。通知のみの場合は null</returns>
 	public async Task<string?> HandleRequestAsync(JsonElement request)
 	{
@@ -154,14 +210,18 @@ internal sealed class BridgeRouter
 		}
 	}
 
-	/// <summary>起動時の更新チェックを開始する</summary>
+	/// <summary>
+	/// 起動時の更新チェックを非同期で始める。同日に確認済みなら UpdateApi 側で何もしない
+	/// 失敗はイベントで Web 層へ知らせ、ここからは例外を出さない
+	/// </summary>
 	public void StartStartupUpdateCheck() => _updateApi.StartStartupCheck();
 
 	/// <summary>
-	/// 疎通確認要求を処理する
+	/// 疎通確認のメッセージと、応答を作ったローカル時刻を返す
+	/// message が無いときは pong を返す
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>応答ペイロード</returns>
+	/// <param name="paramsElement">message を持つ JSON。未指定やオブジェクト以外のときは pong</param>
+	/// <returns>message と、ISO 8601 の now</returns>
 	private static object HandlePing(JsonElement paramsElement)
 	{
 		string message = "pong";
@@ -180,10 +240,11 @@ internal sealed class BridgeRouter
 	}
 
 	/// <summary>
-	/// Web 層ログ転送要求を処理する
+	/// Web 層のログを日次ログへ写す。level が不明なときは INFO にする
+	/// params が無いときは何も書かず成功を返す
 	/// </summary>
-	/// <param name="paramsElement">params</param>
-	/// <returns>空の成功応答</returns>
+	/// <param name="paramsElement">level、source、message を持つ JSON。未指定の level は INFO、source は web</param>
+	/// <returns>受付済みを表す ok。ログ書き込みの失敗はロガー側に任せ、ここは成功を返す</returns>
 	private object HandleLogWrite(JsonElement paramsElement)
 	{
 		if (paramsElement.ValueKind == JsonValueKind.Undefined)

@@ -1,3 +1,7 @@
+/**
+ * スニペット再読み込みの表示文言が、有効件数とエラーを区別することを確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import { getCssSnippetsReloadStatus } from './cssSnippets';
 

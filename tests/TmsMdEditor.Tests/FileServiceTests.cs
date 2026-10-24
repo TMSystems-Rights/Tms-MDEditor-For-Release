@@ -1,14 +1,34 @@
+// ==============================================
+// テキストと画像ファイルの読み書き
+// ==============================================
+
+// 文字コードと改行を保った保存、画像の解決、UTF-8 書き出し、保存後に一時ファイルが残らないことを固定する
+
 using System.Text;
 using TmsMdEditor.Models;
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// 一時ディレクトリの実ファイルで読み書きを検証する
+/// CP932 用のコードページは各テストの前に登録し、プロセスが終わるまで残る
+/// </summary>
 public class FileServiceTests : IDisposable
 {
+	/// <summary>
+	/// 読み書きに使う一時ディレクトリ。テストごとに作り、Dispose で削除する
+	/// </summary>
 	private readonly string _tempRoot;
+
+	/// <summary>
+	/// 検証対象。ログは実ロガーへ渡し、ログ文面は検証しない
+	/// </summary>
 	private readonly FileService _fileService;
 
+	/// <summary>
+	/// CP932 の往復に必要なコードページを登録し、空の一時ディレクトリを作る
+	/// </summary>
 	public FileServiceTests()
 	{
 		Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -18,6 +38,9 @@ public class FileServiceTests : IDisposable
 		Directory.CreateDirectory(_tempRoot);
 	}
 
+	/// <summary>
+	/// 一時ディレクトリが残っていれば、中身ごと削除する
+	/// </summary>
 	public void Dispose()
 	{
 		if (Directory.Exists(_tempRoot))
@@ -26,6 +49,9 @@ public class FileServiceTests : IDisposable
 		}
 	}
 
+	/// <summary>
+	/// BOM 無し UTF-8 と LF のファイルを、その文字コードと改行、同じ本文で読む
+	/// </summary>
 	[Fact]
 	public void Read_detects_encoding_and_eol()
 	{
@@ -40,6 +66,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal("line1\nline2", info.Text);
 	}
 
+	/// <summary>
+	/// BOM 付き UTF-8 で保存すると、BOM が残り、本文は新しい文字列になる
+	/// </summary>
 	[Fact]
 	public void Save_preserves_encoding_and_bom()
 	{
@@ -60,6 +89,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(expectedBytes, savedBytes);
 	}
 
+	/// <summary>
+	/// 混在した改行を CRLF へ統一して保存すると、ファイルも結果も CRLF だけになる
+	/// </summary>
 	[Fact]
 	public void Save_can_unify_mixed_eol_to_crlf()
 	{
@@ -77,6 +109,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal("a\r\nb\r\nc\r\nd", File.ReadAllText(filePath, Encoding.UTF8));
 	}
 
+	/// <summary>
+	/// CP932 の日本語を読むと CP932 になり、同じ文字コードで保存すると同じ文字列に戻る
+	/// </summary>
 	[Fact]
 	public void Read_and_save_roundtrip_cp932()
 	{
@@ -93,6 +128,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(opened.Text, cp932.GetString(File.ReadAllBytes(filePath)));
 	}
 
+	/// <summary>
+	/// ノートと同じディレクトリの相対パスを、PNG のデータ URL とその絶対パスへ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_resolves_relative_path()
 	{
@@ -108,6 +146,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// サブディレクトリにある埋め込み画像を、ファイル名からその絶対パスへ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_resolves_embed_in_subdirectory()
 	{
@@ -124,6 +165,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// 埋め込みの幅指定を除いた相対パスを、添付フォルダ内の画像へ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_strips_size_suffix_from_embed()
 	{
@@ -143,6 +187,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// 保管庫直下からのパスと幅指定を、ノートからの相対パスではなくその画像へ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_resolves_vault_root_embed_with_arbitrary_attachment_folder()
 	{
@@ -165,6 +212,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// 保管庫の中でも、明示したノート相対の埋め込みはそのノートの隣の画像へ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_resolves_explicit_document_relative_embed_inside_vault()
 	{
@@ -186,6 +236,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// 保管庫内で一意なファイル名の埋め込みは、ノートと別の場所にある画像へ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_resolves_unique_bare_embed_from_vault_root()
 	{
@@ -205,6 +258,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// 同名画像が複数あるときはどれも選ばず、見つからないエラーにする
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_does_not_choose_ambiguous_bare_embed()
 	{
@@ -226,6 +282,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal("画像ファイルが見つかりません。", result.Error);
 	}
 
+	/// <summary>
+	/// ノートパスが無くても、幅指定付きの絶対パスをその画像へ解決する
+	/// </summary>
 	[Fact]
 	public void ReadImageAsDataUrl_resolves_absolute_embed_without_document()
 	{
@@ -241,6 +300,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(Path.GetFullPath(imagePath), result.ResolvedPath);
 	}
 
+	/// <summary>
+	/// 同じファイル名で2回保存すると、両方の実体が残り、パスは重ならない
+	/// </summary>
 	[Fact]
 	public void SaveImageCopy_writes_unique_filename()
 	{
@@ -256,6 +318,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal(bytes, File.ReadAllBytes(first));
 	}
 
+	/// <summary>
+	/// UTF-8 の書き出しは BOM を付けず、渡した HTML をそのまま書く
+	/// </summary>
 	[Fact]
 	public void WriteUtf8_writes_without_bom()
 	{
@@ -269,6 +334,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal("<!DOCTYPE html><html><body>日本語</body></html>", Encoding.UTF8.GetString(bytes));
 	}
 
+	/// <summary>
+	/// 既存ファイルへの UTF-8 書き出しは、以前の内容を新しい文字列で置き換える
+	/// </summary>
 	[Fact]
 	public void WriteUtf8_replaces_existing_file()
 	{
@@ -281,6 +349,9 @@ public class FileServiceTests : IDisposable
 		Assert.Equal("new-content", File.ReadAllText(filePath));
 	}
 
+	/// <summary>
+	/// 上書き保存のあと、対象ファイルは新しい本文になり、一時ファイルは残らない
+	/// </summary>
 	[Fact]
 	public void Save_overwrite_does_not_leave_temp_file()
 	{

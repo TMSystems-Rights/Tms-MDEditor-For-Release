@@ -1,3 +1,8 @@
+/**
+ * 外部リンクの許可判定と、キャレット補正を避ける条件を検証する
+ * リンク要素の探索は最小のモックを使い、プラグインの装飾状態は持たない
+ * @file
+ */
 /* eslint-disable jsdoc/require-jsdoc */
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState } from '@codemirror/state';

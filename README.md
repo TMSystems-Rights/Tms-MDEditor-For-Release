@@ -207,15 +207,7 @@ npm run lint
 npm run lint:fix
 ```
 
-`npm run lint` は ESLint に加えて、Web 層の HTML/CSS が所定フォーマット済みかも検査します。
-
-AI（Cursor 等）が `src/web/**/*.html` または `src/web/**/*.css` を編集した場合は、次のどちらかで整形してください。
-
-```powershell
-node scripts/format-web-assets.mjs
-# または JS の自動修正もまとめて行う場合:
-npm run lint:fix
-```
+`npm run lint` は ESLint を実行する。HTML と CSS の整形は、エディタの Format on Save に任せる。HTML は Prettier、CSS は VS Code の CSS フォーマッタ。
 
 ## テスト
 

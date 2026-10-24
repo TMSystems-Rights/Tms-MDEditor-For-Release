@@ -1,63 +1,133 @@
+/**
+ * Markdown の見出しからアウトラインを作り、項目へのジャンプ後にスクロールを補正する
+ * パネルの DOM は持たず、構文木とエディタビューへ渡された状態だけを読む
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, Transaction, type EditorState, type TransactionSpec } from '@codemirror/state';
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import type { Tree } from '@lezer/common';
 import { createCaretRedrawSpec } from '../editor/caretRedraw';
 
+/**
+ * アウトラインに出す 1 つの見出し
+ * 階層はレベル番号で表し、木の親子は別の型が持つ
+ */
 export type OutlineItem = {
+	/** 見出しレベル。1 が最上位、6 が最下位 */
 	level: number;
+	/** 記号を除いた見出し文。空の見出しは収集時に代替文へ置き換える */
 	title: string;
+	/** 見出しの開始位置。文書先頭からの文字数 */
 	from: number;
 };
 
+/**
+ * 見出しを親子に組んだ節
+ * `index` は元の一覧での位置で、画面の折りたたみとは独立
+ */
 export type OutlineTreeNode = {
+	/** この節の見出し */
 	item: OutlineItem;
+	/** `OutlineItem` 配列での位置。0 始まり */
 	index: number;
+	/** 直下の子。葉は空配列 */
 	children: OutlineTreeNode[];
 };
 
+/**
+ * 見出し行の画面上の縦範囲
+ * スクロール補正で、上端余白との差を見る
+ */
 export type OutlineScrollRect = {
+	/** 上端。単位は CSS ピクセル */
 	top: number;
+	/** 下端。単位は CSS ピクセル */
 	bottom: number;
 };
 
+/**
+ * 追加スクロールの量と、目標へ届いたか
+ * `aligned` が true のとき `delta` は 0
+ */
 export type OutlineScrollCorrection = {
+	/** 足すべき scrollTop。単位は CSS ピクセル。上へ動かすときは負 */
 	delta: number;
+	/** 上端余白へ届いた、またはそれ以上スクロールできないが見えているか */
 	aligned: boolean;
 };
 
+/**
+ * アウトラインからキャレットを動かす対象
+ * テストでは `EditorView` 全体を渡さず、この 2 操作だけで足りる
+ */
 type OutlineJumpView = {
+	/** エディタへフォーカスを戻す */
 	focus: () => void;
+	/**
+	 * キャレット移動のトランザクションを適用する
+	 * @param transaction - 選択とユーザイベントを含む仕様
+	 */
 	dispatch: (transaction: TransactionSpec) => void;
 };
 
+/**
+ * 遅れて実行するスクロールを中止するか
+ * true のときは、より新しいジャンプが予約を無効にしている
+ */
 type OutlineScrollCancelCheck = () => boolean;
 
+/**
+ * 行塊から求めた一次スクロール
+ * 計測を中止したときは null
+ */
 type OutlineInitialScrollMeasure = {
+	/** 設定する scrollTop。単位は CSS ピクセル */
 	targetTop: number;
 } | null;
 
+/**
+ * DOM 座標から求めた微調整
+ * 再試行が不要なら `needsRetry` は false
+ */
 type OutlineScrollCorrectionMeasure = {
+	/** 足す scrollTop。単位は CSS ピクセル */
 	delta: number;
+	/** まだ目標へ届かず、試行回数が残っているか */
 	needsRetry: boolean;
 };
 
+/** Lezer の ATX / Setext 見出し名からレベル 1〜6 を取る正規表現 */
 const HEADING_NODE_PATTERN              = /^(?:ATXHeading|SetextHeading)([1-6])$/;
+
+/** アウトラインからの選択であることを示す userEvent。スクロール補正の起点 */
 const OUTLINE_JUMP_USER_EVENT           = 'select.outline';
+
+/** 一次スクロールの requestMeasure を識別するキー。同じキーの計測は置き換わる */
 const outlineInitialScrollKey           = {};
+
+/** DOM 補正の requestMeasure を識別するキー。一次スクロールとは別枠 */
 const outlineScrollCorrectionKey        = {};
+
+/** 見出しをスクロール領域の上端から離す余白。単位は CSS ピクセル */
 const OUTLINE_SCROLL_MARGIN_PX          = 12;
+
+/** DOM 補正の最大試行回数。行高が遅れて確定するライブプレビュー向け */
 const OUTLINE_SCROLL_FINE_ATTEMPTS      = 5;
+
+/** ジャンプ後、行高が揃い始めるまで待つ時間。単位はミリ秒 */
 const OUTLINE_SCROLL_DELAY_MS           = 35;
+
+/** この差以内なら上端に揃ったとみなす。単位は CSS ピクセル */
 const OUTLINE_SCROLL_ALIGN_TOLERANCE_PX = 4;
 
 /**
- * Markdown 構文木からアウトラインへ表示する見出しを収集する。
- * コードブロック内の # などは構文木で見出しにならないため対象外となる。
- * エクスポートでは `ensureSyntaxTree` 済みの木を渡し、未完成の `syntaxTree(state)` を使わない。
- * @param {EditorState} state エディタ状態
- * @param {Tree} [tree] 走査する構文木。省略時は `syntaxTree(state)`
- * @returns {OutlineItem[]} 見出し一覧
+ * Markdown 構文木からアウトラインへ表示する見出しを収集する
+ * コードブロック内の # などは構文木で見出しにならないため対象外となる
+ * エクスポートでは `ensureSyntaxTree` 済みの木を渡し、未完成の `syntaxTree(state)` を使わない
+ * @param state - 見出しを集めるエディタ状態
+ * @param tree - 走査する構文木。省略時は `syntaxTree(state)`。未完成の木は見出しを欠く
+ * @returns 文書順の見出し。空の見出し文は `（無題）`
  */
 export function collectOutlineItems(state: EditorState, tree: Tree = syntaxTree(state)): OutlineItem[] {
 	const items: OutlineItem[] = [];
@@ -78,10 +148,10 @@ export function collectOutlineItems(state: EditorState, tree: Tree = syntaxTree(
 }
 
 /**
- * 見出し一覧を階層ツリーにする。
- * 直前のより浅い見出しを親とし、レベルが飛んでも（H1 の直後が H3 など）その浅い見出しの子にする。
- * @param {readonly OutlineItem[]} items 文書順の見出し
- * @returns {OutlineTreeNode[]} ルート見出し
+ * 見出し一覧を階層ツリーにする
+ * 直前のより浅い見出しを親とし、レベルが飛んでも（H1 の直後が H3 など）その浅い見出しの子にする
+ * @param items - 文書順の見出し
+ * @returns ルート見出し。入力が空なら空配列
  */
 export function buildOutlineTree(items: readonly OutlineItem[]): OutlineTreeNode[] {
 	const roots: OutlineTreeNode[] = [];
@@ -104,15 +174,15 @@ export function buildOutlineTree(items: readonly OutlineItem[]): OutlineTreeNode
 }
 
 /**
- * 子を持つ見出しの文書位置を深さ優先で返す。
- * @param {readonly OutlineTreeNode[]} nodes ツリー
- * @returns {number[]} `from` の一覧
+ * 子を持つ見出しの文書位置を深さ優先で返す
+ * @param nodes - 折りたたみ対象を探す木
+ * @returns 子を持つ見出しの `from`。葉は含まない
  */
 export function collectFoldableOutlineFroms(nodes: readonly OutlineTreeNode[]): number[] {
 	const froms: number[] = [];
 	/**
-	 * @param {readonly OutlineTreeNode[]} list ノード
-	 * @returns {void}
+	 * 子を持つ節の `from` を深さ優先で集める
+	 * @param list - いま辿っている兄弟
 	 */
 	const walk            = (list: readonly OutlineTreeNode[]): void => {
 		for (const node of list) {
@@ -126,7 +196,13 @@ export function collectFoldableOutlineFroms(nodes: readonly OutlineTreeNode[]): 
 	return froms;
 }
 
-/** 現在位置が属する直前の見出しを返す。 */
+/**
+ * 現在位置が属する直前の見出しのインデックスを返す
+ * どの見出しよりも前なら -1
+ * @param items - 文書順の見出し
+ * @param position - 文書上の位置。この値以下で最も後ろの見出しを選ぶ
+ * @returns 見出し配列のインデックス。該当が無ければ -1
+ */
 export function findActiveOutlineItemIndex(items: readonly OutlineItem[], position: number): number {
 	let activeIndex = -1;
 	for (let index = 0; index < items.length; index += 1) {
@@ -137,10 +213,10 @@ export function findActiveOutlineItemIndex(items: readonly OutlineItem[], positi
 }
 
 /**
- * アクティブ見出しを内包する祖先見出しの文書位置を返す。
- * @param {readonly OutlineItem[]} items 文書順の見出し
- * @param {number} activeIndex アクティブ見出しのインデックス
- * @returns {number[]} 外側から内側の順に並んだ祖先見出し位置
+ * アクティブ見出しを内包する祖先見出しの文書位置を返す
+ * @param items - 文書順の見出し
+ * @param activeIndex - アクティブ見出しのインデックス。範囲外は空配列
+ * @returns 外側から内側の順に並んだ祖先の `from`
  */
 export function collectOutlineAncestorFroms(
 	items: readonly OutlineItem[],
@@ -162,16 +238,10 @@ export function collectOutlineAncestorFroms(
 }
 
 /**
- * アクティブ項目をアウトラインの表示範囲へ収める scrollTop を返す。
- * @param {object} input 計算入力
- * @param {number} input.itemTop 項目上端
- * @param {number} input.itemBottom 項目下端
- * @param {number} input.viewportTop 一覧表示領域上端
- * @param {number} input.viewportBottom 一覧表示領域下端
- * @param {number} input.scrollTop 現在の scrollTop
- * @param {number} input.maxScrollTop 最大 scrollTop
- * @param {number} [input.margin] 上下余白
- * @returns {number} 設定する scrollTop
+ * アクティブ項目をアウトラインの表示範囲へ収める scrollTop を返す
+ * 余白の内側に収まっていれば現在の scrollTop を返す
+ * @param input - 項目と一覧の縦位置。単位は CSS ピクセル。`margin` を省略すると 6
+ * @returns 0 から `maxScrollTop` に収めた scrollTop
  */
 export function computeOutlineListScrollTop(input: {
 	itemTop: number;
@@ -193,9 +263,15 @@ export function computeOutlineListScrollTop(input: {
 	return Math.min(input.maxScrollTop, Math.max(0, target));
 }
 
+// ----------------------------------------------
+// ジャンプ後のスクロール
+// ----------------------------------------------
+
 /**
- * アウトライン項目へフォーカスとキャレットだけを移動する。
- * スクロールはライブプレビューの行高確定後に補正プラグインが行う。
+ * アウトライン項目へフォーカスとキャレットだけを移動する
+ * スクロールはライブプレビューの行高確定後に補正プラグインが行う
+ * @param view - フォーカスと選択を受け取るビュー
+ * @param item - 移動先の見出し。キャレットはその開始位置
  */
 export function jumpToOutlineItem(view: OutlineJumpView, item: OutlineItem): void {
 	view.focus();
@@ -205,18 +281,22 @@ export function jumpToOutlineItem(view: OutlineJumpView, item: OutlineItem): voi
 	});
 }
 
-/** マウスクリックでアウトラインボタンへフォーカスが移るのを防ぐ。 */
+/**
+ * 左ボタンの押下でアウトライン側へフォーカスが移るのを防ぐ
+ * 左ボタン以外は既定の動作に任せる
+ * @param event - 押下イベント。左ボタンのときだけ `preventDefault` する
+ */
 export function preserveEditorFocusOnOutlineMouseDown(event: Pick<MouseEvent, 'button' | 'preventDefault'>): void {
 	if (event.button === 0) event.preventDefault();
 }
 
 /**
- * 見出し行を上端余白付きで表示するための scrollTop を計算する。
- * @param {number} lineBlockTop 見出し行のドキュメント座標
- * @param {number} clientHeight スクロール領域の高さ
- * @param {number} scrollHeight スクロール内容の高さ
- * @param {number} marginPx 上端余白
- * @returns {number} 設定する scrollTop
+ * 見出し行を上端余白付きで表示するための scrollTop を計算する
+ * @param lineBlockTop - 見出し行の文書内上端。単位は CSS ピクセル
+ * @param clientHeight - スクロール領域の高さ。単位は CSS ピクセル
+ * @param scrollHeight - スクロール内容の高さ。単位は CSS ピクセル
+ * @param marginPx - 上端余白。省略時は `OUTLINE_SCROLL_MARGIN_PX`
+ * @returns 0 から最大 scrollTop に収めた値
  */
 export function computeOutlineTargetScrollTop(
 	lineBlockTop: number,
@@ -229,15 +309,15 @@ export function computeOutlineTargetScrollTop(
 }
 
 /**
- * 実座標とスクロール限界から、追加スクロール量と到達判定を決める。
- * 文書末尾などで上端合わせできない場合は、行が見えていれば到達とみなす。
- * @param {OutlineScrollRect} rect 見出し行の画面座標
- * @param {number} scrollerTop スクロール領域上端
- * @param {number} scrollerBottom スクロール領域下端
- * @param {number} scrollTop 現在の scrollTop
- * @param {number} maxScrollTop 最大 scrollTop
- * @param {number} marginPx 上端余白
- * @returns {OutlineScrollCorrection} 補正結果
+ * 実座標とスクロール限界から、追加スクロール量と到達判定を決める
+ * 文書末尾などで上端合わせできない場合は、行が見えていれば到達とみなす
+ * @param rect - 見出し行の画面座標
+ * @param scrollerTop - スクロール領域の上端。単位は CSS ピクセル
+ * @param scrollerBottom - スクロール領域の下端。単位は CSS ピクセル
+ * @param scrollTop - 現在の scrollTop
+ * @param maxScrollTop - これ以上は動かせない scrollTop
+ * @param marginPx - 上端余白。省略時は `OUTLINE_SCROLL_MARGIN_PX`
+ * @returns 追加で動かす量と、到達したとみなすか
  */
 export function planOutlineScrollCorrection(
 	rect: OutlineScrollRect,
@@ -267,52 +347,63 @@ export function planOutlineScrollCorrection(
 }
 
 /**
- * 描画キャレット再計測用のトランザクションを作る。
- * 位置は変えず、drawSelection の cursorLayer に再計測させる。
- * @param {number} from キャレット位置
- * @returns {TransactionSpec} 再描画用スペック
+ * 描画キャレット再計測用のトランザクションを作る
+ * 位置は変えず、drawSelection の cursorLayer に再計測させる
+ * @param from - 再計測させるキャレット位置
+ * @returns 選択を同じ位置で出し直すトランザクション仕様
  */
 export function createOutlineCaretRedrawSpec(from: number): TransactionSpec {
 	return createCaretRedrawSpec(EditorSelection.create([EditorSelection.cursor(from, 1)]));
 }
 
 /**
- * アウトラインジャンプ後のスクロール補正拡張を返す。
- * @returns {ReturnType<typeof ViewPlugin.define>} 補正プラグイン
+ * アウトラインジャンプ後のスクロール補正拡張を返す
+ * 同じプラグインインスタンスを返す。ジャンプ以外の選択ではスクロールしない
+ * @returns エディタへ渡すスクロール補正プラグイン
  */
 export function createOutlineScrollExtension() {
 	return outlineScrollPlugin;
 }
 
-/** ATX 見出しから構造用の # を除去する。 */
+/**
+ * ATX 見出しから、開く `#` と閉じる `#` を除いた本文を返す
+ * @param source - 見出しノードの原文
+ * @returns 前後の空白を除いた見出し文。記号だけなら空文字
+ */
 function extractAtxTitle(source: string): string {
 	const withoutOpeningMark = source.replace(/^ {0,3}#{1,6}(?:[\t ]+|$)/, '');
 	return withoutOpeningMark.replace(/[\t ]+#+[\t ]*$/, '').trim();
 }
 
-/** Setext 見出しから下線を除去する。 */
+/**
+ * Setext 見出しから下線行を除いた本文を返す
+ * 改行が無いときは全文の前後空白を除く
+ * @param source - 見出しノードの原文。下線を含むことがある
+ * @returns 1 行目の前後空白を除いた見出し文
+ */
 function extractSetextTitle(source: string): string {
 	const newlineIndex = source.search(/\r?\n/);
 	return (newlineIndex < 0 ? source : source.slice(0, newlineIndex)).trim();
 }
 
 /**
- * 現在選択がジャンプ対象のままか判定する。
- * @param {EditorView} view エディタビュー
- * @param {number} targetFrom ジャンプ先位置
- * @returns {boolean} 対象が有効なら true
+ * 選択が、ジャンプ先の位置のままか判定する
+ * ユーザーが別の場所へ動かすと、遅れたスクロールは行わない
+ * @param view - 選択を見るエディタ
+ * @param targetFrom - ジャンプ先の文書位置
+ * @returns 主選択の head が一致するとき true
  */
 function isActiveOutlineScrollTarget(view: EditorView, targetFrom: number): boolean {
 	return view.state.selection.main.head === targetFrom;
 }
 
 /**
- * スクロール後に描画キャレットを再計測する。
- * cursorLayer は selectionSet のときだけ再描画するため、同じ位置でも selection を再指定する。
- * @param {EditorView} view エディタビュー
- * @param {number} targetFrom ジャンプ先位置
- * @param {OutlineScrollCancelCheck} isCanceled キャンセル判定
- * @returns {void}
+ * スクロール後に描画キャレットを再計測する
+ * cursorLayer は selectionSet のときだけ再描画するため、同じ位置でも選択を出し直す
+ * キャンセル済み、または選択が動いていれば何もしない
+ * @param view - 再描画するエディタ
+ * @param targetFrom - ジャンプ先の文書位置
+ * @param isCanceled - より新しいジャンプで無効なら true
  */
 function redrawOutlineCaret(
 	view: EditorView,
@@ -327,9 +418,10 @@ function redrawOutlineCaret(
 }
 
 /**
- * キャレット位置の実 DOM 座標を取得する。
- * @param {EditorView} view エディタビュー
- * @returns {OutlineScrollRect | null} 座標。未描画なら null
+ * キャレット位置の画面上の縦範囲を返す
+ * 座標がまだ無いときは null
+ * @param view - 座標を測るエディタ
+ * @returns キャレット行の上端と下端。未描画なら null
  */
 function getOutlineCursorRect(view: EditorView): OutlineScrollRect | null {
 	const selection = view.state.selection.main;
@@ -346,11 +438,11 @@ function getOutlineCursorRect(view: EditorView): OutlineScrollRect | null {
 }
 
 /**
- * 計測後の行塊座標で一次スクロールし、続けて DOM 補正する。
- * @param {EditorView} view エディタビュー
- * @param {number} targetFrom ジャンプ先位置
- * @param {OutlineScrollCancelCheck} isCanceled キャンセル判定
- * @returns {void}
+ * 計測後の行塊座標で一次スクロールし、続けて DOM 補正する
+ * スクロール領域が無い、またはキャンセル済みなら何もしない
+ * @param view - スクロールするエディタ
+ * @param targetFrom - ジャンプ先の文書位置
+ * @param isCanceled - より新しいジャンプで無効なら true
  */
 function scrollOutlineSelectionIntoView(
 	view: EditorView,
@@ -369,9 +461,10 @@ function scrollOutlineSelectionIntoView(
 	view.requestMeasure<OutlineInitialScrollMeasure>({
 		key: outlineInitialScrollKey,
 		/**
-		 * 計測済み行塊から目標 scrollTop を求める。
-		 * @param {EditorView} measuredView エディタビュー
-		 * @returns {OutlineInitialScrollMeasure} 一次スクロール情報
+		 * 計測済みの行塊から、目標の scrollTop を求める
+		 * キャンセル済み、またはスクロール領域が無いときは null
+		 * @param measuredView - 行塊を測るエディタ
+		 * @returns 一次スクロール先。中止したときは null
 		 */
 		read(measuredView) {
 			if (isCanceled() || !isActiveOutlineScrollTarget(measuredView, targetFrom)) {
@@ -393,10 +486,10 @@ function scrollOutlineSelectionIntoView(
 			};
 		},
 		/**
-		 * 一次スクロールを適用し、DOM 補正を予約する。
-		 * @param {OutlineInitialScrollMeasure} measure 一次スクロール情報
-		 * @param {EditorView} measuredView エディタビュー
-		 * @returns {void}
+		 * 一次スクロールを適用し、次のフレームで DOM 補正を予約する
+		 * 計測結果が null、または選択が変わっていれば動かさない
+		 * @param measure - 一次スクロール先。中止時は null
+		 * @param measuredView - scrollTop を書くエディタ
 		 */
 		write(measure, measuredView) {
 			if (!measure || isCanceled() || !isActiveOutlineScrollTarget(measuredView, targetFrom)) {
@@ -415,12 +508,12 @@ function scrollOutlineSelectionIntoView(
 }
 
 /**
- * 実 DOM 座標を使って見出し位置のスクロールを微調整する。
- * @param {EditorView} view エディタビュー
- * @param {number} targetFrom ジャンプ先位置
- * @param {OutlineScrollCancelCheck} isCanceled キャンセル判定
- * @param {number} attempts 残り試行回数
- * @returns {void}
+ * 実 DOM 座標を使って見出し位置のスクロールを微調整する
+ * 届かないあいだは `attempts` が残る限り次のフレームでやり直す
+ * @param view - 微調整するエディタ
+ * @param targetFrom - ジャンプ先の文書位置
+ * @param isCanceled - より新しいジャンプで無効なら true
+ * @param attempts - 残りの試行回数。省略時は `OUTLINE_SCROLL_FINE_ATTEMPTS`
  */
 function correctOutlineScrollFromDom(
 	view: EditorView,
@@ -435,9 +528,10 @@ function correctOutlineScrollFromDom(
 	view.requestMeasure<OutlineScrollCorrectionMeasure>({
 		key: outlineScrollCorrectionKey,
 		/**
-		 * キャレット実座標から追加スクロール量を計算する。
-		 * @param {EditorView} measuredView エディタビュー
-		 * @returns {OutlineScrollCorrectionMeasure} 補正情報
+		 * キャレットの実座標から、追加で動かす量を計算する
+		 * 座標がまだ無ければ、試行が残るときだけ再試行にする
+		 * @param measuredView - 座標を測るエディタ
+		 * @returns 追加スクロール量と、再試行が要るか
 		 */
 		read(measuredView) {
 			if (isCanceled() || !isActiveOutlineScrollTarget(measuredView, targetFrom)) {
@@ -470,10 +564,10 @@ function correctOutlineScrollFromDom(
 			};
 		},
 		/**
-		 * 追加スクロール量を反映する。
-		 * @param {OutlineScrollCorrectionMeasure} measure 補正情報
-		 * @param {EditorView} measuredView エディタビュー
-		 * @returns {void}
+		 * 追加スクロールを反映し、必要なら再試行してからキャレットを描き直す
+		 * 1px 以内の差は動かさない
+		 * @param measure - 追加量と再試行の要否
+		 * @param measuredView - scrollTop を書くエディタ
 		 */
 		write(measure, measuredView) {
 			if (isCanceled() || !isActiveOutlineScrollTarget(measuredView, targetFrom)) {
@@ -499,15 +593,15 @@ function correctOutlineScrollFromDom(
 }
 
 /**
- * アウトラインジャンプ後のスクロール補正プラグイン。
+ * アウトラインジャンプ後に、行高の確定を待ってスクロールするプラグイン
+ * ジャンプ以外の選択変更では動かない
  */
 const outlineScrollPlugin = ViewPlugin.define((view) => {
 	let scrollGeneration                                  = 0;
 	let scrollTimer: ReturnType<typeof setTimeout> | null = null;
 
 	/**
-	 * 予約済みスクロールを取り消す。
-	 * @returns {void}
+	 * 予約済みスクロールを取り消し、世代番号を進めて遅れた処理を無効にする
 	 */
 	const cancelPendingScroll = (): void => {
 		scrollGeneration += 1;
@@ -519,9 +613,9 @@ const outlineScrollPlugin = ViewPlugin.define((view) => {
 
 	return {
 		/**
-		 * アウトライン選択後に行高確定を待ってスクロールする。
-		 * @param {ViewUpdate} update 更新情報
-		 * @returns {void}
+		 * アウトライン選択のあと、行高が揃うまで待ってスクロールする
+		 * 別のジャンプが来たら、待っている処理は世代番号で捨てる
+		 * @param update - 今回のビュー更新。アウトラインの userEvent だけを見る
 		 */
 		update(update: ViewUpdate): void {
 			if (
@@ -546,8 +640,7 @@ const outlineScrollPlugin = ViewPlugin.define((view) => {
 			}, OUTLINE_SCROLL_DELAY_MS);
 		},
 		/**
-		 * プラグイン破棄時に予約済みスクロールを取り消す。
-		 * @returns {void}
+		 * プラグインを外すとき、予約済みのスクロールを取り消す
 		 */
 		destroy(): void {
 			cancelPendingScroll();

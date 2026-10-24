@@ -1,3 +1,8 @@
+/**
+ * プレビュー上の許可インライン HTML を、隠し装飾、mark、改行ウィジェットへ分ける
+ * エディタ状態は持たず、表の中のタグは tableWidget に任せる
+ * @file
+ */
 import { Decoration, WidgetType } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
@@ -12,52 +17,78 @@ import {
 } from './htmlSanitizer';
 import type { DecorationEntry } from './inlineDecorations';
 
+// ----------------------------------------------
+// 改行ウィジェット
+// ----------------------------------------------
+
 /**
  * `<br>` を視覚的な改行として見せるウィジェット
+ * インラインなので、ブロック高さの見積もりは 0 に固定する
  */
 class HtmlBreakWidget extends WidgetType {
 	/**
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * 基底の契約と同じ。すべての改行ウィジェットを同一とみなす
+	 * @param other - 比較対象のウィジェット
+	 * @returns 相手も HtmlBreakWidget なら true
 	 */
 	eq(other: WidgetType): boolean {
 		return other instanceof HtmlBreakWidget;
 	}
 
 	/**
-	 * @returns {HTMLElement}
+	 * 基底の契約と同じ。装飾用の br 要素を返す
+	 * @returns 空の br 要素
 	 */
 	toDOM(): HTMLElement {
 		return document.createElement('br');
 	}
 
 	/**
-	 * @returns {number}
+	 * ブロック高さの見積もりを 0 にする
+	 * インライン改行をブロックウィジェットとして測ると、行の高さがずれる
+	 * @returns 常に 0
 	 */
 	get estimatedHeight(): number {
 		return 0;
 	}
 
 	/**
-	 * @returns {boolean}
+	 * 基底の契約と同じ。改行上のイベントはエディタへ渡さない
+	 * @returns 常に true
 	 */
 	ignoreEvent(): boolean {
 		return true;
 	}
 }
 
+/**
+ * すべての br で共有する改行ウィジェット
+ * 表示が変わらないため、モジュール内で 1 つだけ生成する
+ */
 const htmlBreakWidget = new HtmlBreakWidget();
 
+// ----------------------------------------------
+// 許可タグの装飾
+// ----------------------------------------------
+
+/**
+ * 文書上で見つかった 1 つの HTML タグ
+ * 解釈できない文字列は配列に入れない
+ */
 type HtmlTagOccurrence = {
+	/** タグの開始位置 */
 	from: number;
+	/** タグの終端 */
 	to: number;
+	/** その範囲の解釈結果。属性は未サニタイズ */
 	parsed: ParsedHtmlTag;
 };
 
 /**
- * 位置が Table ノード内か（テーブル widget 側で描画するため本文装飾から除外）
- * @param {SyntaxNode} node ノード
- * @returns {boolean}
+ * ノードが Table の中にあるかを判定する
+ * 表の中は tableWidget が描くため、本文のインライン装飾から外す
+ * @param node - 判定を始める構文ノード。親へたどる
+ * @returns 祖先に Table があれば true
  */
 function isInsideTable(node: SyntaxNode): boolean {
 	for (let current: SyntaxNode | null = node; current; current = current.parent) {
@@ -70,18 +101,25 @@ function isInsideTable(node: SyntaxNode): boolean {
 }
 
 /**
- * 許可タグの開閉を突き合わせて本文用 Decoration を積む
- * @param {DecorationEntry[]} entries エントリ
- * @param {HtmlTagOccurrence[]} tags 出現順のタグ
- * @returns {void}
+ * 許可タグの開閉を突き合わせ、本文用の装飾を積む
+ * 選択がタグ範囲にかかっているペアはソースのまま残す。不正なネストは、対応する開始までを捨てる
+ * @param state - 選択が記法にかかっているかを読むエディタ状態
+ * @param entries - 装飾を追加する配列。この関数が push する
+ * @param tags - 文書順のタグ。不許可タグは無視する
  */
 function pushPairedHtmlDecorations(
 	state: EditorState,
 	entries: DecorationEntry[],
 	tags: HtmlTagOccurrence[],
 ): void {
+	/**
+	 * まだ閉じていない開始タグ
+	 * 属性は開いた時点でサニタイズし、閉じタグ側の属性は使わない
+	 */
 	type StackItem = {
+		/** 対応待ちの開始タグ */
 		tag: HtmlTagOccurrence;
+		/** 開始タグのサニタイズ済み属性 */
 		attributes: ReturnType<typeof sanitizeHtmlAttributes>;
 	};
 
@@ -157,12 +195,12 @@ function pushPairedHtmlDecorations(
 }
 
 /**
- * プレビュー行の許可インライン HTML を装飾する（`<br>` 含む）
- * InlineCode / FencedCode 内は構文上 HTMLTag にならないため対象外
- * Table 内は tableWidget 側で処理する
- * @param {EditorState} state エディタ状態
- * @param {Set<number>} [sourceLineNumbers] ソース行集合
- * @returns {DecorationEntry[]}
+ * プレビュー上の許可インライン HTML を装飾する。`<br>` を含む
+ * InlineCode と FencedCode は構文上 HTMLTag にならないため対象外。Table 内は tableWidget が処理する
+ * 選択がかかっているタグはソースのまま残す。sourceLineNumbers は旧入口との互換のため受け取るが、行種別の判定には使わない
+ * @param state - 構文木と選択を読むエディタ状態。文書は変えない
+ * @param _sourceLineNumbers - 旧 API のソース行集合。装飾の有無は選択との交差で決める
+ * @returns 隠し装飾、mark、改行ウィジェット。該当が無ければ空
  */
 export function collectHtmlDecorationEntries(
 	state: EditorState,
@@ -173,8 +211,8 @@ export function collectHtmlDecorationEntries(
 
 	syntaxTree(state).iterate({
 		/**
-		 * @param {{ name: string; from: number; to: number; node: SyntaxNode }} ref ノード
-		 * @returns {boolean | void}
+		 * HTMLTag を出現順に集め、それ以外のノードは子の走査を続ける
+		 * @param ref - 構文木のノード。name が HTMLTag のときだけ範囲を読む
 		 */
 		enter(ref) {
 			if (ref.name !== 'HTMLTag') {
@@ -204,10 +242,11 @@ export function collectHtmlDecorationEntries(
 }
 
 /**
+ * 改行だけの旧入口。実装は collectHtmlDecorationEntries へ委譲する
  * @deprecated collectHtmlDecorationEntries を使用する
- * @param {EditorState} state エディタ状態
- * @param {Set<number>} [sourceLineNumbers] ソース行集合
- * @returns {DecorationEntry[]}
+ * @param state - 構文木と選択を読むエディタ状態
+ * @param sourceLineNumbers - 旧 API のソース行集合。装飾判定には使わない
+ * @returns インライン HTML の装飾。該当が無ければ空
  */
 export function collectHtmlBreakDecorationEntries(
 	state: EditorState,

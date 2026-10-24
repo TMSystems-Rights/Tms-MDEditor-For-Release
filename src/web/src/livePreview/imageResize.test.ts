@@ -1,3 +1,8 @@
+/**
+ * 画像幅の書き戻しが、通常記法と表セルのエスケープで分かれることを検証する
+ * EditorView は文書の差し替えだけを持つモックを使う
+ * @file
+ */
 import { EditorState, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
@@ -13,8 +18,8 @@ import { bindImageWrapEditorView, persistImageResizeWidth } from './imageWidget'
 
 /**
  * DOM なしで dispatch できるビュー相当を作る
- * @param {string} doc 本文
- * @returns {EditorView}
+ * @param doc - 本文
+ * @returns DOM なしで dispatch できるビュー相当を作る
  */
 function createView(doc: string): EditorView {
 	let state = EditorState.create({
@@ -23,14 +28,14 @@ function createView(doc: string): EditorView {
 	});
 	return {
 		/**
-		 * @returns {EditorState}
+		 * モックが今保持しているエディタ状態を返す
+		 * @returns dispatch で差し替えた最新の状態
 		 */
 		get state() {
 			return state;
 		},
 		/**
-		 * @param {TransactionSpec} spec 更新
-		 * @returns {void}
+		 * @param spec - 更新
 		 */
 		dispatch(spec: TransactionSpec) {
 			state = state.update(spec).state;
@@ -116,13 +121,14 @@ describe('imageResize', () => {
 		const wrap = {
 			dataset: { imagePath: path.replaceAll('\\', '/') },
 			/**
-			 * @returns {null}
+			 * 祖先を探すモック。このケースでは表の枠を持たない
+			 * @returns 常に null
 			 */
 			closest() {
 				return null;
 			},
 			/**
-			 * @returns {boolean}
+			 * @returns 同一なら true
 			 */
 			dispatchEvent() {
 				return true;

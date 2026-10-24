@@ -1,3 +1,8 @@
+/**
+ * 表見出しを留める移動量と、データ行が裏に入ったかの判定を検証する
+ * CSS は読み取り専用で、スクロールする DOM は作らない
+ * @file
+ */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,17 +14,21 @@ import {
 	type TableHeaderPinFrame,
 } from './tableHeaderPin';
 
+/**
+ * 見出し固定のクラス名が載っているかを見る、ライブプレビュー CSS
+ * テスト中は読み取るだけで、書き換えない
+ */
 const livePreviewCss = readFileSync(
 	join(dirname(fileURLToPath(import.meta.url)), '../styles/livePreview.css'),
 	'utf8',
 );
 
 /**
- * キーフレームをスクロール位置で線形補間する。
- * @param {TableHeaderPinFrame[]} frames キーフレーム
- * @param {number} scroll スクロール量
- * @param {number} maxScroll 最大スクロール量
- * @returns {number} translateY
+ * キーフレームをスクロール位置で線形補間する
+ * @param frames - キーフレーム
+ * @param scroll - スクロール量
+ * @param maxScroll - 最大スクロール量
+ * @returns translateY
  */
 function translateAt(frames: TableHeaderPinFrame[], scroll: number, maxScroll: number): number {
 	const progress = scroll / maxScroll;

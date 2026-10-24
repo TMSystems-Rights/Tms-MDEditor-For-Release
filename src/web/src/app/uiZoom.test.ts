@@ -1,3 +1,8 @@
+/**
+ * 表示倍率の範囲、キー判定、倍率を掛けたフォントサイズを検証する
+ * @file
+ */
+
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
 	adjustUiZoom,
@@ -60,7 +65,6 @@ describe('uiZoom', () => {
 			key     : '=',
 			/**
 			 * 既定のキー処理を抑止する（テスト用スタブ）
-			 * @returns {void}
 			 */
 			preventDefault() {},
 		} as KeyboardEvent;

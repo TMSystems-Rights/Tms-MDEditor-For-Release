@@ -1,11 +1,24 @@
+// ==============================================
+// 外部ブラウザで開く URL の制限
+// ==============================================
+
+// カスタムブラウザのコマンド分割と、https だけをそのコマンドへ渡すことを固定する
+
 using System.Text.Json;
 using TmsMdEditor.Bridge;
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// コマンド文字列の分割はプロセスを起動しない
+/// URL を開くケースだけ、ブラウザの代わりに一時スクリプトを起動する
+/// </summary>
 public class ShellApiTests
 {
+	/// <summary>
+	/// 引用符付きの実行ファイルと、引数内の引用符を分けて取り出す
+	/// </summary>
 	[Fact]
 	public void ParseExternalBrowserCommand_handles_quoted_executable_and_profile_arguments()
 	{
@@ -16,6 +29,9 @@ public class ShellApiTests
 		Assert.Equal(["--profile-directory=Profile 1"], command.Arguments);
 	}
 
+	/// <summary>
+	/// コマンド名と、引用符付き引数を個別の引数へ分ける
+	/// </summary>
 	[Fact]
 	public void ParseExternalBrowserCommand_handles_command_name_and_arguments()
 	{
@@ -25,12 +41,18 @@ public class ShellApiTests
 		Assert.Equal(["-p", "MyProfile_TMSystems"], command.Arguments);
 	}
 
+	/// <summary>
+	/// 空白だけのコマンドは InvalidOperationException になる
+	/// </summary>
 	[Fact]
 	public void ParseExternalBrowserCommand_rejects_empty_command()
 	{
 		Assert.Throws<InvalidOperationException>(() => ShellApi.ParseExternalBrowserCommand("  "));
 	}
 
+	/// <summary>
+	/// カスタムコマンドに、https の URL が引数として渡る
+	/// </summary>
 	[Fact]
 	public void OpenExternal_uses_custom_browser_command_for_https_url()
 	{
@@ -40,6 +62,7 @@ public class ShellApiTests
 		Directory.CreateDirectory(tempRoot);
 		try
 		{
+			// ブラウザの代わりに、受け取った URL をファイルへ書くスクリプトをカスタムコマンドにする
 			File.WriteAllText(
 				scriptPath,
 				$"""
@@ -69,6 +92,9 @@ public class ShellApiTests
 		}
 	}
 
+	/// <summary>
+	/// http 以外の URL は InvalidOperationException になり、開かない
+	/// </summary>
 	[Fact]
 	public void OpenExternal_rejects_non_http_url()
 	{
@@ -78,6 +104,11 @@ public class ShellApiTests
 			api.OpenExternal(JsonDocument.Parse("""{"url":"mailto:test@example.com"}""").RootElement));
 	}
 
+	/// <summary>
+	/// カスタムブラウザのスクリプトが URL を書くまで、短い間隔でファイルの出現を待つ
+	/// </summary>
+	/// <param name="filePath">出現を見るファイル。空でも例外にはせず、現れなければ false</param>
+	/// <returns>約5秒以内にファイルができれば true</returns>
 	private static bool WaitForFile(string filePath)
 	{
 		for (int attempt = 0; attempt < 50; attempt++)

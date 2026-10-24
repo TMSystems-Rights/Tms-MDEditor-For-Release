@@ -1,7 +1,20 @@
+/**
+ * エディタとタブの右クリックメニューの並びと非表示を正規化する
+ * メニューの描画は持たず、設定オブジェクトだけを返す
+ * @file
+ */
 import type { ContextMenuSettings } from '../types/app';
 
+/**
+ * 並びを正規化するメニューの種類
+ * エディタ本文とタブで項目の集合が違う
+ */
 export type ContextMenuKind = 'editor' | 'tab';
 
+/**
+ * エディタ右クリックの既定順
+ * 区切り線の ID も含む。実行中には変えない
+ */
 export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'undo',
 	'redo',
@@ -47,6 +60,10 @@ export const DEFAULT_EDITOR_CONTEXT_MENU_ORDER = [
 	'unsplit',
 ] as const;
 
+/**
+ * タブ右クリックの既定順
+ * 区切り線の ID も含む。実行中には変えない
+ */
 export const DEFAULT_TAB_CONTEXT_MENU_ORDER = [
 	'toggleViewMode',
 	'toggleOutline',
@@ -63,6 +80,10 @@ export const DEFAULT_TAB_CONTEXT_MENU_ORDER = [
 	'showInFolder',
 ] as const;
 
+/**
+ * 設定画面に出す項目名
+ * キーは項目 ID。未知の ID はこの表に無く、画面では ID 自体を出す側がある
+ */
 export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 	undo                    : '元に戻す',
 	redo                    : 'やり直し',
@@ -117,8 +138,9 @@ export const CONTEXT_MENU_ITEM_LABELS: Record<string, string> = {
 };
 
 /**
- * 既定のコンテキストメニュー設定を複製して返す。
- * @returns {ContextMenuSettings} 既定設定
+ * 既定のコンテキストメニュー設定を複製して返す
+ * 呼び出しごとに新しい配列を作るので、戻り値を書き換えても既定は変わらない
+ * @returns 非表示が空で、既定順をコピーした設定
  */
 export function createDefaultContextMenuSettings(): ContextMenuSettings {
 	return {
@@ -130,9 +152,10 @@ export function createDefaultContextMenuSettings(): ContextMenuSettings {
 }
 
 /**
- * 保存済み設定の欠落・重複・未知IDを補正する。
- * @param {ContextMenuSettings | undefined} settings 保存済み設定
- * @returns {ContextMenuSettings} 正規化した設定
+ * 保存済み設定の欠落、重複、未知 ID を補正する
+ * 未設定の入力は既定そのものになる
+ * @param settings - 保存済み設定。欠けるときは既定を使う
+ * @returns 既定の項目だけを含む並びと非表示
  */
 export function normalizeContextMenuSettings(settings?: ContextMenuSettings): ContextMenuSettings {
 	const defaults = createDefaultContextMenuSettings();
@@ -145,11 +168,12 @@ export function normalizeContextMenuSettings(settings?: ContextMenuSettings): Co
 }
 
 /**
- * 指定メニューの表示順を1件移動する。
- * @param {string[]} order 現在の順序
- * @param {string} itemId 移動対象
- * @param {-1 | 1} direction 移動方向
- * @returns {string[]} 移動後の順序
+ * 指定メニューの表示順を 1 件移動する
+ * 端より外へは動かさず、そのときは同じ順の新しい配列を返す
+ * @param order - 現在の項目 ID。この配列は書き換えない
+ * @param itemId - 移動する項目。並びにあればその位置から動かす
+ * @param direction - `-1` は上、`1` は下
+ * @returns 移動後の順序。対象が無い、または端なら元と同じ内容
  */
 export function moveContextMenuItem(order: string[], itemId: string, direction: -1 | 1): string[] {
 	const currentIndex = order.indexOf(itemId);
@@ -164,15 +188,22 @@ export function moveContextMenuItem(order: string[], itemId: string, direction: 
 }
 
 /**
- * 区切り線IDか判定する。
- * @param {string} itemId 項目ID
- * @returns {boolean} 区切り線ならtrue
+ * 区切り線 ID か判定する
+ * ID に `Separator` を含むものを区切り線とする
+ * @param itemId - メニュー項目 ID
+ * @returns 区切り線なら true
  */
 export function isContextMenuSeparator(itemId: string): boolean {
 	return itemId.includes('Separator');
 }
 
-/** 保存済み順序から未知・重複項目を除き、新規項目を既定位置へ補う。 */
+/**
+ * 保存済み順序から未知と重複を除き、足りない既定項目を既定位置へ補う
+ * 入力が無いときは既定順のコピーを返す
+ * @param source - 保存されていた順序。未設定は空として扱う
+ * @param defaults - そのメニューの既定順。許可する ID の全体
+ * @returns 既定の ID を過不足なく並べた配列
+ */
 function normalizeOrder(source: string[] | undefined, defaults: string[]): string[] {
 	const allowed          = new Set(defaults);
 	const seen             = new Set<string>();
@@ -236,10 +267,10 @@ function normalizeOrder(source: string[] | undefined, defaults: string[]): strin
 }
 
 /**
- * 欠落した既定項目を挿入する。貼り付け系は「貼り付け」の次へ置く。
- * @param {string[]} result 構築中の順序
- * @param {string} itemId 追加する項目
- * @returns {void}
+ * 欠落した既定項目を、関連項目の直後へ挿入する
+ * 位置が決まらない項目は末尾へ足す。`result` を直接書き換える
+ * @param result - 構築中の順序。この配列へ挿入する
+ * @param itemId - 追加する既定項目
  */
 function insertMissingContextMenuItem(result: string[], itemId: string): void {
 	if (itemId === 'pastePlain') {
@@ -323,12 +354,13 @@ function insertMissingContextMenuItem(result: string[], itemId: string): void {
 }
 
 /**
- * 保存順が既定と同一なら、指定項目を基準項目の次へ移す。
- * @param {string[]} order 現在の順序
- * @param {string} itemId 移動する項目
- * @param {string} afterId 直前に置く項目
- * @param {string[]} defaults 既定順
- * @returns {string[]} 補正後の順序
+ * 保存順が既定と、移動項目を除いて一致するときだけ、その項目を基準の次へ移す
+ * ユーザーが並びを変えているときは何もしない
+ * @param order - 現在の順序
+ * @param itemId - 既定位置へ戻す候補
+ * @param afterId - 直前に置く項目
+ * @param defaults - 既定順。カスタム順かどうかの比較に使う
+ * @returns 補正後の順序。動かさないときは同じ配列
  */
 function placeContextMenuItemAfter(
 	order: string[],
@@ -354,7 +386,13 @@ function placeContextMenuItemAfter(
 	return next;
 }
 
-/** 非表示設定を現在利用可能な項目だけへ絞り、重複を除去する。 */
+/**
+ * 非表示設定を、いま使える項目だけへ絞り、重複を除く
+ * 未知 ID は捨てる
+ * @param source - 保存されていた非表示 ID。未設定は空
+ * @param defaults - 許可する項目 ID
+ * @returns 有効な非表示 ID。重複は 1 つ
+ */
 function normalizeHidden(source: string[] | undefined, defaults: string[]): string[] {
 	const allowed = new Set(defaults);
 	return [...new Set((source ?? []).filter((itemId) => allowed.has(itemId)))];

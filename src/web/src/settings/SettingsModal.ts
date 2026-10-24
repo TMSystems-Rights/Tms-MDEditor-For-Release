@@ -1,4 +1,8 @@
-/* eslint-disable jsdoc/require-jsdoc */
+/**
+ * 設定ダイアログを組み立て、変更を C# へ保存して画面へ返す
+ * 設定ファイルの場所はブリッジに任せ、このモジュールは入力と表示を持つ
+ * @file
+ */
 import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import {
 	isCssHexColor,
@@ -36,30 +40,69 @@ import {
 	type ContextMenuKind,
 } from './contextMenuSettings';
 
+/**
+ * 設定ダイアログを開くときに渡す現在値と、保存後の反映先
+ * ダイアログはこれを複製して編集し、成功したときだけコールバックを呼ぶ
+ */
 type SettingsModalOptions = {
+	/** 開いた時点の画面設定。ダイアログ内では複製して編集する */
 	settings: AppSettings;
+	/** 開いた時点のカスタム装飾。無効なルールも含む */
 	customDecorations: CustomDecorationRule[];
+	/** データディレクトリの場所 */
 	dataDirInfo: DataDirInfo;
+	/** ポータブル起動か。未設定のときは dataDirInfo 側を見る */
 	isPortable?: boolean;
+	/** 開いた時点の CSS スニペット一覧 */
 	cssSnippets: CssSnippetsResponse;
+	/** 添付フォルダが空のときに示す既定パス。不明なら未設定 */
 	defaultAttachmentFolder?: string;
+	/**
+	 * 設定の保存に成功したとき、新しい設定を画面へ渡す
+	 * @param settings - 保存後の画面設定
+	 */
 	onSettingsApplied: (settings: AppSettings) => void;
+	/**
+	 * 装飾ルールの保存に成功したとき、新しいルールを画面へ渡す
+	 * @param rules - 保存後のルール。無効なものも含む
+	 */
 	onCustomDecorationsApplied: (rules: CustomDecorationRule[]) => void;
+	/**
+	 * スニペットの読み直しに成功したとき、一覧を画面へ渡す
+	 * @param response - 読み直したスニペット
+	 */
 	onCssSnippetsApplied: (response: CssSnippetsResponse) => void;
 };
 
+/** 設定の 1 入力。テキスト、数値、チェック、選択のいずれか */
 type SettingControl = HTMLInputElement | HTMLSelectElement;
 
+/**
+ * 設定キーと、その値を出す入力の対応
+ * 再描画のたびに作り直す
+ */
 type ControlBinding = {
+	/** `outline.width` のようなドット区切りの設定キー */
 	key: string;
+	/** そのキーを表示している入力 */
 	control: SettingControl;
 };
 
+/**
+ * 設定画面に出す 1 つのショートカット
+ * 固定のショートカットはここには含めない
+ */
 type KeybindingDefinition = {
+	/** `KeybindingsSettings` のプロパティ名 */
 	key: keyof KeybindingsSettings;
+	/** 画面に出す操作名 */
 	label: string;
 };
 
+/**
+ * 変更できるショートカットの表示順
+ * 実行中には変えない
+ */
 const KEYBINDING_DEFINITIONS: KeybindingDefinition[] = [
 	{ key: 'newFile', label: '新規作成' },
 	{ key: 'openFile', label: 'ファイルを開く' },
@@ -84,6 +127,10 @@ const KEYBINDING_DEFINITIONS: KeybindingDefinition[] = [
 	{ key: 'pastePlain', label: 'プレーンテキストとして貼り付け' },
 ];
 
+/**
+ * 設定では変えられないショートカットの表示
+ * キーは画面の操作名、値は押すキー
+ */
 const FIXED_SHORTCUTS: Record<string, string> = {
 	'元に戻す'         : 'Ctrl+Z',
 	'やり直し'         : 'Ctrl+Y',
@@ -93,37 +140,80 @@ const FIXED_SHORTCUTS: Record<string, string> = {
 };
 
 /**
- * 設定モーダルを表示し、設定保存・リセット・dataDir移行を処理する。
+ * 設定ダイアログ
+ * 開いているあいだの編集値を持ち、保存に成功した分だけ呼び出し元へ返す
  */
 export class SettingsModal {
+	/** 編集中の画面設定。開くときに複製し、保存成功で更新する */
 	private settings: AppSettings;
+
+	/** 編集中のカスタム装飾。開くときに複製する */
 	private customDecorations: CustomDecorationRule[];
+
+	/** 現在のデータディレクトリ。移動に成功すると更新する */
 	private dataDirInfo: DataDirInfo;
+
+	/** ポータブル起動か。true のときはデータディレクトリを動かせない */
 	private readonly isPortable: boolean;
+
+	/** 最新のスニペット一覧。再読込で置き換わる */
 	private cssSnippets: CssSnippetsResponse;
+
+	/** 添付フォルダが空のときに入力へ示す既定パス。不明なら空文字 */
 	private readonly defaultAttachmentFolder: string;
+
+	/** 開いたときに渡された設定と、保存後のコールバック */
 	private readonly options: SettingsModalOptions;
+
+	/** ダイアログの背面。閉じると文書から外す */
 	private readonly backdrop: HTMLDivElement;
+
+	/** ダイアログ本体。再描画のたびに中身を空にする */
 	private readonly content: HTMLDivElement;
+
+	/** 保存結果を出す状態行 */
 	private readonly status: HTMLParagraphElement;
+
+	/** いま画面にある入力と設定キー。再描画で作り直す */
 	private readonly bindings: ControlBinding[] = [];
+
+	/** スニペットのチェック一覧。描画前は null */
 	private snippetsList: HTMLDivElement | null = null;
+
+	/** スニペットフォルダのパス表示。描画前は null */
 	private snippetDirectoryPath: HTMLParagraphElement | null = null;
+
+	/** スニペット読み込みエラーの表示。描画前は null */
 	private snippetError: HTMLParagraphElement | null = null;
+
+	/** データディレクトリのパス入力。描画前は null */
 	private dataDirInput: HTMLInputElement | null = null;
+
+	/** データディレクトリを既定へ戻すボタン。描画前は null */
 	private dataDirResetButton: HTMLButtonElement | null = null;
+
+	/** 外部ブラウザのコマンド行。描画前は null */
 	private externalBrowserCommandRow: HTMLDivElement | null = null;
+
+	/** 外部ブラウザのコマンド入力。描画前は null */
 	private externalBrowserCommandInput: HTMLInputElement | null = null;
+
+	/** カスタム装飾の一覧。描画前は null */
 	private decorationsList: HTMLDivElement | null = null;
+
+	/** 装飾ルールを追加するボタン。保存中は無効にする */
 	private decorationAddButton: HTMLButtonElement | null = null;
+
+	/** メニュー種別から、その項目一覧の要素 */
 	private readonly contextMenuLists = new Map<ContextMenuKind, HTMLDivElement>();
 
 	/**
-	 * 設定モーダルを初期化する。
-	 * @param {SettingsModalOptions} options 設定と反映コールバック
+	 * 設定ダイアログの要素を作り、渡された設定は複製して持つ
+	 * この時点では文書へ出さない
+	 * @param options - 現在の設定と、保存後に画面へ戻すコールバック
 	 */
 	public constructor(options: SettingsModalOptions) {
-		// 編集途中のUI操作で呼び出し元の設定オブジェクトを書き換えないよう、可変部分を複製して保持する。
+		// 編集途中のUI操作で呼び出し元の設定オブジェクトを書き換えないよう、可変部分を複製して保持する
 		this.options                 = options;
 		this.settings                = { ...options.settings, contextMenu: normalizeContextMenuSettings(options.settings.contextMenu) };
 		this.customDecorations       = options.customDecorations.map((rule) => ({ ...rule }));
@@ -153,8 +243,8 @@ export class SettingsModal {
 	}
 
 	/**
-	 * モーダルを表示する。
-	 * @returns {void}
+	 * ダイアログを描いて文書へ出す
+	 * 最初のナビ項目へフォーカスする
 	 */
 	public open(): void {
 		this.render();
@@ -163,8 +253,16 @@ export class SettingsModal {
 		this.content.querySelector<HTMLButtonElement>('.tms-mde-settings-nav-button')?.focus();
 	}
 
+	// ----------------------------------------------
+	// 画面の構築
+	// ----------------------------------------------
+
+	/**
+	 * ダイアログの中身を空にして、各セクションを描き直す
+	 * データディレクトリ変更後も、古い入力の参照を残さない
+	 */
 	private render(): void {
-		// dataDir変更後などの再構築でも古いDOM参照を使わないよう、バインド情報から作り直す。
+		// dataDir変更後などの再構築でも古いDOM参照を使わないよう、バインド情報から作り直す
 		this.content.innerHTML = '';
 		this.bindings.length   = 0;
 		this.contextMenuLists.clear();
@@ -191,7 +289,7 @@ export class SettingsModal {
 		const sections     = document.createElement('div');
 		sections.className = 'tms-mde-settings-sections';
 
-		// ナビゲーションと対応セクションを同時に登録し、data-sectionを切替キーとして共有する。
+		// ナビゲーションと対応セクションを同時に登録し、data-sectionを切替キーとして共有する
 		this.addSection(navigation, sections, 'appearance', '外観', (section) => this.renderAppearance(section));
 		this.addSection(navigation, sections, 'editor', 'エディタ', (section) => this.renderEditor(section));
 		this.addSection(navigation, sections, 'save', '保存', (section) => this.renderSave(section));
@@ -218,6 +316,15 @@ export class SettingsModal {
 		this.activateSection('appearance');
 	}
 
+	/**
+	 * 左のナビと右の節を 1 つ足す
+	 * ナビを押すとその節だけを表示する
+	 * @param navigation - 節のボタンを足すナビ
+	 * @param sections - 節の本体を足す領域
+	 * @param id - 節の識別子。表示の切り替えに使う
+	 * @param label - ナビに出す名前
+	 * @param renderer - 節の中身を作る関数。引数はその節の要素
+	 */
 	private addSection(
 		navigation: HTMLElement,
 		sections: HTMLElement,
@@ -244,8 +351,12 @@ export class SettingsModal {
 		sections.appendChild(section);
 	}
 
+	/**
+	 * 指定した節だけを表示し、ナビの押下状態を合わせる
+	 * @param id - 表示する節の識別子
+	 */
 	private activateSection(id: string): void {
-		// 表示領域とaria-currentを同じ条件で更新し、見た目と読み上げ状態を一致させる。
+		// 表示領域とaria-currentを同じ条件で更新し、見た目と読み上げ状態を一致させる
 		this.content.querySelectorAll<HTMLElement>('.tms-mde-settings-section').forEach((section) => {
 			section.hidden = section.dataset.section !== id;
 		});
@@ -256,6 +367,14 @@ export class SettingsModal {
 		});
 	}
 
+	// ----------------------------------------------
+	// 設定項目
+	// ----------------------------------------------
+
+	/**
+	 * テーマなど、見た目の入力を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderAppearance(section: HTMLElement): void {
 		this.addSelect(section, 'theme', 'テーマ', [
 			['system', 'システム'],
@@ -275,6 +394,10 @@ export class SettingsModal {
 		]);
 	}
 
+	/**
+	 * 書き出しの入力を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderExport(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -283,6 +406,10 @@ export class SettingsModal {
 		this.addCheckbox(section, 'export.outline.enabled', 'HTML出力にアウトラインを含める');
 	}
 
+	/**
+	 * フォント、折り返し、タブ幅など、編集の入力を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderEditor(section: HTMLElement): void {
 		this.addSelect(section, 'defaultViewMode', '既定の表示モード', [
 			['live-preview', 'ライブプレビュー'],
@@ -296,6 +423,10 @@ export class SettingsModal {
 		this.addCheckbox(section, 'search.restoreCalloutFoldStateOnMove', '検索移動後にコールアウトの折りたたみを戻す');
 	}
 
+	/**
+	 * 添付フォルダの入力と、フォルダを選ぶボタンを節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderAttachmentFolder(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -334,6 +465,10 @@ export class SettingsModal {
 		this.bindings.push({ key: 'attachmentFolder', control: input });
 	}
 
+	/**
+	 * 画像枠線の太さと色の入力を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderImageBorder(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -349,6 +484,11 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * フォルダ選択を C# に頼み、選んだパスを入力へ書く
+	 * キャンセルしたときは入力を変えない
+	 * @param input - 選んだパスを書き込む入力
+	 */
 	private async pickAttachmentFolder(input: HTMLInputElement): Promise<void> {
 		try {
 			const result = await invokeBridge<PickFolderResult>(BRIDGE_METHOD.shellPickFolder);
@@ -362,6 +502,10 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * 新規ファイルの文字コードと改行の入力を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderSave(section: HTMLElement): void {
 		this.addSelect(section, 'newFileEncoding', '新規ファイルの文字コード', [
 			['utf8', 'UTF-8'],
@@ -375,6 +519,10 @@ export class SettingsModal {
 		]);
 	}
 
+	/**
+	 * 外部変更、ウィンドウの開き方、起動時の復元の入力を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderFileAndStartup(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -393,6 +541,11 @@ export class SettingsModal {
 		this.renderExternalBrowser(section);
 	}
 
+	/**
+	 * 外部リンクを開くブラウザの入力を節へ足す
+	 * カスタム以外のときはコマンド欄を隠す
+	 * @param section - 入力を足す節
+	 */
 	private renderExternalBrowser(section: HTMLElement): void {
 		const note       = document.createElement('p');
 		note.className   = 'tms-mde-settings-description';
@@ -413,6 +566,10 @@ export class SettingsModal {
 		this.updateExternalBrowserCommandVisibility();
 	}
 
+	/**
+	 * CSS スニペットの一覧と、再読込、フォルダを開く操作を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderSnippets(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -448,6 +605,14 @@ export class SettingsModal {
 		this.renderSnippetList();
 	}
 
+	// ----------------------------------------------
+	// カスタム装飾
+	// ----------------------------------------------
+
+	/**
+	 * カスタム装飾の一覧と追加ボタンを節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderCustomDecorations(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -471,12 +636,15 @@ export class SettingsModal {
 		this.renderCustomDecorationList();
 	}
 
+	/**
+	 * 装飾ルールごとの入力を、いまの配列から描き直す
+	 */
 	private renderCustomDecorationList(): void {
 		if (!this.decorationsList) {
 			return;
 		}
 
-		// 追加・削除でインデックスが変わるため、部分更新せず一覧とdata属性をまとめて再生成する。
+		// 追加・削除でインデックスが変わるため、部分更新せず一覧とdata属性をまとめて再生成する
 		this.decorationsList.innerHTML = '';
 		if (this.customDecorations.length === 0) {
 			const empty       = document.createElement('p');
@@ -536,6 +704,16 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * 装飾ルールの 1 項目を編集するテキスト入力を作る
+	 * 変更は検証してから保存する
+	 * @param index - ルール配列の位置。0 始まり
+	 * @param field - 編集する項目。名前、正規表現、CSS クラスのいずれか
+	 * @param labelText - 入力のラベル
+	 * @param value - 開いたときの文字列
+	 * @param placeholder - 空のときに示す例
+	 * @returns ラベルと入力を含む要素
+	 */
 	private createDecorationTextField(
 		index: number,
 		field: 'name' | 'pattern' | 'cssClass',
@@ -564,11 +742,14 @@ export class SettingsModal {
 		return label;
 	}
 
+	/**
+	 * 既存と重ならない新しい無効ルールを足し、保存する
+	 */
 	private async addCustomDecoration(): Promise<void> {
 		const next  = [...this.customDecorations, createNewCustomDecorationRule(this.customDecorations)];
 		const saved = await this.saveCustomDecorations(next, true);
 		if (saved) {
-			// 保存成功後、新規ルールの名前をすぐ入力できる位置へフォーカスを移す。
+			// 保存成功後、新規ルールの名前をすぐ入力できる位置へフォーカスを移す
 			const inputs = this.decorationsList?.querySelectorAll<HTMLInputElement>('[data-decoration-field="name"]');
 			const input  = inputs?.item(inputs.length - 1);
 			input?.focus();
@@ -576,6 +757,10 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * 指定位置のルールを除いて保存する
+	 * @param index - 除くルールの位置。0 始まり
+	 */
 	private async removeCustomDecoration(index: number): Promise<void> {
 		const rule = this.customDecorations[index];
 		if (!rule || !window.confirm(`カスタム装飾ルール「${rule.name || `ルール ${index + 1}`}」を削除しますか？`)) {
@@ -586,6 +771,13 @@ export class SettingsModal {
 		await this.saveCustomDecorations(next, true);
 	}
 
+	/**
+	 * 1 件のルールへ変更を重ね、検証して保存する
+	 * 検証に失敗したときは入力へエラーを出し、保存しない
+	 * @param index - 変更するルールの位置。0 始まり
+	 * @param patch - 上書きする項目だけを持つ部分
+	 * @param control - 失敗したときにエラーを出す入力
+	 */
 	private async changeCustomDecoration(
 		index: number,
 		patch: Partial<CustomDecorationRule>,
@@ -597,12 +789,20 @@ export class SettingsModal {
 		await this.saveCustomDecorations(next, false, control);
 	}
 
+	/**
+	 * 装飾ルールを検証し、通れば C# へ保存して画面へ返す
+	 * 検証エラーがあるときは保存せず false
+	 * @param next - 保存したいルール。無効なものも含む
+	 * @param rerender - 成功後に一覧を描き直すか
+	 * @param focusControl - 再描画後にフォーカスを戻す入力。不要なら省略
+	 * @returns 保存できたとき true
+	 */
 	private async saveCustomDecorations(
 		next: CustomDecorationRule[],
 		rerender: boolean,
 		focusControl?: HTMLInputElement,
 	): Promise<boolean> {
-		// 入力値を先に画面へ反映し、検証・保存に失敗した場合だけpreviousへ戻す。
+		// 入力値を先に画面へ反映し、検証・保存に失敗した場合だけpreviousへ戻す
 		const previous         = this.customDecorations;
 		this.customDecorations = next;
 		if (rerender) {
@@ -612,7 +812,7 @@ export class SettingsModal {
 		const errors = validateCustomDecorationRules(next);
 		this.markCustomDecorationErrors(errors);
 		if (errors.length > 0) {
-			// 不正な正規表現やCSSクラスはネイティブ側へ送らず、最初の修正箇所を案内する。
+			// 不正な正規表現やCSSクラスはネイティブ側へ送らず、最初の修正箇所を案内する
 			this.setStatus(`ルール ${errors[0]!.index + 1}: ${errors[0]!.message}`, true);
 			return false;
 		}
@@ -632,7 +832,7 @@ export class SettingsModal {
 			this.setStatus('カスタム装飾ルールを保存しました。');
 			return true;
 		} catch (error) {
-			// 保存済み状態と表示状態が食い違わないよう、楽観更新した配列を復元する。
+			// 保存済み状態と表示状態が食い違わないよう、楽観更新した配列を復元する
 			this.customDecorations = previous;
 			if (rerender) {
 				this.renderCustomDecorationList();
@@ -647,10 +847,14 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * 検証エラーを、対応する入力のタイトルと状態行へ出す
+	 * @param errors - ルール位置と項目を持つ検証エラー
+	 */
 	private markCustomDecorationErrors(
 		errors: ReturnType<typeof validateCustomDecorationRules>,
 	): void {
-		// 前回の検証結果を消してから、現在のエラーだけをaria属性とツールチップへ反映する。
+		// 前回の検証結果を消してから、現在のエラーだけをaria属性とツールチップへ反映する
 		this.decorationsList?.querySelectorAll<HTMLInputElement>('[data-decoration-field]').forEach((input) => {
 			input.removeAttribute('aria-invalid');
 			input.removeAttribute('title');
@@ -664,6 +868,10 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * 保存中は装飾の入力と追加ボタンを触れなくする
+	 * @param disabled - true で入力を止める
+	 */
 	private setDecorationControlsDisabled(disabled: boolean): void {
 		if (this.decorationAddButton) {
 			this.decorationAddButton.disabled = disabled;
@@ -673,6 +881,14 @@ export class SettingsModal {
 		});
 	}
 
+	// ----------------------------------------------
+	// キーボードとメニュー
+	// ----------------------------------------------
+
+	/**
+	 * 変更できるショートカットと、固定のショートカットを節へ並べる
+	 * @param section - 入力を足す節
+	 */
 	private renderKeyboard(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -692,7 +908,7 @@ export class SettingsModal {
 				this.setStatus('キーを入力してください。Escapeで設定画面を閉じます。');
 			});
 			input.addEventListener('keydown', (event) => {
-				// ショートカット入力をエディタやブラウザ既定操作へ伝播させず、設定値としてだけ解釈する。
+				// ショートカット入力をエディタやブラウザ既定操作へ伝播させず、設定値としてだけ解釈する
 				event.preventDefault();
 				event.stopPropagation();
 				if (event.key === 'Escape') {
@@ -708,6 +924,10 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * エディタとタブの右クリックメニューの編集を節へ足す
+	 * @param section - 入力を足す節
+	 */
 	private renderContextMenus(section: HTMLElement): void {
 		const description       = document.createElement('p');
 		description.className   = 'tms-mde-settings-description';
@@ -724,6 +944,12 @@ export class SettingsModal {
 		section.appendChild(reset);
 	}
 
+	/**
+	 * 1 種類のメニューについて、表示と順序を編集する一覧を作る
+	 * @param section - 一覧を足す節
+	 * @param kind - エディタかタブか
+	 * @param headingText - 一覧の上に出す見出し
+	 */
 	private createContextMenuEditor(section: HTMLElement, kind: ContextMenuKind, headingText: string): void {
 		const heading       = document.createElement('h4');
 		heading.textContent = headingText;
@@ -735,13 +961,17 @@ export class SettingsModal {
 		this.renderContextMenuList(kind);
 	}
 
+	/**
+	 * 指定した種類のメニュー項目を、いまの順序で描き直す
+	 * @param kind - 描き直すメニューの種類
+	 */
 	private renderContextMenuList(kind: ContextMenuKind): void {
 		const list = this.contextMenuLists.get(kind);
 		if (!list) {
 			return;
 		}
 
-		// 順序配列を表示の基準にし、非表示配列はチェック状態へ投影する。
+		// 順序配列を表示の基準にし、非表示配列はチェック状態へ投影する
 		list.innerHTML    = '';
 		const order       = kind === 'editor' ? this.settings.contextMenu.editorOrder : this.settings.contextMenu.tabOrder;
 		const hiddenItems = new Set(kind === 'editor' ? this.settings.contextMenu.editorHidden : this.settings.contextMenu.tabHidden);
@@ -780,6 +1010,14 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * メニュー項目の表示を切り替え、保存する
+	 * 保存に失敗したときはチェックを元へ戻す
+	 * @param kind - エディタかタブか
+	 * @param itemId - 切り替える項目 ID
+	 * @param visible - 表示するなら true
+	 * @param control - 失敗したときに戻すチェックボックス
+	 */
 	private async setContextMenuItemVisible(
 		kind: ContextMenuKind,
 		itemId: string,
@@ -795,6 +1033,14 @@ export class SettingsModal {
 		await this.saveContextMenuSettings(next, control);
 	}
 
+	/**
+	 * メニュー項目を 1 つ上下へ動かし、保存する
+	 * 端より外へは動かない。失敗したときは一覧を描き直す
+	 * @param kind - エディタかタブか
+	 * @param itemId - 動かす項目 ID
+	 * @param direction - -1 は上、1 は下
+	 * @param control - 保存中に無効にするボタン
+	 */
 	private async moveContextMenuItem(
 		kind: ContextMenuKind,
 		itemId: string,
@@ -807,16 +1053,27 @@ export class SettingsModal {
 		await this.saveContextMenuSettings(next, control);
 	}
 
+	/**
+	 * 右クリックメニューを既定の並びへ戻し、保存する
+	 * @param control - 保存中に無効にするボタン
+	 */
 	private async resetContextMenus(control: HTMLButtonElement): Promise<void> {
 		await this.saveContextMenuSettings(createDefaultContextMenuSettings(), control, '右クリックメニューを既定値へ戻しました。');
 	}
 
+	/**
+	 * 右クリックメニューの並びと非表示を C# へ保存する
+	 * 失敗したときは状態行へ理由を出し、呼び出し側が一覧を戻す
+	 * @param next - 保存するメニュー設定
+	 * @param control - 保存中に無効にする入力かボタン
+	 * @param successMessage - 成功時に状態行へ出す文言。省略時はメニューを保存した旨
+	 */
 	private async saveContextMenuSettings(
 		next: ContextMenuSettings,
 		control: HTMLInputElement | HTMLButtonElement,
 		successMessage = '右クリックメニュー設定を保存しました。',
 	): Promise<void> {
-		// 連打による保存競合を防ぎ、応答後は正規化済み設定から両メニューを再描画する。
+		// 連打による保存競合を防ぎ、応答後は正規化済み設定から両メニューを再描画する
 		control.disabled = true;
 		this.setStatus('右クリックメニュー設定を保存中...');
 		try {
@@ -826,7 +1083,7 @@ export class SettingsModal {
 			this.renderContextMenuList('tab');
 			this.setStatus(successMessage);
 		} catch (error) {
-			// 失敗時もローカル設定を正として描画し直し、操作前のチェック・順序へ戻す。
+			// 失敗時もローカル設定を正として描画し直し、操作前のチェック・順序へ戻す
 			this.renderContextMenuList('editor');
 			this.renderContextMenuList('tab');
 			this.setStatus(this.formatError(error), true);
@@ -835,6 +1092,10 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * 編集で元の配列を壊さないよう、メニュー設定を複製する
+	 * @returns 並びと非表示をコピーした設定
+	 */
 	private cloneContextMenuSettings(): ContextMenuSettings {
 		const source = normalizeContextMenuSettings(this.settings.contextMenu);
 		return {
@@ -845,6 +1106,15 @@ export class SettingsModal {
 		};
 	}
 
+	// ----------------------------------------------
+	// データと更新
+	// ----------------------------------------------
+
+	/**
+	 * データディレクトリと、更新確認の入力を節へ足す
+	 * ポータブル起動ではディレクトリの移動を出さない
+	 * @param section - 入力を足す節
+	 */
 	private renderDataAndUpdate(section: HTMLElement): void {
 		if (this.isPortable) {
 			const note       = document.createElement('p');
@@ -889,6 +1159,17 @@ export class SettingsModal {
 		this.addCheckbox(section, 'update.checkOnStartup', '起動時に更新を確認する');
 	}
 
+	// ----------------------------------------------
+	// 入力欄
+	// ----------------------------------------------
+
+	/**
+	 * 文字列の入力行を足し、変更でそのキーを保存する
+	 * @param section - 行を足す節
+	 * @param key - ドット区切りの設定キー
+	 * @param label - 入力のラベル
+	 * @returns 足した行
+	 */
 	private addText(section: HTMLElement, key: string, label: string): HTMLDivElement {
 		const input = document.createElement('input');
 		input.type  = 'text';
@@ -897,6 +1178,15 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, input);
 	}
 
+	/**
+	 * 数値の入力行を足し、範囲外の入力は保存しない
+	 * @param section - 行を足す節
+	 * @param key - ドット区切りの設定キー
+	 * @param label - 入力のラベル
+	 * @param min - 受け付ける最小値
+	 * @param max - 受け付ける最大値
+	 * @returns 足した行
+	 */
 	private addNumber(section: HTMLElement, key: string, label: string, min: number, max: number): HTMLDivElement {
 		const input = document.createElement('input');
 		input.type  = 'number';
@@ -907,6 +1197,15 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, input);
 	}
 
+	/**
+	 * 色の入力行を足す
+	 * 空を許す指定で空にしたときは空文字を保存する
+	 * @param section - 行を足す節
+	 * @param key - ドット区切りの設定キー
+	 * @param label - 入力のラベル
+	 * @param options - 空を許すかと、空のとき示す文言、カラーピッカーの代替色。省略時は空を許さない
+	 * @returns 足した行
+	 */
 	private addColor(
 		section: HTMLElement,
 		key: string,
@@ -934,7 +1233,7 @@ export class SettingsModal {
 		picker.addEventListener('change', () => void this.saveValue(key, picker.value, input));
 		input.addEventListener('change', () => {
 			const trimmed = input.value.trim();
-			// hover色だけは空値をテーマ色指定として扱い、その他はCSS色形式を必須にする。
+			// hover色だけは空値をテーマ色指定として扱い、その他はCSS色形式を必須にする
 			if (allowEmpty && trimmed.length === 0) {
 				void this.saveValue(key, '', input);
 				return;
@@ -952,6 +1251,13 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, input, wrap);
 	}
 
+	/**
+	 * チェックボックスの行を足し、切り替えでそのキーを保存する
+	 * @param section - 行を足す節
+	 * @param key - ドット区切りの設定キー
+	 * @param label - チェックの文言
+	 * @returns 足した行
+	 */
 	private addCheckbox(section: HTMLElement, key: string, label: string): HTMLDivElement {
 		const input   = document.createElement('input');
 		input.type    = 'checkbox';
@@ -960,6 +1266,14 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, input);
 	}
 
+	/**
+	 * 選択リストの行を足し、変更でそのキーを保存する
+	 * @param section - 行を足す節
+	 * @param key - ドット区切りの設定キー
+	 * @param label - 選択のラベル
+	 * @param options - 値と表示名の組。並びがリストの順
+	 * @returns 足した行
+	 */
 	private addSelect(section: HTMLElement, key: string, label: string, options: Array<[string, string]>): HTMLDivElement {
 		const select = document.createElement('select');
 		options.forEach(([value, text]) => {
@@ -973,6 +1287,15 @@ export class SettingsModal {
 		return this.addControlRow(section, key, label, select);
 	}
 
+	/**
+	 * ラベル、入力、既定へ戻すボタンを 1 行にし、バインド一覧へ登録する
+	 * @param section - 行を足す節
+	 * @param key - ドット区切りの設定キー
+	 * @param labelText - 行のラベル
+	 * @param control - 値を出す入力
+	 * @param wrapper - 入力の代わりに行へ置く要素。色入力のように複数あるときだけ渡す
+	 * @returns 足した行
+	 */
 	private addControlRow(section: HTMLElement, key: string, labelText: string, control: SettingControl, wrapper?: HTMLElement): HTMLDivElement {
 		const row         = document.createElement('div');
 		row.className     = 'tms-mde-settings-row';
@@ -996,8 +1319,15 @@ export class SettingsModal {
 		return row;
 	}
 
+	/**
+	 * 1 つの設定値を保存し、成功したら入力を保存後の値へ合わせる
+	 * 失敗したときは状態行へ理由を出し、入力は保存前の値へ戻す
+	 * @param key - ドット区切りの設定キー
+	 * @param value - 保存する値
+	 * @param control - 成功と失敗のどちらでも表示を合わせる入力
+	 */
 	private async saveValue(key: string, value: unknown, control: SettingControl): Promise<void> {
-		// 同じ入力から保存を重ねないよう一時無効化し、応答の設定値で関連コントロールも同期する。
+		// 同じ入力から保存を重ねないよう一時無効化し、応答の設定値で関連コントロールも同期する
 		control.disabled = true;
 		this.setStatus('保存中...');
 		try {
@@ -1017,12 +1347,19 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * ショートカットを正規化して保存する
+	 * 空、競合、Windows が届かない既知の組み合わせは保存しない
+	 * @param definition - 保存する操作
+	 * @param shortcut - 入力されたショートカット。空なら保存しない
+	 * @param input - 失敗したときに元の値へ戻す入力
+	 */
 	private async saveKeybinding(
 		definition: KeybindingDefinition,
 		shortcut: string,
 		input: HTMLInputElement,
 	): Promise<void> {
-		// 競合は利用者が意図して重複させる場合もあるため、禁止ではなく確認警告として扱う。
+		// 競合は利用者が意図して重複させる場合もあるため、禁止ではなく確認警告として扱う
 		const conflicts          = findShortcutConflicts(
 			this.settings.keybindings as unknown as Record<string, string>,
 			definition.key,
@@ -1048,16 +1385,26 @@ export class SettingsModal {
 		await this.saveValue(`keybindings.${definition.key}`, shortcut, input);
 	}
 
+	/**
+	 * 設定の部分更新を C# へ送り、成功したら保持値と画面へ反映する
+	 * @param patch - 変更するキーだけを持つオブジェクト。ドット区切りはネストへ展開する
+	 * @returns 保存後の画面設定
+	 * @throws {Error} 保存に失敗したとき、C# のメッセージで reject する
+	 */
 	private async updateSettings(patch: Record<string, unknown>): Promise<AppSettings> {
 		const result = await invokeBridge<SaveConfigResponse>(BRIDGE_METHOD.configUpdate, { settings: patch });
 		if (!result.success || !result.config) {
 			throw new Error(result.message ?? '設定を保存できませんでした。');
 		}
-		// ネイティブ側で既定値補完・正規化された設定を、モーダル外の実行状態にも反映する。
+		// ネイティブ側で既定値補完・正規化された設定を、モーダル外の実行状態にも反映する
 		this.options.onSettingsApplied(result.config.settings);
 		return result.config.settings;
 	}
 
+	/**
+	 * 1 つの設定キーを既定値へ戻し、入力と画面へ反映する
+	 * @param key - 戻す設定キー。ドット区切りもそのまま渡す
+	 */
 	private async resetItem(key: string): Promise<void> {
 		this.setStatus('リセット中...');
 		try {
@@ -1072,7 +1419,7 @@ export class SettingsModal {
 			this.renderContextMenuList('tab');
 			this.updateExternalBrowserCommandVisibility();
 			if (key === 'cssSnippets.enabled') {
-				// 有効一覧のリセットはCSS本体の再適用まで行わないと画面に古いスタイルが残る。
+				// 有効一覧のリセットはCSS本体の再適用まで行わないと画面に古いスタイルが残る
 				await this.reloadSnippets();
 			}
 			this.setStatus('設定を既定値へ戻しました。');
@@ -1081,6 +1428,9 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * すべての設定を既定へ戻し、ダイアログを描き直す
+	 */
 	private async resetAll(): Promise<void> {
 		if (!window.confirm('dataDirを除くすべての設定を既定値へ戻します。よろしいですか？')) {
 			return;
@@ -1104,6 +1454,9 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * CSS スニペットを読み直し、一覧と状態行を更新する
+	 */
 	private async reloadSnippets(): Promise<void> {
 		this.setStatus('CSSスニペットを再読み込み中...');
 		try {
@@ -1118,6 +1471,9 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * スニペットの有効チェックを、最新の一覧から描き直す
+	 */
 	private renderSnippetList(): void {
 		if (!this.snippetsList) {
 			return;
@@ -1152,6 +1508,9 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * スニペットフォルダのパスと、フォルダ自体のエラー表示を更新する
+	 */
 	private updateSnippetDirectoryInfo(): void {
 		if (this.snippetDirectoryPath) {
 			this.snippetDirectoryPath.textContent = `現在参照しているフォルダ: ${this.cssSnippets.directoryPath}`;
@@ -1163,8 +1522,15 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * スニペットの有効状態を保存し、画面のスタイルへ反映する
+	 * 失敗したときはチェックを元へ戻す
+	 * @param name - 切り替えるファイル名
+	 * @param enabled - 有効にするなら true
+	 * @param checkbox - 失敗したときに戻すチェックボックス
+	 */
 	private async toggleSnippet(name: string, enabled: boolean, checkbox: HTMLInputElement): Promise<void> {
-		// Setで重複を避けながら対象名だけを増減し、保存後の一覧は実ファイル状態から再取得する。
+		// Setで重複を避けながら対象名だけを増減し、保存後の一覧は実ファイル状態から再取得する
 		const current = new Set(this.settings.cssSnippets.enabled);
 		if (enabled) {
 			current.add(name);
@@ -1179,7 +1545,7 @@ export class SettingsModal {
 			});
 			await this.reloadSnippets();
 		} catch (error) {
-			// 保存失敗時はチェックだけ先に反転していたため、直前の状態へ戻す。
+			// 保存失敗時はチェックだけ先に反転していたため、直前の状態へ戻す
 			checkbox.checked = !enabled;
 			this.setStatus(this.formatError(error), true);
 		} finally {
@@ -1187,6 +1553,9 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * スニペットフォルダを OS のエクスプローラーで開く
+	 */
 	private async openSnippetsFolder(): Promise<void> {
 		try {
 			await invokeBridge(BRIDGE_METHOD.cssSnippetsOpenFolder);
@@ -1196,12 +1565,16 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * 新しいデータディレクトリを選び、設定の場所を移す
+	 * キャンセルと失敗では、いまの場所のままにする
+	 */
 	private async changeDataDir(): Promise<void> {
 		if (this.isPortable) {
 			this.setStatus('ポータブル版ではデータ保存先を変更できません。', true);
 			return;
 		}
-		// 設定だけでなく複数ディレクトリをコピーするため、長時間処理の開始前に明示確認する。
+		// 設定だけでなく複数ディレクトリをコピーするため、長時間処理の開始前に明示確認する
 		if (!window.confirm('データ保存先を変更し、config・snippets・backupsを移行します。移行元は削除されません。続行しますか？')) {
 			return;
 		}
@@ -1222,6 +1595,9 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * データディレクトリを既定の場所へ戻す
+	 */
 	private async resetDataDir(): Promise<void> {
 		if (this.isPortable) {
 			this.setStatus('ポータブル版ではデータ保存先を変更できません。', true);
@@ -1243,8 +1619,11 @@ export class SettingsModal {
 		}
 	}
 
+	/**
+	 * データディレクトリを移したあと、設定とスニペットを読み直して描き直す
+	 */
 	private async refreshAfterDataDirChange(): Promise<void> {
-		// 保存ルートが変わると設定とスニペットの参照先も変わるため、関連キャッシュを一括で再取得する。
+		// 保存ルートが変わると設定とスニペットの参照先も変わるため、関連キャッシュを一括で再取得する
 		const config           = await invokeBridge<ConfigGetResponse>(BRIDGE_METHOD.configGet);
 		this.settings          = config.config.settings;
 		this.customDecorations = config.config.customDecorations.map((rule) => ({ ...rule }));
@@ -1268,8 +1647,11 @@ export class SettingsModal {
 		this.updateExternalBrowserCommandVisibility();
 	}
 
+	/**
+	 * 保持している設定値を、いま画面にある入力へ書き戻す
+	 */
 	private syncControls(): void {
-		// 保存・リセット後の正規化値を全入力へ戻し、個別UIに古い値が残らないようにする。
+		// 保存・リセット後の正規化値を全入力へ戻し、個別UIに古い値が残らないようにする
 		this.bindings.forEach(({ key, control }) => {
 			const value = this.getValue(key);
 			if (control instanceof HTMLInputElement && control.type === 'checkbox') {
@@ -1286,6 +1668,9 @@ export class SettingsModal {
 		});
 	}
 
+	/**
+	 * 外部ブラウザがカスタムのときだけ、コマンド入力を表示する
+	 */
 	private updateExternalBrowserCommandVisibility(): void {
 		if (!this.externalBrowserCommandInput) {
 			return;
@@ -1294,8 +1679,14 @@ export class SettingsModal {
 		this.externalBrowserCommandInput.disabled = this.getValue('externalBrowser.mode') !== 'custom';
 	}
 
+	/**
+	 * ドット区切りのキーで、保持している設定値を取る
+	 * 途中の階層が無いときは undefined
+	 * @param key - ドット区切りの設定キー
+	 * @returns そのキーの値。階層が無いときは undefined
+	 */
 	private getValue(key: string): unknown {
-		// ドット区切りキーを共通化し、各設定画面がネスト構造を個別にたどらずに済むようにする。
+		// ドット区切りキーを共通化し、各設定画面がネスト構造を個別にたどらずに済むようにする
 		return key.split('.').reduce<unknown>((current, part) => {
 			if (!current || typeof current !== 'object') {
 				return undefined;
@@ -1304,22 +1695,43 @@ export class SettingsModal {
 		}, this.settings);
 	}
 
+	/**
+	 * ダイアログ下部の状態行を書き換える
+	 * @param message - 出す文言
+	 * @param error - 失敗として目立たせるか。省略時は false
+	 */
 	private setStatus(message: string, error = false): void {
 		this.status.textContent = message;
 		this.status.classList.toggle('is-error', error);
 	}
 
+	/**
+	 * 失敗を状態行へ出せる文字列にする
+	 * @param error - catch した値
+	 * @returns Error ならその message、それ以外は文字列化した値
+	 */
 	private formatError(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
 	}
 
+	/**
+	 * 背面ごとダイアログを文書から外す
+	 * 未保存の入力は捨てる。保存済みの値は呼び出し元に残っている
+	 */
 	private close(): void {
 		this.backdrop.remove();
 	}
 }
 
+/**
+ * ドット区切りの設定キーを、部分更新用のネストしたオブジェクトへ展開する
+ * 途中の階層は空オブジェクトで作り、最後の部品へ値を入れる
+ * @param key - ドット区切りの設定キー
+ * @param value - そのキーへ保存する値
+ * @returns 変更点だけを持つオブジェクト
+ */
 function createNestedPatch(key: string, value: unknown): Record<string, unknown> {
-	// config:updateが部分更新できるよう、ドット区切りキーを最小のネストオブジェクトへ展開する。
+	// config:updateが部分更新できるよう、ドット区切りキーを最小のネストオブジェクトへ展開する
 	const root: Record<string, unknown> = {};
 	let current                         = root;
 	const parts                         = key.split('.');

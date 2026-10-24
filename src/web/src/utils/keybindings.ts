@@ -1,8 +1,15 @@
 /**
+ * キー入力と設定のショートカット文字列を突き合わせる
+ * キー割り当て自体の保存は持たない
+ * @file
+ */
+
+/**
  * キーイベントが指定ショートカットに一致するか判定する
- * @param {KeyboardEvent} event キーイベント
- * @param {string} shortcut ショートカット文字列
- * @returns {boolean} 一致する場合 true
+ * 修飾キーの過不足は不一致。`+` 区切りの最後がキー名で、`-` `=` `\` 空白 数字は物理キーも見る
+ * @param event - 判定するキーイベント
+ * @param shortcut - `Ctrl+Shift+S` のような設定値。区切りは `+`
+ * @returns 修飾キーとキーが一致する場合 true
  */
 export function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
 	const parts      = shortcut.split('+').map((part) => part.trim().toLowerCase());
@@ -56,9 +63,10 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean
 }
 
 /**
- * キー入力から設定保存用のショートカット文字列を生成する。
- * @param {KeyboardEvent} event キーイベント
- * @returns {string | null} ショートカット。修飾キー単体などは null
+ * キー入力から設定保存用のショートカット文字列を生成する
+ * 修飾キー単体、正規化できないキー、修飾なしのファンクション以外は null
+ * @param event - 記録するキーイベント。物理キーを優先する
+ * @returns `Ctrl+Shift+U` のような文字列。保存できない入力は null
  */
 export function shortcutFromKeyboardEvent(event: KeyboardEvent): string | null {
 	if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) {
@@ -90,9 +98,10 @@ export function shortcutFromKeyboardEvent(event: KeyboardEvent): string | null {
 }
 
 /**
- * 競合比較用にショートカットを正規化する。
- * @param {string} shortcut ショートカット
- * @returns {string} 正規化値
+ * 競合比較用にショートカットを正規化する
+ * 大小文字と並びを無視できるよう、小文字にして部品をソートする
+ * @param shortcut - 比較するショートカット。区切りは `+`
+ * @returns 小文字・ソート済みの比較用文字列
  */
 export function normalizeShortcut(shortcut: string): string {
 	return shortcut
@@ -104,11 +113,12 @@ export function normalizeShortcut(shortcut: string): string {
 }
 
 /**
- * 指定ショートカットと競合するコマンドキーを返す。
- * @param {Record<string, string>} keybindings キーバインド
- * @param {string} currentKey 編集中コマンドキー
- * @param {string} shortcut 候補
- * @returns {string[]} 競合コマンドキー
+ * 指定ショートカットと競合するコマンドキーを返す
+ * 編集中のコマンド自身は競合に含めない。表記順が違っても同じ割り当てとみなす
+ * @param keybindings - コマンドキーからショートカット文字列への対応
+ * @param currentKey - いま編集しているコマンドキー。結果から除く
+ * @param shortcut - 割り当てようとしているショートカット
+ * @returns 同じ割り当てを持つ他コマンドのキー。無ければ空配列
  */
 export function findShortcutConflicts(
 	keybindings: Record<string, string>,
@@ -122,15 +132,21 @@ export function findShortcutConflicts(
 }
 
 /**
- * Windows でアプリまで届かないことがある既知の予約キーか判定する。
- * @param {string} shortcut ショートカット
- * @returns {boolean} 既知の予約キーなら true
+ * Windows でアプリまで届かないことがある既知の予約キーか判定する
+ * 現在の対象は `Ctrl+Shift+0` だけ。表記順は問わない
+ * @param shortcut - 判定するショートカット
+ * @returns 既知の予約キーなら true
  */
 export function isKnownWindowsReservedShortcut(shortcut: string): boolean {
 	return normalizeShortcut(shortcut) === normalizeShortcut('Ctrl+Shift+0');
 }
 
-/** 物理キーコードを優先し、キーボード配列に左右されない設定名へ変換する。 */
+/**
+ * 物理キーコードを優先し、キーボード配列に左右されない設定名へ変換する
+ * 文字キーは大文字、空白は `Space`、保存できないキーは null
+ * @param event - 変換するキーイベント。`code` を `key` より優先する
+ * @returns 設定へ保存するキー名。変換できないときは null
+ */
 function normalizeEventKey(event: KeyboardEvent): string | null {
 	if (/^Key[A-Z]$/.test(event.code)) {
 		return event.code.slice(3);

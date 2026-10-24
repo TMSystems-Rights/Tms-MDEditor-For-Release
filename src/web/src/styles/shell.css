@@ -1,3 +1,17 @@
+@charset "utf-8";
+/* ============================================== */
+/* アプリ枠と作業領域の配置を定義する */
+/* ============================================== */
+
+/*
+ * アプリ枠、作業領域、アウトライン、タブ、検索、キャレットの配置を定義する
+ * 色はテーマのカスタムプロパティを参照し、このファイルでは色の値を直接指定しない
+ */
+
+/* ---------------------------------------------- */
+/* アプリ枠と作業領域 */
+/* ---------------------------------------------- */
+
 .tms-mde-app-root {
 	display: grid;
 	grid-template-rows: minmax(0, 1fr) auto;
@@ -18,6 +32,10 @@
 	grid-template-columns: auto minmax(0, 1fr);
 	grid-template-areas: "outline editor";
 }
+
+/* ---------------------------------------------- */
+/* アウトライン */
+/* ---------------------------------------------- */
 
 .tms-mde-outline-panel {
 	position: relative;
@@ -249,9 +267,13 @@
 	display: none;
 }
 
+/* ---------------------------------------------- */
+/* タブバー */
+/* ---------------------------------------------- */
+
 /*
- * タブが増えてもペイン幅に収める。各タブは縮めず、バーだけ横スクロールする。
- * グリッド子の min-width:auto だとバーが中身幅まで伸び、親の overflow:hidden で見切れる。
+ * タブが増えてもペイン幅に収める。各タブは縮めず、バーだけ横スクロールする
+ * グリッド子の min-width:auto だとバーが中身幅まで伸び、親の overflow:hidden で見切れる
  */
 .tms-mde-pane-tab-bar-wrap {
 	display: flex;
@@ -364,6 +386,10 @@
 	cursor: pointer;
 }
 
+/* ---------------------------------------------- */
+/* ペインとエディタ */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host {
 	display: grid;
 	grid-area: editor;
@@ -468,7 +494,7 @@
 /*
  * CM は {dark: true} 未指定のためライト基調。基テーマの
  * `&light .cm-gutters`（#f5f5f5 / #6c6c6c）が EditorView.theme の
- * `.cm-gutters` より詳細度で勝つ。ダークでも白帯になるので !important で固定する。
+ * `.cm-gutters` より詳細度で勝つ。ダークでも白帯になるので !important で固定する
  */
 .tms-mde-editor-host .cm-editor .cm-gutters {
 	background-color: var(--tms-mde-color-surface) !important;
@@ -489,6 +515,10 @@
 	background: var(--tms-mde-color-surface);
 	color: var(--tms-mde-color-text);
 }
+
+/* ---------------------------------------------- */
+/* 検索パネル */
+/* ---------------------------------------------- */
 
 .tms-mde-editor-host .cm-panel.tms-mde-search-panel {
 	display: grid;
@@ -599,14 +629,18 @@
 	}
 }
 
+/* ---------------------------------------------- */
+/* キャレットと選択 */
+/* ---------------------------------------------- */
+
 .tms-mde-editor-host .cm-editor.cm-focused.tms-mde-caret-hidden .cm-cursor {
 	opacity: 0;
 }
 
 /*
  * ネイティブキャレットは CM ライトテーマ既定が黒。drawSelection で透明化するが、
- * 選択レイヤーを行背景より前面へ出したあと WebView2 が黒キャレットを重ね描きすることがある。
- * 本体は透明のまま隠し、表セル等の :focus 子孫だけテーマ色を使う。
+ * 選択レイヤーを行背景より前面へ出したあと WebView2 が黒キャレットを重ね描きすることがある
+ * 本体は透明のまま隠し、表セル等の :focus 子孫だけテーマ色を使う
  */
 .tms-mde-editor-host .cm-content,
 .tms-mde-editor-host .cm-line {
@@ -624,13 +658,13 @@
 	border-left-color: var(--tms-mde-color-caret) !important;
 }
 
-/* CodeMirror は選択レイヤーへ inline で z-index:-1 を付けるため、不透明な行背景（コードブロック等）に隠れる。前面へ出し、クリックは透過する。 */
+/* CodeMirror は選択レイヤーへ inline で z-index:-1 を付けるため、不透明な行背景（コードブロック等）に隠れる。前面へ出し、クリックは透過する */
 .tms-mde-editor-host .cm-layer.cm-selectionLayer {
 	z-index: var(--tms-mde-selection-layer-z-index) !important;
 	pointer-events: none;
 }
 
-/* 選択レイヤー（既定 1）より前面。CM は cursorLayer へ inline で z-index:150 を付ける。 */
+/* 選択レイヤー（既定 1）より前面。CM は cursorLayer へ inline で z-index:150 を付ける */
 .tms-mde-editor-host .cm-layer.cm-cursorLayer {
 	z-index: var(--tms-mde-caret-layer-z-index) !important;
 	pointer-events: none;
@@ -662,7 +696,7 @@
 
 /*
  * CodeMirror の空行はキャレット維持用の <br> だけを持つ。通常フローの ::after は
- * その <br> の次の行へ回り、空行を二行分の高さにしてしまうため、記号だけを重ねる。
+ * その <br> の次の行へ回り、空行を二行分の高さにしてしまうため、記号だけを重ねる
  */
 .tms-mde-editor-host .cm-eol-marker-line:has(> br:only-child) {
 	position: relative;

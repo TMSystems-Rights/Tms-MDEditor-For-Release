@@ -1,15 +1,44 @@
+// ==============================================
+// アプリ設定の保存とスキーマ移行
+// ==============================================
+
+// 一時ディレクトリ上の設定で、既定値、正規化、スキーマ移行、data ディレクトリの移動、バックアップ復旧を固定する
+
 using TmsMdEditor.Models;
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// AppData を一時ディレクトリへ差し替えて、設定ストアの読込と保存を検証する
+/// ポータブル状態は各テストの前後で戻す
+/// </summary>
 public class ConfigStoreTests : IDisposable
 {
+	/// <summary>
+	/// 設定ファイルを置く一時ルート。テストごとに作り、Dispose で削除する
+	/// </summary>
 	private readonly string _tempRoot;
+
+	/// <summary>
+	/// 設定ストアへ渡す実ロガー。ログの文面は検証しない
+	/// </summary>
 	private readonly Logger _logger;
+
+	/// <summary>
+	/// data ディレクトリの指示を読む実ストア
+	/// </summary>
 	private readonly BootstrapConfigStore _bootstrapConfigStore;
+
+	/// <summary>
+	/// 検証対象。一時ルートを AppData にしたあとに使う
+	/// </summary>
 	private readonly ConfigStore _configStore;
 
+	/// <summary>
+	/// ポータブル状態を戻し、一時ディレクトリを AppData の代わりにする
+	/// 設定ファイルはこの時点では作らない
+	/// </summary>
 	public ConfigStoreTests()
 	{
 		PortableRuntime.ResetForTests();
@@ -20,6 +49,9 @@ public class ConfigStoreTests : IDisposable
 		AppPaths.SetOverrideAppDataRoot(_tempRoot);
 	}
 
+	/// <summary>
+	/// ポータブル状態と AppData の差し替えを戻し、一時ディレクトリが残っていれば削除する
+	/// </summary>
 	public void Dispose()
 	{
 		PortableRuntime.ResetForTests();
@@ -31,6 +63,9 @@ public class ConfigStoreTests : IDisposable
 		}
 	}
 
+	/// <summary>
+	/// 初回の読込でブートストラップと設定ファイルを作り、テーマは system、セッション復元はオフ、下線の装飾が1件入る
+	/// </summary>
 	[Fact]
 	public void Load_creates_default_config_and_bootstrap_files()
 	{
@@ -47,6 +82,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("tms-underline", result.Config.CustomDecorations[0].CssClass);
 	}
 
+	/// <summary>
+	/// PascalCase の DataDir でもブートストラップの保存先として読み、その場所に設定ファイルを作る
+	/// </summary>
 	[Fact]
 	public void Load_reads_legacy_pascal_case_bootstrap_data_dir()
 	{
@@ -66,6 +104,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(File.Exists(AppPaths.GetConfigPath(customDataDir)));
 	}
 
+	/// <summary>
+	/// テーマの更新は保存され、再読込でも残り、バックアップが1件以上できる
+	/// </summary>
 	[Fact]
 	public void Save_persists_settings_and_creates_backup()
 	{
@@ -82,6 +123,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(Directory.EnumerateFiles(AppPaths.GetBackupDirectory(AppPaths.DefaultDataDir)).Any());
 	}
 
+	/// <summary>
+	/// 外部ブラウザの指定が無い初期設定は、既定のブラウザでコマンドは空である
+	/// </summary>
 	[Fact]
 	public void Load_supplies_default_external_browser_settings()
 	{
@@ -92,6 +136,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(string.Empty, result.Config.Settings.ExternalBrowser.CustomCommand);
 	}
 
+	/// <summary>
+	/// 初期のコンテキストメニューには copy、openLink、closeOthers があり、エディタ側の非表示項目は空である
+	/// </summary>
 	[Fact]
 	public void Load_supplies_default_context_menu_settings()
 	{
@@ -104,6 +151,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Empty(result.Config.Settings.ContextMenu.EditorHidden);
 	}
 
+	/// <summary>
+	/// コンテキストメニューの並びから未知の項目と重複を除き、非表示は既知の copy だけが残る
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_normalizes_context_menu_order_and_hidden_items()
 	{
@@ -122,6 +172,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(["copy"], settings.EditorHidden);
 	}
 
+	/// <summary>
+	/// 末尾へ足した pastePlain は paste の直後へ戻る
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_places_appended_paste_plain_after_paste()
 	{
@@ -140,9 +193,13 @@ public class ConfigStoreTests : IDisposable
 		int pasteIndex = settings.EditorOrder.IndexOf("paste");
 		Assert.True(pasteIndex >= 0);
 		Assert.Equal("pastePlain", settings.EditorOrder[pasteIndex + 1]);
+		// 末尾に足した並びでも、保存後の全体は既定の項目順と一致する
 		Assert.Equal(defaults, settings.EditorOrder);
 	}
 
+	/// <summary>
+	/// カスタムのブラウザコマンドは、引用符付きの引数を含めて保存される
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_custom_external_browser_settings()
 	{
@@ -159,6 +216,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(@"firefox -p ""MyProfile_TMSystems""", update.Config?.Settings.ExternalBrowser.CustomCommand);
 	}
 
+	/// <summary>
+	/// 起動時にセッションを復元する指定は保存され、再読込でもオンのままである。
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_session_restore_preference()
 	{
@@ -172,6 +232,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(_configStore.Load().Config.Settings.RestoreSessionOnStartup);
 	}
 
+	/// <summary>
+	/// セッション復元の項目が無い設定はオフになり、スキーマは現行へ上がる。
+	/// </summary>
 	[Fact]
 	public void Load_defaults_missing_session_restore_preference_to_off()
 	{
@@ -187,6 +250,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, result.Config.SchemaVersion);
 	}
 
+	/// <summary>
+	/// 書き出し様式が無い設定は live-preview になり、同時に欠けている表示と操作の既定も埋まる。
+	/// </summary>
 	[Fact]
 	public void Load_defaults_missing_export_style_to_live_preview()
 	{
@@ -199,6 +265,7 @@ public class ConfigStoreTests : IDisposable
 
 		Assert.True(result.Success, result.Message);
 		Assert.Equal("live-preview", result.Config.Settings.Export.Style);
+		// NOTE: 様式以外に、アウトライン、書き出しのショートカット、コードフォント、添付先、画像枠も欠けていれば既定で埋まる。
 		Assert.True(result.Config.Settings.Export.Outline.Enabled);
 		Assert.Equal("right", result.Config.Settings.Export.Outline.Side);
 		Assert.Equal("right", result.Config.Settings.Outline.Side);
@@ -213,6 +280,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(string.Empty, result.Config.Settings.ImageBorder.HoverColor);
 	}
 
+	/// <summary>
+	/// 指定したコード用フォントは保存され、再読込でも同じ文字列で残る
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_code_font_family()
 	{
@@ -228,6 +298,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("\"HackGen Console NF\", monospace", _configStore.Load().Config.Settings.CodeFontFamily);
 	}
 
+	/// <summary>
+	/// 画像枠の幅、色、ホバー幅、ホバー色は、渡した値で保存される
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_image_border()
 	{
@@ -245,6 +318,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("#2563eb", update.Config?.Settings.ImageBorder.HoverColor);
 	}
 
+	/// <summary>
+	/// 範囲外の幅と16進でない色は既定へ戻り、更新自体は成功する
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_rejects_invalid_image_border_color()
 	{
@@ -261,6 +337,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(string.Empty, update.Config?.Settings.ImageBorder.HoverColor);
 	}
 
+	/// <summary>
+	/// 空白だけのコード用フォントは、コンソール系の既定フォントへ戻る
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_blank_code_font_family_falls_back_to_default()
 	{
@@ -273,6 +352,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("Consolas, \"Cascadia Mono\", \"Meiryo UI\", monospace", update.Config?.Settings.CodeFontFamily);
 	}
 
+	/// <summary>
+	/// 書き出し様式 clean は保存され、再読込でも clean のままである
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_export_style()
 	{
@@ -286,6 +368,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("clean", _configStore.Load().Config.Settings.Export.Style);
 	}
 
+	/// <summary>
+	/// アウトラインの非表示、左配置、幅 1200 と、書き出しアウトラインのオフと左配置が保存される
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_outline_side_and_export_outline()
 	{
@@ -309,9 +394,13 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(1200, reload.Config.Settings.Outline.Width);
 		Assert.False(reload.Config.Settings.Export.Outline.Enabled);
 		Assert.Equal("left", reload.Config.Settings.Export.Outline.Side);
+		// 書き出し様式は渡していないので、live-preview のまま残る
 		Assert.Equal("live-preview", reload.Config.Settings.Export.Style);
 	}
 
+	/// <summary>
+	/// 範囲外のアウトライン幅は 300 へ戻る
+	/// </summary>
 	[Fact]
 	public void UpdateSettings_restores_default_for_invalid_outline_width()
 	{
@@ -324,6 +413,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(300, update.Config?.Settings.Outline.Width);
 	}
 
+	/// <summary>
+	/// 新規の既定設定では、起動時のアウトラインは表示である
+	/// </summary>
 	[Fact]
 	public void CreateDefaultConfig_shows_outline_on_startup()
 	{
@@ -332,6 +424,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(config.Settings.Outline.Visible);
 	}
 
+	/// <summary>
+	/// 表示指定の無い既存設定は、移行後もアウトラインを非表示のままにする
+	/// </summary>
 	[Fact]
 	public void Load_migrates_existing_install_to_keep_outline_hidden()
 	{
@@ -351,6 +446,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.False(persisted.Settings.Outline.Visible);
 	}
 
+	/// <summary>
+	/// outline.visible を初期化すると、起動時のアウトラインは表示へ戻る
+	/// </summary>
 	[Fact]
 	public void ResetSettingItem_restores_outline_startup_visibility()
 	{
@@ -364,6 +462,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(reset.Config?.Settings.Outline.Visible);
 	}
 
+	/// <summary>
+	/// 日本語名の装飾ルールはパターンとクラス名ごと保存され、再読込でも残る
+	/// </summary>
 	[Fact]
 	public void UpdateCustomDecorations_persists_japanese_rule()
 	{
@@ -392,6 +493,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("重要・要確認", Assert.Single(reload.Config.CustomDecorations).Name);
 	}
 
+	/// <summary>
+	/// 空の装飾リストを明示して保存すると、既定の下線は復活せず空のまま残る
+	/// </summary>
 	[Fact]
 	public void UpdateCustomDecorations_keeps_explicitly_empty_list()
 	{
@@ -408,6 +512,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Empty(reload.Config.CustomDecorations);
 	}
 
+	/// <summary>
+	/// インストーラが指示した移行元から設定を移し、移行元の指定は空になる
+	/// </summary>
 	[Fact]
 	public void Load_applies_pending_installer_data_dir_migration()
 	{
@@ -437,6 +544,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal(string.Empty, _bootstrapConfigStore.Load().PendingMigrationSourceDir);
 	}
 
+	/// <summary>
+	/// スキーマ1の既定 Ctrl+H は Ctrl+R へ移行し、バックアップが残る
+	/// </summary>
 	[Fact]
 	public void Load_migrates_legacy_default_replace_shortcut_to_ctrl_r()
 	{
@@ -457,6 +567,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(Directory.EnumerateFiles(AppPaths.GetBackupDirectory(AppPaths.DefaultDataDir)).Any());
 	}
 
+	/// <summary>
+	/// スキーマ1でも独自の置換ショートカットは、移行後もそのまま残る
+	/// </summary>
 	[Fact]
 	public void Load_preserves_custom_replace_shortcut_during_schema_migration()
 	{
@@ -472,6 +585,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("Ctrl+Alt+R", reload.Config.Settings.Keybindings.Replace);
 	}
 
+	/// <summary>
+	/// スキーマ2の Ctrl+Shift+0 は、Windows の予約を避けて Ctrl+Shift+U へ移行する
+	/// </summary>
 	[Fact]
 	public void Load_migrates_windows_reserved_unsplit_shortcut()
 	{
@@ -490,6 +606,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("Ctrl+Shift+U", persisted.Settings.Keybindings.Unsplit);
 	}
 
+	/// <summary>
+	/// スキーマ2でも独自の分割解除ショートカットは、移行後もそのまま残る
+	/// </summary>
 	[Fact]
 	public void Load_preserves_custom_unsplit_shortcut_during_schema_migration()
 	{
@@ -503,6 +622,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("Ctrl+Alt+U", reload.Config.Settings.Keybindings.Unsplit);
 	}
 
+	/// <summary>
+	/// スキーマ3の空の装飾は、下線の既定ルール1件へ移行する
+	/// </summary>
 	[Fact]
 	public void Load_migrates_legacy_empty_custom_decorations_to_default_rule()
 	{
@@ -519,6 +641,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("_v(.+?)_v", rule.Pattern);
 	}
 
+	/// <summary>
+	/// 下線ルールの古いチルダパターンだけを新しいパターンへ替え、無効のままにし、同パターンの独自ルールは変えない
+	/// </summary>
 	[Fact]
 	public void Load_migrates_legacy_default_underline_pattern_without_changing_custom_rule()
 	{
@@ -552,11 +677,15 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("~([^~\\n]+)~", reload.Config.CustomDecorations[1].Pattern);
 	}
 
+	/// <summary>
+	/// 設定の移行でブートストラップの data ディレクトリが新しい場所を指し、テーマは残る
+	/// </summary>
 	[Fact]
 	public void MigrateDataDir_copies_config_and_updates_bootstrap_pointer()
 	{
 		_configStore.Load();
 		_configStore.UpdateSettings(System.Text.Json.JsonDocument.Parse("""{"theme":"light"}""").RootElement);
+		// 設定に加え、セッションとノート表示位置も移ることを見るため、両方のファイルを置いてから移す
 		File.WriteAllText(
 			AppPaths.GetSessionPath(AppPaths.DefaultDataDir),
 			"""{"schemaVersion":1,"tabs":[{"tabId":"tab-1","filePath":"C:\\docs\\one.md"}]}""");
@@ -582,6 +711,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("light", reload.Config.Settings.Theme);
 	}
 
+	/// <summary>
+	/// 移行済みの data ディレクトリが無いときは失敗し、元のパスを作り直さない
+	/// </summary>
 	[Fact]
 	public void Load_does_not_recreate_missing_custom_data_directory()
 	{
@@ -599,6 +731,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.False(Directory.Exists(customDataDir));
 	}
 
+	/// <summary>
+	/// 全設定の初期化後もウィンドウ幅、独自装飾、最近使ったファイルは残り、テーマは system に戻る
+	/// </summary>
 	[Fact]
 	public void ResetAllSettings_keeps_window_and_custom_data()
 	{
@@ -624,6 +759,9 @@ public class ConfigStoreTests : IDisposable
 		Assert.Single(resetResult.Config?.RecentFiles ?? []);
 	}
 
+	/// <summary>
+	/// 壊れた設定は最新バックアップから復旧し、テーマは dark に戻る
+	/// </summary>
 	[Fact]
 	public void Load_recovers_from_backup_when_config_is_corrupted()
 	{
@@ -638,6 +776,7 @@ public class ConfigStoreTests : IDisposable
 
 		Assert.True(reload.Success);
 		Assert.True(reload.RecoveredFromBackup);
+		// 破損の直前に成功した保存がバックアップを作るため、その一つ前の dark へ戻る
 		Assert.Equal("dark", reload.Config.Settings.Theme);
 	}
 }

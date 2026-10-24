@@ -1,13 +1,19 @@
+/**
+ * カーソル行と選択範囲から、ソース行とプレビュー行の判定を検証する
+ * EditorState は各ケースで作り、本番の状態フィールドは使わない
+ * @file
+ */
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { collectSourceLineNumbers, isPreviewLine, isSourceLine, lineNumberAtPosition, selectionIntersectsRange } from './cursorLine';
 
 /**
- * テスト用 EditorState を生成する
- * @param {string} doc ドキュメント
- * @param {number} from 選択開始
- * @param {number} to 選択終了
- * @returns {EditorState}
+ * 選択を1つだけ持つテスト用 EditorState を作る
+ * 拡張は載せない。to を省略すると空のカーソルになる
+ * @param doc - ドキュメント全文
+ * @param from - 選択の anchor。文字位置
+ * @param to - 選択の head。省略時は from と同じ空選択
+ * @returns 指定の文書と選択だけを持つ状態
  */
 function createState(doc: string, from: number, to: number = from): EditorState {
 	return EditorState.create({

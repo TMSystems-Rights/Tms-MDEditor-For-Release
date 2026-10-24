@@ -1,3 +1,10 @@
+// ==============================================
+// メニューと WebView2 をホストする
+// ==============================================
+
+// WinForms のメニューと WebView2 の寿命を持ち、Web 層との通知の境界になる
+// WebView の初期化に失敗したときはメッセージを出してウィンドウを閉じる
+
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
@@ -9,37 +16,121 @@ using TmsMdEditor.Services;
 namespace TmsMdEditor;
 
 /// <summary>
-/// メインウィンドウ。WinForms メニューバーと WebView2 ホストを提供する。
+/// メインウィンドウ。WinForms メニューバーと WebView2 ホストを提供する
 /// </summary>
 internal sealed class MainForm : Form
 {
-	private const int MinFormWidth  = 600;
-	private const int MinFormHeight = 400;
-
-	private readonly string[] _startupArgs;
-	private readonly AppContext _appContext;
-	private readonly BridgeRouter _bridgeRouter;
-	private readonly PrintExportService _printExportService;
-	private readonly WebView2 _webView;
-	private readonly MenuStrip _menuStrip;
-	private readonly bool _isSessionOwner;
-	private readonly ToolStripMenuItem _recentFilesMenuItem;
-	private readonly Dictionary<string, ToolStripMenuItem> _shortcutMenuItems = [];
-	private readonly Dictionary<string, ToolStripMenuItem> _tableMenuItems = [];
-	private readonly List<string[]> _pendingExternalOpenRequests = [];
-	private readonly List<PendingDetachedTab> _pendingDetachedTabs = [];
-
-	private bool _webReady;
-	private bool _closeDecisionPending;
-	private bool _allowCloseAfterDecision;
-	private bool _activateAfterShown;
-	private string? _installerToLaunchAfterClose;
+	// ==============================================
+	// フィールド
+	// ==============================================
 
 	/// <summary>
-	/// メインフォームを初期化する
+	/// 通常表示の最小幅。ピクセル。保存値がこれより小さくてもフォームはこの幅を下回らない
 	/// </summary>
-	/// <param name="startupArgs">起動時引数</param>
-	/// <param name="appContext">アプリコンテキスト</param>
+	private const int MinFormWidth  = 600;
+
+	/// <summary>
+	/// 通常表示の最小高さ。ピクセル。メニューバーを含めた外側の高さ
+	/// </summary>
+	private const int MinFormHeight = 400;
+
+	/// <summary>
+	/// このプロセスの起動引数。Web 層の初期化が終わるまで保持し、ファイルパスの解決に使う
+	/// </summary>
+	private readonly string[] _startupArgs;
+
+	/// <summary>
+	/// 設定、ログ、ファイル監視の参照先。フォームより長く生き、ここでは破棄しない
+	/// </summary>
+	private readonly AppContext _appContext;
+
+	/// <summary>
+	/// Web 層からの要求の振り分け。フォームと同時に作り、印刷サービスは所有しない
+	/// </summary>
+	private readonly BridgeRouter _bridgeRouter;
+
+	/// <summary>
+	/// 印刷と PDF。フォームが閉じるときに破棄する
+	/// </summary>
+	private readonly PrintExportService _printExportService;
+
+	/// <summary>
+	/// 編集画面をホストする WebView。フォームのクライアント領域いっぱいに置く
+	/// </summary>
+	private readonly WebView2 _webView;
+
+	/// <summary>
+	/// ウィンドウ上部のメニュー。項目の実処理は Web 層へイベントで渡す
+	/// </summary>
+	private readonly MenuStrip _menuStrip;
+
+	/// <summary>
+	/// このウィンドウが次回起動用セッションの所有者か。生成後は変えない
+	/// </summary>
+	private readonly bool _isSessionOwner;
+
+	/// <summary>
+	/// 最近使ったファイルのサブメニュー。一覧の更新で中身だけを入れ替える
+	/// </summary>
+	private readonly ToolStripMenuItem _recentFilesMenuItem;
+
+	/// <summary>
+	/// 設定のキーバインド ID から、ショートカット表示を更新するメニュー項目
+	/// メニュー構築時に埋め、以降は増やさない
+	/// </summary>
+	private readonly Dictionary<string, ToolStripMenuItem> _shortcutMenuItems = [];
+
+	/// <summary>
+	/// テーブル操作 ID から、活性を切り替えるメニュー項目。メニュー構築時に埋め、以降は増やさない
+	/// </summary>
+	private readonly Dictionary<string, ToolStripMenuItem> _tableMenuItems = [];
+
+	/// <summary>
+	/// ハンドルが出来る前に届いた、他プロセスからのファイル起動要求。配信後に空にする
+	/// </summary>
+	private readonly List<string[]> _pendingExternalOpenRequests = [];
+
+	/// <summary>
+	/// Web 層の準備前に届いたタブ転送。ready のあと、届いた順に送る
+	/// </summary>
+	private readonly List<PendingDetachedTab> _pendingDetachedTabs = [];
+
+	/// <summary>
+	/// app:ready を送ったあと true。これより前のイベントは捨てる
+	/// </summary>
+	private bool _webReady;
+
+	/// <summary>
+	/// 未保存確認を Web 層へ聞いて、返事を待っているあいだ true。重複した閉じる操作はキャンセルする
+	/// </summary>
+	private bool _closeDecisionPending;
+
+	/// <summary>
+	/// Web 層が閉じてよいと答えたあと true。次の FormClosing では確認をやり直さない
+	/// </summary>
+	private bool _allowCloseAfterDecision;
+
+	/// <summary>
+	/// タブ切り離しで位置を指定して開いたとき、表示完了後に前面化する。前面化したら false
+	/// </summary>
+	private bool _activateAfterShown;
+
+	/// <summary>
+	/// 閉じたあと起動するインストーラーのパス。予約が無ければ null。閉じる確認が拒否されても予約は残る
+	/// </summary>
+	private string? _installerToLaunchAfterClose;
+
+	// ==============================================
+	// 初期化
+	// ==============================================
+
+	/// <summary>
+	/// メニュー、WebView、ブリッジを作り、保存済みのウィンドウサイズを適用する
+	/// 切り離し起動の座標があるときはその位置に置き、無いときは画面中央にする
+	/// </summary>
+	/// <param name="startupArgs">このプロセスのコマンドライン。空でもウィンドウは開く</param>
+	/// <param name="appContext">設定とサービス。フォームより長く生きる。null は渡さない</param>
+	/// <param name="isSessionOwner">true のときだけ次回起動用のタブ構成を保存する</param>
 	public MainForm(string[] startupArgs, AppContext appContext, bool isSessionOwner)
 	{
 		AutoScaleMode = AutoScaleMode.Dpi;
@@ -91,10 +182,18 @@ internal sealed class MainForm : Form
 		FormClosed  += OnFormClosed;
 	}
 
-	/// <inheritdoc />
+	// ==============================================
+	// ウィンドウ操作
+	// ==============================================
+
+	/// <summary>
+	/// タブ切り離しの WM_COPYDATA を受け、それ以外は基底のウィンドウ処理へ返す
+	/// 転送ファイルを読めたときだけ結果を 1 にし、失敗時は 0 を返して既定処理はしない
+	/// </summary>
+	/// <param name="message">ウィンドウメッセージ。タブ転送以外は書き換えない</param>
 	protected override void WndProc(ref Message message)
 	{
-		// タブ転送のWM_COPYDATAだけを先に処理し、それ以外はWinForms既定処理へ返す。
+		// タブ転送のWM_COPYDATAだけを先に処理し、それ以外はWinForms既定処理へ返す
 		if (WindowInterop.TryReadDetachedTab(message, out DetachedTabTransferRequest? request) && request is not null)
 		{
 			message.Result = ReceiveDetachedTab(request) ? new IntPtr(1) : IntPtr.Zero;
@@ -125,9 +224,10 @@ internal sealed class MainForm : Form
 	}
 
 	/// <summary>
-	/// ウィンドウタイトルを更新する
+	/// ウィンドウタイトルを差し替える。UI スレッド以外から呼ぶとそちらへ移す
+	/// 空文字もそのまま表示し、製品名への戻しは呼び出し側が渡す
 	/// </summary>
-	/// <param name="title">タイトル</param>
+	/// <param name="title">表示するタイトル。null は渡さない</param>
 	public void UpdateWindowTitle(string title)
 	{
 		if (InvokeRequired)
@@ -140,9 +240,10 @@ internal sealed class MainForm : Form
 	}
 
 	/// <summary>
-	/// Web 層からのクローズ判断を反映する
+	/// Web 層からのクローズ判断を反映する。true のときだけ Close を再入する
+	/// 返事を先に記録し、再入した FormClosing では Web 層へ聞き直さない
 	/// </summary>
-	/// <param name="allowClose">クローズ可否</param>
+	/// <param name="allowClose">閉じてよいとき true。false のときはウィンドウを開いたままにする</param>
 	public void CompleteCloseDecision(bool allowClose)
 	{
 		if (InvokeRequired)
@@ -151,7 +252,7 @@ internal sealed class MainForm : Form
 			return;
 		}
 
-		// 2回目のFormClosingで再度Web層へ問い合わせないよう、判断結果を先に記録する。
+		// 2回目のFormClosingで再度Web層へ問い合わせないよう、判断結果を先に記録する
 		_allowCloseAfterDecision = allowClose;
 		_closeDecisionPending    = false;
 
@@ -162,10 +263,11 @@ internal sealed class MainForm : Form
 	}
 
 	/// <summary>
-	/// Web 層へイベント通知を送る
+	/// Web 層へ JSON イベントを送る。UI スレッド以外から呼ぶとそちらへ移す
+	/// WebView の準備前は捨てる。必要な通知は呼び出し側がキューする
 	/// </summary>
-	/// <param name="eventName">イベント名</param>
-	/// <param name="payload">ペイロード</param>
+	/// <param name="eventName">BridgeEventName の値。空でも JSON には載せる</param>
+	/// <param name="payload">追加データ。省略時は null を載せる</param>
 	public void PostBridgeEvent(string eventName, object? payload = null)
 	{
 		if (InvokeRequired)
@@ -174,7 +276,7 @@ internal sealed class MainForm : Form
 			return;
 		}
 
-		// 初期化前の通知は受信側が存在しないため送らず、必要なものは呼び出し側でキューイングする。
+		// 初期化前の通知は受信側が存在しないため送らず、必要なものは呼び出し側でキューイングする
 		if (!_webReady || _webView.CoreWebView2 is null)
 		{
 			return;
@@ -189,8 +291,11 @@ internal sealed class MainForm : Form
 		_webView.CoreWebView2.PostWebMessageAsJson(json);
 	}
 
-	/// <summary>通常の終了確認後にインストーラーを起動するよう予約する</summary>
-	/// <param name="installerPath">ダウンロード済みインストーラーパス</param>
+	/// <summary>
+	/// 通常の終了確認後にインストーラーを起動するよう予約し、閉じる操作を始める
+	/// 未保存確認で閉じなかったときは予約を残し、次に閉じ切ったときに起動する
+	/// </summary>
+	/// <param name="installerPath">終了後に起動するインストーラーのパス。存在確認は呼び出し側が済ませている</param>
 	public void QueueInstallerAndClose(string installerPath)
 	{
 		if (InvokeRequired)
@@ -204,9 +309,9 @@ internal sealed class MainForm : Form
 	}
 
 	/// <summary>
-	/// 後続プロセスから転送されたファイルを既存ウィンドウで開き、前面化する。
+	/// 後続プロセスから転送されたファイルを既存ウィンドウで開き、前面化する
 	/// </summary>
-	/// <param name="args">後続プロセスのコマンドライン引数</param>
+	/// <param name="args">後続プロセスのコマンドライン。ファイルパスが無くてもウィンドウは前面化する</param>
 	public void ReceiveExternalOpenRequest(string[] args)
 	{
 		if (IsDisposed || Disposing)
@@ -226,8 +331,12 @@ internal sealed class MainForm : Form
 		BeginInvoke(() => HandleExternalOpenRequest(args));
 	}
 
+	// ==============================================
+	// メニュー
+	// ==============================================
+
 	/// <summary>
-	/// 設定済みショートカットをメニュー表示へ反映する。
+	/// 設定済みショートカットをメニュー表示へ反映する
 	/// </summary>
 	internal void RefreshSettingsMenuShortcutDisplays()
 	{
@@ -256,6 +365,11 @@ internal sealed class MainForm : Form
 		SetShortcutDisplay("unsplit", keybindings.Unsplit);
 	}
 
+	/// <summary>
+	/// 1 件のメニュー項目へ、設定のショートカット表記を出す。対応する項目が無いときは何もしない
+	/// </summary>
+	/// <param name="key">キーバインド設定の項目名。辞書に無い名前は無視する</param>
+	/// <param name="shortcut">メニューに出す表記。空なら表示を消す</param>
 	private void SetShortcutDisplay(string key, string shortcut)
 	{
 		if (_shortcutMenuItems.TryGetValue(key, out ToolStripMenuItem? item))
@@ -283,6 +397,12 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// テーブルメニュー項目を作り、操作 ID で後から活性を変えられるよう辞書へ入れる。初期状態は無効
+	/// </summary>
+	/// <param name="text">メニューに出す文言。アクセスキーの &amp; を含めてよい</param>
+	/// <param name="action">Web 層へ渡す操作 ID。同じ ID を二度作ると辞書は上書きする</param>
+	/// <returns>メニューへ追加する項目</returns>
 	private ToolStripMenuItem CreateTableMenuItem(string text, string action)
 	{
 		var item = new ToolStripMenuItem(text, null, (_, _) => PostBridgeEvent(
@@ -295,6 +415,14 @@ internal sealed class MainForm : Form
 		return item;
 	}
 
+	// ==============================================
+	// フォームの寿命
+	// ==============================================
+
+	/// <summary>
+	/// 保存済みの幅、高さ、最大化をフォームへ適用する。タイトルは製品名に戻す
+	/// 切り離し起動の座標指定は、このあとコンストラクタが上書きする
+	/// </summary>
 	private void ApplyWindowStateFromConfig()
 	{
 		WindowConfig window = _appContext.Config.Window;
@@ -323,6 +451,12 @@ internal sealed class MainForm : Form
 		ShowIcon = true;
 	}
 
+	/// <summary>
+	/// WebView2 を初期化し、失敗したときはメッセージを出してウィンドウを閉じる
+	/// Load からは一度だけ外し、再入しない
+	/// </summary>
+	/// <param name="sender">Load の送信元。使わない</param>
+	/// <param name="e">イベント引数。使わない</param>
 	private async void OnFormLoadAsync(object? sender, EventArgs e)
 	{
 		Load -= OnFormLoadAsync;
@@ -343,11 +477,17 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// 切り離し起動のときだけ、表示が終わったあとでウィンドウを前面化する
+	/// 通常起動では何もしない
+	/// </summary>
+	/// <param name="sender">Shown の送信元。使わない</param>
+	/// <param name="e">イベント引数。使わない</param>
 	private void OnFormShown(object? sender, EventArgs e)
 	{
 		if (!_activateAfterShown) return;
 		_activateAfterShown = false;
-		// Shown処理完了後へ遅延し、別プロセスから転送された起動要求のウィンドウを確実に前面化する。
+		// Shown処理完了後へ遅延し、別プロセスから転送された起動要求のウィンドウを確実に前面化する
 		BeginInvoke(() =>
 		{
 			Show();
@@ -357,9 +497,16 @@ internal sealed class MainForm : Form
 		});
 	}
 
+	/// <summary>
+	/// 閉じる操作を、Web 層の未保存確認が終わるまでキャンセルする
+	/// 確認中の再入もキャンセルし、閉じてよいと分かったときだけウィンドウサイズを保存する
+	/// WebView がまだ無いときは確認せず閉じる
+	/// </summary>
+	/// <param name="sender">FormClosing の送信元。使わない</param>
+	/// <param name="e">キャンセルできる閉じる理由。Cancel を true にすると閉じない</param>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e)
 	{
-		// Web層の確認中に再度閉じる操作が来ても、問い合わせを重複させない。
+		// Web層の確認中に再度閉じる操作が来ても、問い合わせを重複させない
 		if (_closeDecisionPending)
 		{
 			e.Cancel = true;
@@ -368,7 +515,7 @@ internal sealed class MainForm : Form
 
 		if (_allowCloseAfterDecision)
 		{
-			// 最大化中はRestoreBoundsを保存し、次回の通常表示サイズが最大化領域にならないようにする。
+			// 最大化中はRestoreBoundsを保存し、次回の通常表示サイズが最大化領域にならないようにする
 			Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
 			_appContext.PersistWindowState(bounds.Width, bounds.Height, WindowState == FormWindowState.Maximized);
 			return;
@@ -379,19 +526,33 @@ internal sealed class MainForm : Form
 			return;
 		}
 
-		// 未保存タブの有無はWeb層が管理しているため、同期的に閉じず非同期確認へ委譲する。
+		// 未保存タブの有無はWeb層が管理しているため、同期的に閉じず非同期確認へ委譲する
 		e.Cancel               = true;
 		_closeDecisionPending  = true;
 		PostBridgeEvent(BridgeEventName.AppQueryClose);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 印刷用の WebView を破棄してから基底の終了処理を行う
+	/// インストーラーの起動は別ハンドラが行い、ここでは印刷資源だけを解放する
+	/// </summary>
+	/// <param name="e">終了理由。この時点ではキャンセルできない</param>
 	protected override void OnFormClosed(FormClosedEventArgs e)
 	{
 		_printExportService.Dispose();
 		base.OnFormClosed(e);
 	}
 
+	// ==============================================
+	// WebView
+	// ==============================================
+
+	/// <summary>
+	/// ユーザーデータフォルダと仮想ホストを用意し、ローカルの Web 資産を開く
+	/// 資産フォルダが無い、または CoreWebView2 が得られないときは例外にする。呼び出し側がダイアログを出す
+	/// </summary>
+	/// <exception cref="InvalidOperationException">CoreWebView2 が初期化されていない</exception>
+	/// <exception cref="DirectoryNotFoundException">webdist フォルダが無い</exception>
 	private async Task InitializeWebViewAsync()
 	{
 		string userDataFolder = AppPaths.WebView2UserDataDirectory;
@@ -404,7 +565,7 @@ internal sealed class MainForm : Form
 		CoreWebView2 core = _webView.CoreWebView2
 			?? throw new InvalidOperationException("CoreWebView2 が初期化されていません。");
 
-		// ブラウザ既定UIを無効化し、アプリ側メニュー・ショートカットへ操作体系を統一する。
+		// ブラウザ既定UIを無効化し、アプリ側メニュー・ショートカットへ操作体系を統一する
 		core.Settings.AreBrowserAcceleratorKeysEnabled = false;
 		core.Settings.AreDefaultContextMenusEnabled     = false;
 		core.Settings.IsStatusBarEnabled              = false;
@@ -419,7 +580,7 @@ internal sealed class MainForm : Form
 			throw new DirectoryNotFoundException($"Web 資産が見つかりません: {webDistPath}");
 		}
 
-		// file://制約を避けつつローカル資産だけを配信するため、固定仮想ホストへ割り当てる。
+		// file://制約を避けつつローカル資産だけを配信するため、固定仮想ホストへ割り当てる
 		string virtualHost = AppPaths.WebViewVirtualHost;
 		core.SetVirtualHostNameToFolderMapping(
 			virtualHost,
@@ -437,6 +598,11 @@ internal sealed class MainForm : Form
 		});
 	}
 
+	/// <summary>
+	/// 外部の変更、削除、改名を Web 層へ通知する。破棄中は送らない
+	/// UI スレッド以外から来たときはそちらへ移す。準備前の通知は PostBridgeEvent が捨てる
+	/// </summary>
+	/// <param name="change">変わったファイルの絶対パスと種別。null は渡さない</param>
 	private void OnExternalFileChanged(ExternalFileChange change)
 	{
 		if (IsDisposed || Disposing) return;
@@ -452,6 +618,10 @@ internal sealed class MainForm : Form
 		});
 	}
 
+	/// <summary>
+	/// WebView の表示倍率を 1 に戻す。既に 1 なら何もしない
+	/// ブラウザ側のズームを、アプリの表示設定と混ぜないために使う
+	/// </summary>
 	private void ResetWebViewZoom()
 	{
 		if (Math.Abs(_webView.ZoomFactor - 1.0) < 0.0001)
@@ -462,6 +632,12 @@ internal sealed class MainForm : Form
 		_webView.ZoomFactor = 1.0;
 	}
 
+	/// <summary>
+	/// WebView が先に取るキーのうち、分割と Alt のメニュー操作だけをシェルで処理する
+	/// それ以外は Web 層へ渡す
+	/// </summary>
+	/// <param name="sender">キーを受けた WebView。使わない</param>
+	/// <param name="e">修飾キーを含むキー情報。処理したときは Handled を true にする</param>
 	private void OnWebViewKeyDown(object? sender, KeyEventArgs e)
 	{
 		if (TryHandleSplitShortcut(e))
@@ -535,6 +711,15 @@ internal sealed class MainForm : Form
 		return true;
 	}
 
+	// ----------------------------------------------
+	// アクセスキー
+	// ----------------------------------------------
+
+	/// <summary>
+	/// Alt と同時に押されたキーで、対応する最上位メニューを開く
+	/// Alt 単体のときは先頭のメニューを選択する。該当が無いときは何もしない
+	/// </summary>
+	/// <param name="key">押されたキー。文字にならないキーは無視する</param>
 	private void HandleMenuAccelerator(Keys key)
 	{
 		_menuStrip.Focus();
@@ -567,6 +752,11 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// キーをメニューのアクセスキー文字にする。A から Z、0 から 9 以外は対象外
+	/// </summary>
+	/// <param name="key">変換するキー</param>
+	/// <returns>大文字または数字。対象外は NUL</returns>
 	private static char GetMnemonicCharacter(Keys key)
 	{
 		if (key >= Keys.A && key <= Keys.Z)
@@ -582,6 +772,11 @@ internal sealed class MainForm : Form
 		return '\0';
 	}
 
+	/// <summary>
+	/// メニュー文言の &amp; の次の文字をアクセスキーとして返す。&amp;&amp; はエスケープとして飛ばす
+	/// </summary>
+	/// <param name="text">メニュー文言。空なら対象外</param>
+	/// <returns>大文字化したアクセスキー。無ければ NUL</returns>
 	private static char GetMnemonicCharacter(string text)
 	{
 		for (int index = 0; index < text.Length - 1; index++)
@@ -603,11 +798,17 @@ internal sealed class MainForm : Form
 		return '\0';
 	}
 
+	/// <summary>
+	/// WebView からのメッセージを、ドロップファイルかブリッジ要求として処理する
+	/// 失敗はログへ残し、ウィンドウは閉じない
+	/// </summary>
+	/// <param name="sender">メッセージの送信元。使わない</param>
+	/// <param name="e">JSON 本文と、追加オブジェクトのファイル</param>
 	private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
 	{
 		try
 		{
-			// WebView2の追加オブジェクトはJSON本文より先に処理し、実ファイルパスを失わないようにする。
+			// WebView2の追加オブジェクトはJSON本文より先に処理し、実ファイルパスを失わないようにする
 			string[] droppedPaths = ExtractDroppedFilePaths(e);
 			if (droppedPaths.Length > 0)
 			{
@@ -630,7 +831,7 @@ internal sealed class MainForm : Form
 				return;
 			}
 
-			// method付きJSONだけをBridgeへルーティングし、要求IDを含む応答を同じWebViewへ返す。
+			// method付きJSONだけをBridgeへルーティングし、要求IDを含む応答を同じWebViewへ返す
 			string? responseJson = await _bridgeRouter.HandleRequestAsync(root);
 			if (responseJson is not null)
 			{
@@ -664,6 +865,12 @@ internal sealed class MainForm : Form
 			.ToArray();
 	}
 
+	/// <summary>
+	/// 最初のページ読み込みが成功したとき、起動情報と設定をまとめて Web 層へ渡す
+	/// 失敗時はログだけ残し、ready にはしない。成功後に届いていたタブ転送を順に送る
+	/// </summary>
+	/// <param name="sender">ナビゲーションの送信元。使わない</param>
+	/// <param name="e">成功フラグと、失敗時の WebErrorStatus</param>
 	private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
 	{
 		if (!e.IsSuccess)
@@ -672,7 +879,7 @@ internal sealed class MainForm : Form
 			return;
 		}
 
-		// Web層が最初の描画を一度で組み立てられるよう、起動情報・設定・復元状態をまとめて渡す。
+		// Web層が最初の描画を一度で組み立てられるよう、起動情報・設定・復元状態をまとめて渡す
 		DataDirInfo dataDirInfo = _appContext.ConfigStore.GetDataDirInfo();
 		string[] startupFiles   = StartupArguments.ResolveFilePaths(_startupArgs)
 			.Concat(DrainPendingExternalOpenRequests())
@@ -711,7 +918,7 @@ internal sealed class MainForm : Form
 			},
 		}, BridgeJson.Options));
 
-		// ready通知後に到着済みのタブ転送を順番に配信し、初期化前の要求を失わないようにする。
+		// ready通知後に到着済みのタブ転送を順番に配信し、初期化前の要求を失わないようにする
 		_webReady = true;
 		foreach (PendingDetachedTab pending in _pendingDetachedTabs)
 		{
@@ -723,6 +930,16 @@ internal sealed class MainForm : Form
 		_bridgeRouter.StartStartupUpdateCheck();
 	}
 
+	// ==============================================
+	// 終了
+	// ==============================================
+
+	/// <summary>
+	/// ウィンドウが閉じたあと、予約してあったインストーラーを起動する
+	/// 予約が無いときは何もしない。起動に失敗してもプロセスは戻し、ログへ残す
+	/// </summary>
+	/// <param name="sender">FormClosed の送信元。使わない</param>
+	/// <param name="e">終了理由。使わない</param>
 	private void OnFormClosed(object? sender, FormClosedEventArgs e)
 	{
 		if (string.IsNullOrWhiteSpace(_installerToLaunchAfterClose)) return;
@@ -737,6 +954,16 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	// ==============================================
+	// メニューの構築
+	// ==============================================
+
+	/// <summary>
+	/// ファイル、編集、テーブル、表示、設定、ヘルプのメニューを作る
+	/// 項目の実行は Web 層へのイベントに留め、ショートカットの実処理は Web 層が持つ
+	/// </summary>
+	/// <param name="recentFilesMenuItem">後から中身を入れ替える「最近使ったファイル」項目</param>
+	/// <returns>ウィンドウ上部に置くメニュー。項目 0 のときは空のまま返さない</returns>
 	private MenuStrip BuildMenuStrip(out ToolStripMenuItem recentFilesMenuItem)
 	{
 		var menuStrip = new MenuStrip { Dock = DockStyle.Top };
@@ -843,7 +1070,7 @@ internal sealed class MainForm : Form
 			"ソース / ライブプレビュー切替(&E)",
 			null,
 			(_, _) => PostBridgeEvent(BridgeEventName.MenuToggleViewMode));
-		// ショートカット本体は Web 層（config keybindings）が処理する。表示のみ付与する。
+		// ショートカット本体は Web 層（config keybindings）が処理する。表示のみ付与する
 		toggleViewModeItem.ShortcutKeyDisplayString = "Ctrl+E";
 		viewMenu.DropDownItems.Add(toggleViewModeItem);
 		var toggleOutlineItem = new ToolStripMenuItem(
@@ -929,6 +1156,10 @@ internal sealed class MainForm : Form
 		return menuStrip;
 	}
 
+	/// <summary>
+	/// 最近使ったファイルのサブメニューを、現在の設定で作り直す
+	/// 0 件のときは項目を無効にする。UI スレッド以外から呼ぶとそちらへ移す
+	/// </summary>
 	internal void RefreshRecentFilesMenu()
 	{
 		if (InvokeRequired)
@@ -958,6 +1189,11 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// 表示用のバージョンを、情報バージョンから + より前だけ取る
+	/// 属性が無いときはアセンブリバージョン、それも無ければ unknown
+	/// </summary>
+	/// <returns>画面と app:ready に出すバージョン文字列</returns>
 	private static string GetDisplayVersion()
 	{
 		string version = typeof(MainForm).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -967,13 +1203,28 @@ internal sealed class MainForm : Form
 		return version.Split('+')[0];
 	}
 
-	/// <summary>切り離し元ウィンドウが保存したタブ状態を読み込む</summary>
+	// ==============================================
+	// 外部からの起動要求
+	// ==============================================
+
+	/// <summary>
+	/// 切り離し元ウィンドウが保存したタブ状態を読み込む
+	/// 起動引数に転送パスが無いときは null。ファイルの削除は読み込み側が行う
+	/// </summary>
+	/// <param name="args">このプロセスの起動引数。--detached-tab が無ければ null を返す</param>
+	/// <returns>タブ状態の JSON。切り離し起動でなければ null</returns>
 	private JsonElement? LoadDetachedTab(string[] args)
 	{
 		string? transferPath = StartupArguments.GetDetachedTabPath(args);
 		return transferPath is null ? null : LoadDetachedTabFile(transferPath);
 	}
 
+	/// <summary>
+	/// 転送ファイルの JSON をタブ状態として読む。読めたあとも失敗したあともファイルは削除する
+	/// 読めないときは null を返し、ウィンドウは開いたままにする
+	/// </summary>
+	/// <param name="transferPath">タブ JSON の絶対パス。存在しなくても例外にせず null</param>
+	/// <returns>タブ状態の JSON。読めないときは null</returns>
 	private JsonElement? LoadDetachedTabFile(string transferPath)
 	{
 		try
@@ -988,7 +1239,7 @@ internal sealed class MainForm : Form
 		}
 		finally
 		{
-			// 転送ファイルは一度だけ読む一時媒体なので、成功・失敗にかかわらず回収する。
+			// 転送ファイルは一度だけ読む一時媒体なので、成功・失敗にかかわらず回収する
 			try
 			{
 				if (File.Exists(transferPath)) File.Delete(transferPath);
@@ -1000,13 +1251,19 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// 他ウィンドウから届いたタブを、Web 層の準備ができていればすぐ送り、未準備なら届いた順で保持する
+	/// ファイルを読めないときは false。読めたときはこのウィンドウを前面化する
+	/// </summary>
+	/// <param name="request">転送ファイルのパスと、画面座標のドロップ位置</param>
+	/// <returns>タブを受け取れたとき true。WM_COPYDATA の結果に使う</returns>
 	private bool ReceiveDetachedTab(DetachedTabTransferRequest request)
 	{
 		JsonElement? tab = LoadDetachedTabFile(request.TransferPath);
 		if (tab is null) return false;
 
 		var pending = new PendingDetachedTab(tab.Value, request.ScreenX, request.ScreenY);
-		// Web初期化前なら座標付き要求を保持し、ready後に同じ順序で届ける。
+		// Web初期化前なら座標付き要求を保持し、ready後に同じ順序で届ける
 		if (_webReady)
 		{
 			PostDetachedTab(pending);
@@ -1024,9 +1281,14 @@ internal sealed class MainForm : Form
 		return true;
 	}
 
+	/// <summary>
+	/// 保持していたタブ転送を、WebView 内の座標に変換して Web 層へ送る
+	/// 準備前に呼ぶと通知は捨てられる
+	/// </summary>
+	/// <param name="pending">タブ JSON と、画面座標のドロップ位置</param>
 	private void PostDetachedTab(PendingDetachedTab pending)
 	{
-		// Win32の画面座標をWebView内座標へ変換し、ドロップ先ペイン判定へ渡す。
+		// Win32の画面座標をWebView内座標へ変換し、ドロップ先ペイン判定へ渡す
 		Point clientPoint = _webView.PointToClient(new Point(pending.ScreenX, pending.ScreenY));
 		PostBridgeEvent(BridgeEventName.AppReceiveDetachedTab, new
 		{
@@ -1036,6 +1298,11 @@ internal sealed class MainForm : Form
 		});
 	}
 
+	/// <summary>
+	/// 後続プロセスのファイル引数を Web 層へ開き、このウィンドウを前面化する
+	/// ファイルが無くても前面化はする。準備前の通知は捨てられる
+	/// </summary>
+	/// <param name="args">後続プロセスのコマンドライン</param>
 	private void HandleExternalOpenRequest(string[] args)
 	{
 		string[] files = StartupArguments.ResolveFilePaths(args);
@@ -1054,6 +1321,11 @@ internal sealed class MainForm : Form
 		Activate();
 	}
 
+	/// <summary>
+	/// ハンドル作成前に溜めた起動要求からファイルパスを取り出し、キューを空にする
+	/// 同時に届く要求とぶつからないよう、一覧のロックを取る
+	/// </summary>
+	/// <returns>開くファイルの絶対パス。重複は除かない</returns>
 	private string[] DrainPendingExternalOpenRequests()
 	{
 		lock (_pendingExternalOpenRequests)
@@ -1066,5 +1338,11 @@ internal sealed class MainForm : Form
 		}
 	}
 
+	/// <summary>
+	/// Web 層の準備前に届いたタブ転送。ready 後に、届いた順で画面座標をクライアント座標へ直して送る
+	/// </summary>
+	/// <param name="Tab">切り離したタブの JSON。クローン済みで、元の文書が破棄されても残る</param>
+	/// <param name="ScreenX">ドロップ位置の画面 X。ピクセル</param>
+	/// <param name="ScreenY">ドロップ位置の画面 Y。ピクセル</param>
 	private sealed record PendingDetachedTab(JsonElement Tab, int ScreenX, int ScreenY);
 }

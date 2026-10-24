@@ -1,24 +1,34 @@
+/**
+ * 画像ウィジェットの幅を、対応する WikiEmbed または Image 記法へ書き戻す
+ * 表示用の DOM は持たず、渡された EditorView の文書だけを更新する
+ * @file
+ */
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { formatMarkdownImage, formatWikiEmbed, splitImageAlt, splitWikiEmbedTarget } from './imageSize';
 
+/** 幅を書き戻す画像記法の種類。Wiki 埋め込みと標準画像を区別する */
 export type ImageMarkupKind = 'WikiEmbed' | 'Image';
 
+/** 文書上の画像記法の範囲。幅の置換はこの区間だけを変える */
 export type ImageMarkupRange = {
+	/** 記法の開始位置 */
 	from: number;
+	/** 記法の終端 */
 	to: number;
+	/** WikiEmbed か Image */
 	kind: ImageMarkupKind;
 };
 
 /**
  * 指定位置の画像記法へ表示幅を書き戻す
- * @param {EditorView} view エディタ
- * @param {number} pos 画像ウィジェット位置
- * @param {number} width 幅（px）
- * @param {number} [end] 記法の終了位置
- * @returns {boolean} 更新したか
+ * @param view - エディタ
+ * @param pos - 画像ウィジェット位置
+ * @param width - 幅（px）
+ * @param end - 記法の終了位置。省略可
+ * @returns 更新したか
  */
 export function applyImageDisplayWidth(
 	view: EditorView,
@@ -68,12 +78,12 @@ export function applyImageDisplayWidth(
 }
 
 /**
- * 行テキストだけを見て画像幅を書き戻す。
- * 表の構文木が未完成でも、セルの `|` を増やさずに `\|幅` を残せる。
- * @param {EditorView} view エディタ
- * @param {number} pos 画像位置
- * @param {number} width 幅（px）
- * @returns {boolean} 更新したか
+ * 行テキストだけを見て画像幅を書き戻す
+ * 表の構文木が未完成でも、セルの `|` を増やさずに `\|幅` を残せる
+ * @param view - エディタ
+ * @param pos - 画像位置
+ * @param width - 幅（px）
+ * @returns 更新したか
  */
 export function applyImageWidthOnDocumentLine(
 	view: EditorView,
@@ -96,21 +106,21 @@ export function applyImageWidthOnDocumentLine(
 
 /**
  * パスを比較用に正規化する
- * @param {string} path 画像パス
- * @returns {string}
+ * @param path - 画像パス
+ * @returns パスを比較用に正規化する
  */
 export function normalizeImagePathKey(path: string): string {
 	return path.trim().replaceAll('/', '\\').toLowerCase();
 }
 
 /**
- * 文書内の画像パスを探して幅を書き戻す。
- * 表セルでは列が割れないよう `\|幅` にする。
- * @param {EditorView} view エディタ
- * @param {string} path 画像パス
- * @param {number} width 幅（px）
- * @param {number} [hintPos] 優先する文書位置
- * @returns {boolean} 更新したか
+ * 文書内の画像パスを探して幅を書き戻す
+ * 表セルでは列が割れないよう `\|幅` にする
+ * @param view - エディタ
+ * @param path - 画像パス
+ * @param width - 幅（px）
+ * @param hintPos - 優先する文書位置。省略可
+ * @returns 更新したか
  */
 export function applyImageWidthByPath(
 	view: EditorView,
@@ -180,10 +190,10 @@ export function applyImageWidthByPath(
 
 /**
  * 文書位置にある画像記法の範囲を返す
- * @param {import('@codemirror/state').EditorState} state 状態
- * @param {number} pos 開始位置
- * @param {number} [end] 終了位置
- * @returns {ImageMarkupRange | null}
+ * @param state - 状態
+ * @param pos - 開始位置
+ * @param end - 終了位置。省略可
+ * @returns 文書位置にある画像記法の範囲
  */
 export function findImageMarkupAt(
 	state: EditorState,
@@ -208,8 +218,8 @@ export function findImageMarkupAt(
 
 /**
  * 記法文字列の種別を返す
- * @param {string} text 記法
- * @returns {ImageMarkupKind | null}
+ * @param text - 記法
+ * @returns 記法文字列の種別
  */
 function classifyImageMarkup(text: string): ImageMarkupKind | null {
 	if (text.startsWith('![[') && text.endsWith(']]') && text.length > 5) {
@@ -226,9 +236,9 @@ function classifyImageMarkup(text: string): ImageMarkupKind | null {
 
 /**
  * 構文木から画像記法を探す
- * @param {import('@codemirror/state').EditorState} state 状態
- * @param {number} pos 位置
- * @returns {ImageMarkupRange | null}
+ * @param state - 状態
+ * @param pos - 位置
+ * @returns 構文木から画像記法。無ければ null
  */
 function findImageMarkupInTree(state: EditorState, pos: number): ImageMarkupRange | null {
 	let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, 1);
@@ -249,9 +259,9 @@ function findImageMarkupInTree(state: EditorState, pos: number): ImageMarkupRang
 
 /**
  * 行内の `![[ ]]` / `![]()` を探す
- * @param {import('@codemirror/state').EditorState} state 状態
- * @param {number} pos 位置
- * @returns {ImageMarkupRange | null}
+ * @param state - 状態
+ * @param pos - 位置
+ * @returns 行内の `![[ ]]` / `![]()` 。無ければ null
  */
 function scanImageMarkupOnLine(state: EditorState, pos: number): ImageMarkupRange | null {
 	const line = state.doc.lineAt(pos);
@@ -284,9 +294,9 @@ function scanImageMarkupOnLine(state: EditorState, pos: number): ImageMarkupRang
 
 /**
  * 指定位置が GFM 表の中か判定する
- * @param {import('@codemirror/state').EditorState} state 状態
- * @param {number} pos 位置
- * @returns {boolean}
+ * @param state - 状態
+ * @param pos - 位置
+ * @returns 指定位置が GFM 表の中なら true
  */
 function isInsideTable(state: EditorState, pos: number): boolean {
 	let current: SyntaxNode | null = syntaxTree(state).resolveInner(Math.min(pos, state.doc.length), 1);
@@ -303,10 +313,10 @@ function isInsideTable(state: EditorState, pos: number): boolean {
 
 /**
  * セル文字列内の先頭画像へ表示幅を書き戻した文字列を返す
- * @param {string} text セルソース
- * @param {number} width 幅（px）
- * @param {boolean} [escapePipe=true] 表セルなら `\|`
- * @returns {string | null} 変更後。画像が無ければ null
+ * @param text - セルソース
+ * @param width - 幅（px）
+ * @param escapePipe - 表セルなら `\|`。省略可
+ * @returns 変更後。画像が無ければ null
  */
 export function replaceImageWidthInCellText(
 	text: string,

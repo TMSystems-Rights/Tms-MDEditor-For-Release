@@ -1,3 +1,13 @@
+/**
+ * 書き出し HTML に埋め込むスタイル
+ * 画面の CSS ファイルは読まず、この文字列だけで文書の見た目を完結させる
+ * @file
+ */
+
+/**
+ * 書き出しのライトテーマ変数
+ * 色とフォントの基準で、ダーク指定のときはこの後にダーク用を重ねる
+ */
 export const EXPORT_THEME_LIGHT_CSS = `
 .tms-mde-export-root {
 	--tms-bg: #f5f5f5;
@@ -30,6 +40,10 @@ export const EXPORT_THEME_LIGHT_CSS = `
 }
 `;
 
+/**
+ * 書き出しのダークテーマ変数
+ * ライト用の後に重ね、`.tms-mde-theme-dark` のときだけ色を差し替える
+ */
 export const EXPORT_THEME_DARK_CSS = `
 .tms-mde-export-root.tms-mde-theme-dark {
 	--tms-bg: #1e1e1e;
@@ -60,6 +74,10 @@ export const EXPORT_THEME_DARK_CSS = `
 }
 `;
 
+/**
+ * 書き出し本文のレイアウト
+ * 見出し、表、画像、コードなど、ライブプレビューに近い見た目の規則を持つ。実行中には変えない
+ */
 export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export-root {
 	margin: 0;
@@ -213,6 +231,10 @@ export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export .cm-md-checkbox { margin-right: 0.4em; vertical-align: -0.15em; accent-color: var(--tms-mde-color-primary); }
 `;
 
+/**
+ * 書き出し文書のアウトライン枠
+ * 本文の横に目次を置き、画面幅が狭いときの折りたたみも含む
+ */
 export const EXPORT_OUTLINE_CSS = `
 .tms-mde-export-shell {
 	--tms-mde-export-outline-width: 300px;
@@ -534,6 +556,10 @@ export const EXPORT_OUTLINE_CSS = `
 }
 `;
 
+/**
+ * 書き出しの印刷用スタイル
+ * 用紙は A4 で、画面用の枠やアウトラインを印刷時に畳む
+ */
 export const EXPORT_PRINT_CSS = `
 @page { size: A4; margin: 16mm 14mm; }
 .tms-mde-export-root, .tms-mde-export-root * {

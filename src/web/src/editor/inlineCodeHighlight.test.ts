@@ -1,3 +1,8 @@
+/**
+ * インラインコードとフェンスのトークン色が、言語ロード後に付くことを検証する
+ * 画面は持たず、構文木と Decoration の範囲だけを見る
+ * @file
+ */
 import { syntaxTree } from '@codemirror/language';
 import { highlightTree } from '@lezer/highlight';
 import { EditorState } from '@codemirror/state';
@@ -9,8 +14,9 @@ import { collectInlineCodeHighlightEntries } from './inlineCodeHighlight';
 import { tmsHighlightStyle } from './markdownHighlightStyle';
 
 /**
- * @param {string} doc ドキュメント
- * @returns {EditorState}
+ * TMS の Markdown サポートを有効にした EditorState を作る
+ * @param doc - 構文木を作る Markdown 本文
+ * @returns 言語サポートだけを付けた状態。選択は先頭
  */
 function createState(doc: string): EditorState {
 	return EditorState.create({

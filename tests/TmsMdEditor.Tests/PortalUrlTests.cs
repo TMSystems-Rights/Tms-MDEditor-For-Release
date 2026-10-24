@@ -1,11 +1,27 @@
+// ==============================================
+// 公式ポータル URL の許可
+// ==============================================
+
+// デバッグと環境変数で開発と本番を分け、許可する公式ポータルは本番と設定した開発用 URL に限る
+
 using TmsMdEditor.Services;
 
 namespace TmsMdEditor.Tests;
 
+/// <summary>
+/// ポータル環境の解決と、公式 URL の許可判定を固定する
+/// ネットワークへは接続せず、引数で渡した URL だけを見る
+/// </summary>
 public sealed class PortalUrlTests
 {
+	/// <summary>
+	/// 開発環境として許可するポータル URL。本番のホストではなく、このテストだけが使う
+	/// </summary>
 	private const string TestDevelopmentPortalUrl = "https://portal.dev.example/preview/#apps";
 
+	/// <summary>
+	/// デバッグビルドは環境変数より優先して開発になり、リリースでは development の指定があるときだけ開発になる
+	/// </summary>
 	[Fact]
 	public void ResolvePortalEnvironment_uses_debug_and_env_override()
 	{
@@ -16,6 +32,9 @@ public sealed class PortalUrlTests
 		Assert.Equal(PortalEnvironment.Development, PortalUrl.ResolvePortalEnvironment(false, "development"));
 	}
 
+	/// <summary>
+	/// 開発環境では渡した https の URL を使い、空や https 以外、本番環境では本番 URL に戻す
+	/// </summary>
 	[Fact]
 	public void GetOfficialPortalUrl_uses_env_for_development_and_falls_back_to_production()
 	{
@@ -25,6 +44,11 @@ public sealed class PortalUrlTests
 		Assert.Equal(PortalUrl.ProductionPortalUrl, PortalUrl.GetOfficialPortalUrl(PortalEnvironment.Development, "http://portal.dev.example/preview/#apps"));
 	}
 
+	/// <summary>
+	/// 開発用 URL が空のときは、パスとフラグメントが一致する本番の https URL だけを許可する
+	/// </summary>
+	/// <param name="url">判定する URL。空文字は不許可で、null は渡さない</param>
+	/// <param name="expected">開発用 URL が空のときの許可結果</param>
 	[Theory]
 	[InlineData("https://tm-systems.jp/#apps", true)]
 	[InlineData("https://tm-systems.jp/", true)]
@@ -40,6 +64,9 @@ public sealed class PortalUrlTests
 		Assert.Equal(expected, PortalUrl.IsAllowedOfficialPortalUrl(url, ""));
 	}
 
+	/// <summary>
+	/// 設定した開発用 URL と本番 URL を許可し、フラグメント直前のスラッシュ違いは同一とみなし、別ホストは拒否する
+	/// </summary>
 	[Fact]
 	public void IsAllowedOfficialPortalUrl_allows_configured_development_url_only()
 	{

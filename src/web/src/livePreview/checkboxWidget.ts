@@ -1,14 +1,22 @@
+/**
+ * プレビュー行のタスク記法を、チェック状態を持つチェックボックスへ置き換える
+ * エディタ状態は持たず、クリックは ignoreEvent が false のため呼び出し側のトグルへ渡る
+ * @file
+ */
 import { Decoration, WidgetType } from '@codemirror/view';
 import type { DecorationEntry } from './inlineDecorations';
 
 /**
- * チェックボックス表示ウィジェット
+ * タスクのチェック状態を input として描くウィジェット
+ * 生成後に checked は変えず、状態が変われば別インスタンスへ作り直す
  */
 class CheckboxWidget extends WidgetType {
+	/** チェック済みなら true。生成後は変えない */
 	readonly checked: boolean;
 
 	/**
-	 * @param {boolean} checked チェック状態
+	 * チェック状態を固定したウィジェットを作る
+	 * @param checked - チェック済みなら true
 	 */
 	constructor(checked: boolean) {
 		super();
@@ -16,17 +24,18 @@ class CheckboxWidget extends WidgetType {
 	}
 
 	/**
-	 * 同一ウィジェットか判定する
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * 基底の契約と同じ。チェック状態が同じインスタンスだけを同一とみなす
+	 * @param other - 比較対象のウィジェット
+	 * @returns 相手も CheckboxWidget で checked が一致すれば true
 	 */
 	eq(other: WidgetType): boolean {
 		return other instanceof CheckboxWidget && other.checked === this.checked;
 	}
 
 	/**
-	 * DOM を生成する
-	 * @returns {HTMLElement}
+	 * 基底の契約と同じ。クラス `cm-md-checkbox` のチェックボックスを返す
+	 * フォーカスは受け取らず、読み上げ名は「タスク」固定
+	 * @returns チェック状態を反映した input 要素
 	 */
 	toDOM(): HTMLElement {
 		const input     = document.createElement('input');
@@ -39,8 +48,9 @@ class CheckboxWidget extends WidgetType {
 	}
 
 	/**
-	 * クリックをエディタへ渡す
-	 * @returns {boolean}
+	 * クリックをエディタのトグル処理へ渡す
+	 * 基底はイベントを無視するが、このウィジェットはチェック操作のため無視しない
+	 * @returns 常に false
 	 */
 	ignoreEvent(): boolean {
 		return false;
@@ -48,12 +58,12 @@ class CheckboxWidget extends WidgetType {
 }
 
 /**
- * プレビュー行の TaskMarker をチェックボックスに置換する Decoration エントリを追加する
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} from 開始位置
- * @param {number} to 終了位置
- * @param {boolean} checked チェック状態
- * @returns {void}
+ * プレビュー行の TaskMarker をチェックボックスに置き換える装飾を追加する
+ * from が to 以上のときは何も足さない
+ * @param entries - 装飾を追加する配列。この関数が末尾へ push する
+ * @param from - 置き換える記法の開始位置
+ * @param to - 置き換える記法の終端。from 以上なら追加しない
+ * @param checked - チェック済みなら true。ウィジェットの表示と一致させる
  */
 export function pushCheckboxReplace(
 	entries: DecorationEntry[],

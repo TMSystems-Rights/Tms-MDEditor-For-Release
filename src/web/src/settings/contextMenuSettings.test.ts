@@ -1,3 +1,7 @@
+/**
+ * コンテキストメニューの並びが、未知 ID と欠落項目を既定位置へ戻すことを確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import {
 	createDefaultContextMenuSettings,

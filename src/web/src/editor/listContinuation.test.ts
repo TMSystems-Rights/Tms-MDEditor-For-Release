@@ -1,22 +1,27 @@
+/**
+ * Enter によるリスト・引用・チェックボックスの継続と、空マーカー行の解除を検証する
+ * 描画は持たず、コマンド適用後の文書文字列だけを見る
+ * @file
+ */
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState, type StateCommand } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { continueListMarkup } from './listContinuation';
 
 /**
- * StateCommand を適用した後の EditorState を返す
- * @param {EditorState} state 初期状態
- * @param {StateCommand} command コマンド
- * @returns {EditorState}
+ * コマンドを 1 回適用し、dispatch 後の状態を返す
+ * dispatch が呼ばれないときは、渡した状態をそのまま返す
+ * @param state - 適用前の文書
+ * @param command - 適用するコマンド。主カーソルは state の選択を使う
+ * @returns dispatch されたあとの状態。未適用なら state と同じ
  */
 function applyCommand(state: EditorState, command: StateCommand): EditorState {
 	let next = state;
 	command({
 		state,
 		/**
-		 * トランザクションを適用する
-		 * @param {import('@codemirror/state').Transaction} transaction トランザクション
-		 * @returns {void}
+		 * コマンドが渡したトランザクションを、次の状態として保持する
+		 * @param transaction - コマンドが適用しようとしたトランザクション
 		 */
 		dispatch: (transaction) => {
 			next = transaction.state;
@@ -26,10 +31,10 @@ function applyCommand(state: EditorState, command: StateCommand): EditorState {
 }
 
 /**
- * 行末にカーソルを置いた GFM EditorState を生成する
- * @param {string[]} lines 行配列
- * @param {number} lineNumber カーソル行（1始まり）
- * @returns {EditorState}
+ * 指定行の末尾にカーソルを置いた、GFM の EditorState を作る
+ * @param lines - 改行でつなぐ行。末尾改行は付けない
+ * @param lineNumber - カーソルを置く行番号。1 始まり
+ * @returns その行の line.to に anchor と head を置いた状態
  */
 function createStateAtLineEnd(lines: string[], lineNumber: number): EditorState {
 	const doc  = lines.join('\n');

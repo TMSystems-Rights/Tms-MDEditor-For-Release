@@ -1,4 +1,17 @@
-/* テーマ CSS 変数（ライトモード既定） */
+@charset "utf-8";
+/* ============================================== */
+/* 色と余白をテーマ変数として定義する */
+/* ============================================== */
+
+/*
+ * 色、構文色、選択、フォント、余白をカスタムプロパティで持つ
+ * 画面部品のレイアウトは shell.css と settings.css が、この変数を参照する
+ */
+
+/* ---------------------------------------------- */
+/* ライトテーマの色と構文色 */
+/* ---------------------------------------------- */
+
 :root {
 	--tms-bg: #f5f5f5;
 	--tms-fg: #1a1a1a;
@@ -20,6 +33,11 @@
 	--tms-mde-color-syntax-property: #0369a1;
 	--tms-mde-color-syntax-invalid: #dc2626;
 	--tms-mde-color-code-bg: #eef2f6;
+
+	/* ---------------------------------------------- */
+	/* 操作色、選択、重なり順 */
+	/* ---------------------------------------------- */
+
 	--tms-mde-color-primary: var(--tms-accent);
 	--tms-mde-color-primary-hover: #1d4ed8;
 	--tms-mde-color-link: #0284c7;
@@ -42,6 +60,11 @@
 	--tms-mde-color-search-match: rgba(250, 204, 21, 0.48);
 	--tms-mde-color-search-current: rgba(37, 99, 235, 0.34);
 	--tms-mde-color-error: #b91c1c;
+
+	/* ---------------------------------------------- */
+	/* フォント、余白、影 */
+	/* ---------------------------------------------- */
+
 	--tms-mde-list-indent-unit: 4ch;
 	--tms-mde-font-family: "Segoe UI", "Meiryo", sans-serif;
 	--tms-mde-font-mono: Consolas, "Cascadia Mono", "Meiryo UI", monospace;
@@ -49,7 +72,11 @@
 	--tms-mde-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-/* ダークテーマ（明示 dark / system+OSダーク）— 定義はここだけ */
+/* ---------------------------------------------- */
+/* ダークテーマ */
+/* ---------------------------------------------- */
+
+/* 明示の dark と、system かつ OS がダークのときだけ。ダークの色の定義はここだけ */
 body.tms-mde-theme-dark,
 html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) {
 	--tms-bg: #1e1e1e;
@@ -138,6 +165,10 @@ body.tms-mde-theme-light {
 	--tms-mde-color-error: #b91c1c;
 	color-scheme: light;
 }
+
+/* ---------------------------------------------- */
+/* 文書の土台 */
+/* ---------------------------------------------- */
 
 *,
 *::before,

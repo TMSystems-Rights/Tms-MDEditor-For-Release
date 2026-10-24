@@ -2,9 +2,10 @@
 
 ## HTML/CSS のフォーマット
 
-- `src/web/**/*.html` または `src/web/**/*.css` を編集した場合は、最終確認前に必ず `node scripts/format-web-assets.mjs` を実行する。
-- JavaScript/TypeScript の自動修正と Web 層 HTML/CSS フォーマットをまとめて適用したい場合は、ルートで `npm run lint:fix` を使う。
-- `npm run lint` には HTML/CSS フォーマットチェックが含まれる。
+- HTML と CSS の整形は、エディタの Format on Save に任せる。HTML は Prettier、CSS は VS Code の CSS フォーマッタ。
+- TMS Format & Save on Change が、AI や外部ツールのディスク書き込みを検知し、約 1.2 秒後にその保存を実行する。
+- `src/web/**/*.html` または `src/web/**/*.css` を編集したあとに `npm run lint` を実行する場合は、最後の書き込みから 2 秒以上待つ。
+- `npm run lint` と `npm run lint:fix` は ESLint のみ。HTML/CSS 用の整形スクリプトは使わない。
 
 ## コミットコメント
 

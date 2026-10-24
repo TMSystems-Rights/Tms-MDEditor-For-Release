@@ -1,3 +1,7 @@
+/**
+ * 混在する行末を保ったまま、編集後の本文へマップを合わせることを確認する
+ * @file
+ */
 import { describe, expect, it } from 'vitest';
 import {
 	areLineEolsEqual,

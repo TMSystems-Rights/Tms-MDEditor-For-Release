@@ -1,3 +1,8 @@
+/**
+ * エディタの Extension を組み立て、EditorState と EditorView を作る
+ * 設定と文書の保存は呼び出し側が持ち、本ファイルは渡されたオプションから拡張の並びと初期状態を決める
+ * @file
+ */
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdownKeymap } from '@codemirror/lang-markdown';
 import { indentOnInput } from '@codemirror/language';
@@ -40,26 +45,43 @@ import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
 import { createHeadingFoldExtensions, restoreCollapsedHeadings } from './headingFold';
 
+/**
+ * エディタ状態を組み立てるときの入力
+ * 文書と設定は呼び出し側が持ち、本ファイルは Extension の組み合わせだけを決める
+ */
 type CreateEditorOptions = {
+	/** 初期本文。空文字の文書も許す */
 	text: string;
+	/** フォント、タブ幅、検索、行番号などのアプリ設定 */
 	settings: AppSettings;
+	/** ライブプレビューかソースかの表示モード */
 	viewMode: ViewMode;
+	/** 開いているノートのパス。未指定時は null としてプレビューへ渡す */
 	filePath?: string | null;
+	/** 行ごとの改行種別。未指定時は改行マーカーを付けない */
 	lineEols?: Array<EolKind | null>;
+	/** ユーザー定義の装飾規則。未指定時は空 */
 	customDecorations?: CompiledCustomDecorationRule[];
+	/** true のとき編集不可。未指定時は編集できる */
 	readOnly?: boolean;
+	/** 初期選択の anchor と head（文書オフセット）。未指定時は CodeMirror の既定。文書長を超える位置は収める */
 	selection?: { anchor: number; head: number };
+	/** 復元する折りたたみ見出しの先頭オフセット。未指定時は折りたたまない */
 	collapsedHeadingFroms?: readonly number[];
+	/** 文書が変わったときに呼ぶ */
 	onDocChange: (view: EditorView) => void;
+	/** 選択または文書が変わったときに呼ぶ */
 	onSelectionChange: (view: EditorView) => void;
+	/** 見出しの折りたたみが変わったときに呼ぶ。未指定時は通知しない */
 	onFoldChange?: (view: EditorView) => void;
+	/** 本文への貼り付けを横取りする。未指定時は既定の貼り付け。true を返すと既定処理を止める */
 	onPaste?: (event: ClipboardEvent, view: EditorView) => boolean;
 };
 
 /**
- * CM6 EditorState を生成する
- * @param {CreateEditorOptions} options 生成オプション
- * @returns {EditorState} エディタ状態
+ * CM6 の EditorState を生成し、保存済みの見出し折りたたみを戻す
+ * @param options - 本文、設定、コールバック。collapsedHeadingFroms が未指定のときは折りたたまない
+ * @returns 拡張と初期選択を載せた状態。折りたたみの復元後
  */
 export function createEditorState(options: CreateEditorOptions): EditorState {
 	const docLength = options.text.length;
@@ -77,10 +99,11 @@ export function createEditorState(options: CreateEditorOptions): EditorState {
 }
 
 /**
- * 設定変更後の拡張構成を既存 EditorState へ反映する。
- * @param {EditorState} state 現在の状態
- * @param {CreateEditorOptions} options 新しい設定を含む生成オプション
- * @returns {EditorState} 再構成後の状態
+ * 設定変更後の拡張構成を、既存の EditorState へ反映する
+ * 文書本文と選択は維持する
+ * @param state - 再構成する状態
+ * @param options - 新しい設定を含む生成オプション
+ * @returns 拡張だけを差し替えた状態
  */
 export function reconfigureEditorState(state: EditorState, options: CreateEditorOptions): EditorState {
 	return state.update({
@@ -89,9 +112,9 @@ export function reconfigureEditorState(state: EditorState, options: CreateEditor
 }
 
 /**
- * ネイティブキャレットを隠し、描画キャレットをテーマ色で前面に出す。
- * 選択レイヤーを行背景より前へ出したあと、CM ライトテーマ既定の黒キャレットが漏れないようにする。
- * @returns {Extension} キャレット表示用テーマ
+ * ネイティブキャレットを隠し、描画キャレットをテーマ色で前面に出す
+ * 選択レイヤーを行背景より前へ出したあと、CM ライトテーマ既定の黒キャレットが漏れないようにする
+ * @returns キャレット表示用テーマ。他のテーマより優先する
  */
 function createCaretVisibilityExtension(): Extension {
 	return Prec.highest(EditorView.theme({
@@ -112,9 +135,9 @@ function createCaretVisibilityExtension(): Extension {
 }
 
 /**
- * 行番号ガターをテーマ変数で固定する。
- * CM ライト基テーマの `&light .cm-gutters` が通常テーマより詳細度で勝つため、!important で上書きする。
- * @returns {Extension} ガター表示用テーマ
+ * 行番号ガターをテーマ変数で固定する
+ * CM ライト基テーマの `&light .cm-gutters` が通常テーマより詳細度で勝つため、!important で上書きする
+ * @returns ガター表示用テーマ。他のテーマより優先する
  */
 function createGutterThemeExtension(): Extension {
 	return Prec.highest(EditorView.theme({
@@ -133,9 +156,10 @@ function createGutterThemeExtension(): Extension {
 }
 
 /**
- * EditorState に組み込む拡張一覧を生成する。
- * @param {CreateEditorOptions} options 生成オプション
- * @returns {Extension[]} 拡張一覧
+ * EditorState に組み込む拡張一覧を生成する
+ * 行番号、改行マーカー、折返し、読み取り専用は設定が有効なときだけ末尾へ足す
+ * @param options - 拡張の材料。コールバックはリスナーと貼り付けハンドラが後から呼ぶ
+ * @returns この順で合成する Extension
  */
 function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 	const extensions: Extension[] = [
@@ -226,10 +250,11 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 		}),
 		Prec.high(EditorView.domEventHandlers({
 			/**
-			 * クリップボード貼り付けを C# 側へ委譲する
-			 * @param {ClipboardEvent} event 貼り付け
-			 * @param {EditorView} view ビュー
-			 * @returns {boolean}
+			 * クリップボード貼り付けを、呼び出し側の onPaste へ委譲する
+			 * onPaste が無い、表や検索欄、読み取り専用のときは既定の貼り付けに任せる
+			 * @param event - 貼り付けイベント
+			 * @param view - 貼り付け先のエディタ
+			 * @returns onPaste が処理したとき、その戻り値。任せたときは false
 			 */
 			paste(event, view) {
 				if (!options.onPaste) {
@@ -287,10 +312,11 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 }
 
 /**
- * EditorView をマウントする
- * @param {HTMLElement} parent 親要素
- * @param {EditorState} state エディタ状態
- * @returns {EditorView} エディタビュー
+ * EditorView を親要素へマウントする
+ * @param parent - ビューをぶら下げる要素
+ * @param state - 表示するエディタ状態
+ * @param dispatch - トランザクションの適用先。未指定時は CodeMirror の既定
+ * @returns マウントしたビュー
  */
 export function mountEditorView(
 	parent: HTMLElement,
@@ -305,10 +331,10 @@ export function mountEditorView(
 }
 
 /**
- * エディタ内容を置き換える
- * @param {EditorView} view エディタビュー
- * @param {string} text 新しいテキスト
- * @returns {void}
+ * エディタの全文を、渡したテキストで置き換える
+ * 選択の維持は CodeMirror の置換に任せる
+ * @param view - 置き換えるエディタ
+ * @param text - 新しい全文。空文字なら文書を空にする
  */
 export function replaceEditorText(view: EditorView, text: string): void {
 	view.dispatch({

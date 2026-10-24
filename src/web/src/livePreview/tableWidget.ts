@@ -1,3 +1,8 @@
+/**
+ * ライブプレビューの Markdown 表をウィジェットで描き、セル編集とメニュー操作の文書変更を組み立てる
+ * 折りたたみや画像幅の記憶は対応するモジュールが持ち、このファイルは表の表示と編集の境界を持つ
+ * @file
+ */
 import { redo, undo } from '@codemirror/commands';
 import { Decoration, type EditorView, WidgetType } from '@codemirror/view';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
@@ -96,6 +101,9 @@ export {
 
 export { isBreakHtmlTag };
 
+// ==============================================
+// セルの表示データ
+// ==============================================
 /**
  * テーブルセル内の表示用 AST（記法マークは含めない）
  */
@@ -113,82 +121,130 @@ export type TableCellNode =
 	| { kind: 'wikilink'; children: TableCellNode[] }
 	| { kind: 'image'; spec: ImageSpec };
 
+/** ウィジェットが描く表。表示ノードと、編集に使うソース位置を持つ */
 export type TableData = {
+	/** 見出しセルの表示ノード。左から順 */
 	headers: TableCellNode[][];
+	/** 本体行。行、セル、表示ノードの順 */
 	rows: TableCellNode[][][];
+	/** 見出しセルのソース範囲。列順 */
 	headerSources: TableCellSource[];
+	/** 本体セルのソース範囲。行、列の順 */
 	rowSources: TableCellSource[][];
+	/** 表構文の開始位置 */
 	tableFrom: number;
+	/** 表構文の終端 */
 	tableTo: number;
 };
 
+/** セル内の文字範囲。文書位置ではなく、セルソース内の位置にも使う */
 type TableCellRange = {
+	/** 範囲の開始 */
 	from: number;
+	/** 範囲の終端 */
 	to: number;
 };
 
+/** 1セルのソースと、編集中に使う文字列、インライン範囲 */
 export type TableCellSource = {
+	/** セルソースの文書上の開始 */
 	from: number;
+	/** セルソースの文書上の終端 */
 	to: number;
+	/** 属性を含むセルソース */
 	text: string;
+	/** 編集欄へ出す文字列。改行タグは畳んである */
 	editableText: string;
+	/** 編集文字列上のインライン装飾 */
 	inlineRanges: TableCellInlineRange[];
 };
 
+/** セル内インラインの種類。強調、コード、リンク */
 export type TableCellInlineKind = 'em' | 'strong' | 'strike' | 'highlight' | 'code' | 'link' | 'wikilink';
 
+/** 編集文字列上の1つのインライン範囲 */
 export type TableCellInlineRange = {
+	/** セル内で一意な番号。キャレットが中にあるかの判定に使う */
 	id: number;
+	/** インラインの種類 */
 	kind: TableCellInlineKind;
+	/** 編集文字列上の開始 */
 	from: number;
+	/** 編集文字列上の終端 */
 	to: number;
+	/** その中で記法トークンとして隠す範囲 */
 	markRanges: TableCellRange[];
+	/** コードの言語。言語指定が無ければ未設定 */
 	codeLanguage?: string;
 };
 
+/** セル編集を始めるときの文字列とインライン範囲 */
 type EditableCellData = {
+	/** 編集欄の初期文字列 */
 	text: string;
+	/** その文字列上のインライン範囲 */
 	inlineRanges: TableCellInlineRange[];
 };
 
+/** 1行分の表示ノードとセルソース */
 type TableRowData = {
+	/** セルごとの表示ノード */
 	nodes: TableCellNode[][];
+	/** セルごとのソース */
 	sources: TableCellSource[];
 };
 
+/** 表の中のセル位置。行は見出しを 0 とする */
 export type TableCellPosition = {
+	/** 行番号。0 は見出し */
 	row: number;
+	/** 列番号。0 始まり */
 	column: number;
 };
 
+/** 上下キーで表へ入るときの、入り先 */
 export type TableVerticalEntryTarget = {
+	/** 入る表の開始位置 */
 	tableFrom: number;
+	/** 入るセル */
 	position: TableCellPosition;
+	/** 入るセルのソース開始。キャレット復元に使う */
 	sourceFrom: number;
 };
 
+/** セル内の上下キーが、表の外か隣セルへ出るか */
 export type TableCellVerticalNavigation = {
+	/** up か down */
 	direction: 'up' | 'down';
+	/** 移動先セル。表の外へ出るなら null */
 	target: TableCellPosition | null;
 };
 
+/** 表操作がエディタへ渡す1つの置換 */
 export type TableDocumentChange = {
+	/** 置換の開始位置 */
 	from: number;
+	/** 置換の終端。挿入だけなら from と同じ */
 	to: number;
+	/** 入れる文字列。削除だけなら空文字 */
 	insert: string;
 };
 
+/** セル HTML を表示ノードへ組むときの、未閉鎖のタグ */
 type HtmlStackFrame = {
+	/** 小文字のタグ名 */
 	tagName: string;
+	/** サニタイズ済みの class と style */
 	attributes: SanitizedHtmlAttributes;
+	/** そのタグの中へ積んだ表示ノード */
 	children: TableCellNode[];
 };
 
 /**
- * `|` がバックスラッシュでエスケープされているか判定する。
- * @param {string} text 行文字列
- * @param {number} index `|` の位置
- * @returns {boolean}
+ * `|` がバックスラッシュでエスケープされているか判定する
+ * @param text - 行文字列
+ * @param index - `|` の位置
+ * @returns `|` がバックスラッシュでエスケープされているなら true
  */
 function isEscapedPipe(text: string, index: number): boolean {
 	let backslashCount = 0;
@@ -200,12 +256,12 @@ function isEscapedPipe(text: string, index: number): boolean {
 }
 
 /**
- * セル境界の前後空白を除く。
- * @param {string} text 行文字列
- * @param {number} from 行内開始位置
- * @param {number} to 行内終了位置
- * @param {number} lineFrom 行の絶対開始位置
- * @returns {TableCellRange}
+ * セル境界の前後空白を除く
+ * @param text - 行文字列
+ * @param from - 行内開始位置
+ * @param to - 行内終了位置
+ * @param lineFrom - 行の絶対開始位置
+ * @returns セル境界の前後空白を除く
  */
 function trimCellRange(
 	text: string,
@@ -231,10 +287,10 @@ function trimCellRange(
 }
 
 /**
- * Markdown テーブル行の `|` 区切りから、空セルを含む列範囲を復元する。
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} rowNode TableHeader / TableRow ノード
- * @returns {TableCellRange[]}
+ * Markdown テーブル行の `|` 区切りから、空セルを含む列範囲を復元する
+ * @param state - エディタ状態
+ * @param rowNode - TableHeader / TableRow ノード
+ * @returns Markdown テーブル行の `|` 区切りから、空セルを含む列範囲を復元する
  */
 function extractCellRangesFromRowLine(state: EditorState, rowNode: SyntaxNode): TableCellRange[] {
 	const line                  = state.doc.lineAt(rowNode.from);
@@ -268,9 +324,9 @@ function extractCellRangesFromRowLine(state: EditorState, rowNode: SyntaxNode): 
 }
 
 /**
- * 行ノード直下の TableCell ノードを取得する。
- * @param {SyntaxNode} rowNode TableHeader / TableRow ノード
- * @returns {SyntaxNode[]}
+ * 行ノード直下の TableCell ノードを取得する
+ * @param rowNode - TableHeader / TableRow ノード
+ * @returns 行ノード直下の TableCell ノード
  */
 function collectTableCellNodes(rowNode: SyntaxNode): SyntaxNode[] {
 	const cells: SyntaxNode[] = [];
@@ -284,11 +340,11 @@ function collectTableCellNodes(rowNode: SyntaxNode): SyntaxNode[] {
 }
 
 /**
- * セル範囲に対応する TableCell ノードを探す。
- * @param {SyntaxNode[]} cells TableCell ノード一覧
- * @param {Set<SyntaxNode>} used 使用済みノード
- * @param {TableCellRange} range セル範囲
- * @returns {SyntaxNode | null}
+ * セル範囲に対応する TableCell ノードを探す
+ * @param cells - TableCell ノード一覧
+ * @param used - 使用済みノード
+ * @param range - セル範囲
+ * @returns セル範囲に対応する TableCell ノード。無ければ null
  */
 function findCellNodeForRange(
 	cells: SyntaxNode[],
@@ -309,6 +365,7 @@ function findCellNodeForRange(
 	return null;
 }
 
+/** セル内インラインとして扱う種類。実行中は変えない */
 const TABLE_CELL_INLINE_KINDS = new Map<string, TableCellInlineKind>([
 	['Emphasis', 'em'],
 	['StrongEmphasis', 'strong'],
@@ -320,11 +377,11 @@ const TABLE_CELL_INLINE_KINDS = new Map<string, TableCellInlineKind>([
 ]);
 
 /**
- * Markdownソース位置を、HTML改行タグを1文字へ畳み込んだ編集文字列上の位置へ変換する。
- * @param {number} position Markdownソース上の絶対位置
- * @param {TableCellRange} cellRange セル範囲
- * @param {TableCellRange[]} breakRanges HTML改行タグ範囲
- * @returns {number}
+ * Markdownソース位置を、HTML改行タグを1文字へ畳み込んだ編集文字列上の位置へ変換する
+ * @param position - Markdownソース上の絶対位置
+ * @param cellRange - セル範囲
+ * @param breakRanges - HTML改行タグ範囲
+ * @returns 変換後のMarkdownソース位置を、HTML改行タグを1文字へ畳み込んだ編集文字列上の位置
  */
 function toEditableCellOffset(
 	position: number,
@@ -344,10 +401,10 @@ function toEditableCellOffset(
 }
 
 /**
- * インライン要素自身が所有する記法トークン範囲を返す。
- * 入れ子要素のマーカーは、その入れ子要素側で個別に扱う。
- * @param {SyntaxNode} node インライン構文ノード
- * @returns {TableCellRange[]}
+ * インライン要素自身が所有する記法トークン範囲を返す
+ * 入れ子要素のマーカーは、その入れ子要素側で個別に扱う
+ * @param node - インライン構文ノード
+ * @returns インライン要素自身が所有する記法トークン範囲
  */
 function collectOwnedInlineMarkRanges(node: SyntaxNode): TableCellRange[] {
 	const ranges: TableCellRange[] = [];
@@ -361,10 +418,10 @@ function collectOwnedInlineMarkRanges(node: SyntaxNode): TableCellRange[] {
 }
 
 /**
- * WikiLink のパスと区切り（`|` / `\|`）を、編集中は記法として隠す範囲で返す。
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} node WikiLink ノード
- * @returns {TableCellRange | null}
+ * WikiLink のパスと区切り（`|` / `\|`）を、編集中は記法として隠す範囲で返す
+ * @param state - エディタ状態
+ * @param node - WikiLink ノード
+ * @returns WikiLink のパスと区切り（`|` / `\|`）を、編集中は記法として隠す範囲で返す。無ければ null
  */
 function wikiLinkAliasHideRange(state: EditorState, node: SyntaxNode): TableCellRange | null {
 	for (let child = node.firstChild; child; child = child.nextSibling) {
@@ -384,10 +441,10 @@ function wikiLinkAliasHideRange(state: EditorState, node: SyntaxNode): TableCell
 }
 
 /**
- * WikiLink の表示ノードを返す。エイリアスがあればラベルだけにする。
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} node WikiLink ノード
- * @returns {TableCellNode[]}
+ * WikiLink の表示ノードを返す。エイリアスがあればラベルだけにする
+ * @param state - エディタ状態
+ * @param node - WikiLink ノード
+ * @returns WikiLink の表示ノードを返す。エイリアスがあればラベルだけにする
  */
 function wikiLinkDisplayNodes(state: EditorState, node: SyntaxNode): TableCellNode[] {
 	for (let child = node.firstChild; child; child = child.nextSibling) {
@@ -406,9 +463,9 @@ function wikiLinkDisplayNodes(state: EditorState, node: SyntaxNode): TableCellNo
 
 /**
  * InlineCode の `{java}` 接頭辞（直後の空白含む）を、既知言語なら隠し対象として返す
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} node InlineCode ノード
- * @returns {{ from: number; to: number; language: string } | null}
+ * @param state - エディタ状態
+ * @param node - InlineCode ノード
+ * @returns InlineCode の `{java}` 接頭辞（直後の空白含む）を、既知言語なら隠し対象として返す。無ければ null
  */
 function extractInlineCodeLanguagePrefixRange(
 	state: EditorState,
@@ -433,13 +490,13 @@ function extractInlineCodeLanguagePrefixRange(
 }
 
 /**
- * セルのMarkdownソースから編集用文字列とインライン装飾範囲を返す。
+ * セルのMarkdownソースから編集用文字列とインライン装飾範囲を返す
  * HTML改行タグだけを実改行へ変換し、インラインコード内などHTMLTagとして解析されない
- * `<br>` は文字列のまま保持する。
- * @param {EditorState} state エディタ状態
- * @param {TableCellRange} range セル範囲
- * @param {SyntaxNode | null} cellNode 対応するTableCellノード
- * @returns {EditableCellData}
+ * `<br>` は文字列のまま保持する
+ * @param state - エディタ状態
+ * @param range - セル範囲
+ * @param cellNode - 対応するTableCellノード
+ * @returns セルのMarkdownソースから編集用文字列とインライン装飾範囲
  */
 function extractEditableCellData(
 	state: EditorState,
@@ -522,10 +579,10 @@ function extractEditableCellData(
 }
 
 /**
- * TableHeader / TableRow から空セルを含むセル配列を抽出する。
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} rowNode TableHeader / TableRow ノード
- * @returns {TableCellNode[][]}
+ * TableHeader / TableRow から空セルを含むセル配列を抽出する
+ * @param state - エディタ状態
+ * @param rowNode - TableHeader / TableRow ノード
+ * @returns TableHeader / TableRow から空セルを含むセル配列
  */
 function extractTableRowData(state: EditorState, rowNode: SyntaxNode): TableRowData {
 	const ranges                   = extractCellRangesFromRowLine(state, rowNode);
@@ -571,11 +628,11 @@ function extractTableRowData(state: EditorState, rowNode: SyntaxNode): TableRowD
 
 /**
  * HTML 開タグをスタックへ積む
- * @param {TableCellNode[]} current 現在の子配列
- * @param {HtmlStackFrame[]} stack スタック
- * @param {string} tagName タグ名
- * @param {SanitizedHtmlAttributes} attributes 属性
- * @returns {TableCellNode[]}
+ * @param current - 現在の子配列
+ * @param stack - スタック
+ * @param tagName - タグ名
+ * @param attributes - 属性
+ * @returns HTML 開タグをスタックへ積む
  */
 function pushHtmlOpen(
 	current: TableCellNode[],
@@ -600,10 +657,10 @@ function pushHtmlOpen(
 
 /**
  * HTML 閉タグでスタックを閉じる
- * @param {HtmlStackFrame[]} stack スタック
- * @param {string} tagName タグ名
- * @param {TableCellNode[]} root ルート配列
- * @returns {TableCellNode[]}
+ * @param stack - スタック
+ * @param tagName - タグ名
+ * @param root - ルート配列
+ * @returns HTML 閉タグでスタックを閉じる
  */
 function closeHtmlTag(
 	stack: HtmlStackFrame[],
@@ -628,9 +685,9 @@ function closeHtmlTag(
 
 /**
  * セル部分木を TableCellNode 配列へ変換する
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} node ノード
- * @returns {TableCellNode[]}
+ * @param state - エディタ状態
+ * @param node - ノード
+ * @returns 変換後のセル部分木を TableCellNode 配列
  */
 function extractInlineNodes(state: EditorState, node: SyntaxNode): TableCellNode[] {
 	const root: TableCellNode[]       = [];
@@ -638,7 +695,7 @@ function extractInlineNodes(state: EditorState, node: SyntaxNode): TableCellNode
 	let current: TableCellNode[]      = root;
 	let cursor                        = node.from;
 
-	/** 構文ノード間に残る通常テキストを、現在のHTML階層へ追加する。 */
+	/** 構文ノード間に残る通常テキストを、現在のHTML階層へ追加する */
 	const flushText = (to: number): void => {
 		if (to <= cursor) {
 			return;
@@ -816,9 +873,9 @@ function extractInlineNodes(state: EditorState, node: SyntaxNode): TableCellNode
 
 /**
  * TableCell ノードから表示 AST を抽出する
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} cellNode TableCell ノード
- * @returns {TableCellNode[]}
+ * @param state - エディタ状態
+ * @param cellNode - TableCell ノード
+ * @returns TableCell ノードから表示 AST
  */
 export function extractTableCellNodes(state: EditorState, cellNode: SyntaxNode): TableCellNode[] {
 	return extractInlineNodes(state, cellNode);
@@ -826,14 +883,13 @@ export function extractTableCellNodes(state: EditorState, cellNode: SyntaxNode):
 
 /**
  * セル AST をトリムなしでプレーンテキスト化する
- * @param {TableCellNode[]} nodes セル AST
- * @returns {string}
+ * @param nodes - セル AST
+ * @returns セル AST をトリムなしでプレーンテキスト化する
  */
 function flattenTableCellText(nodes: TableCellNode[]): string {
 	const parts: string[] = [];
 	/**
-	 * @param {TableCellNode[]} items ノード
-	 * @returns {void}
+	 * @param items - ノード
 	 */
 	const walk            = (items: TableCellNode[]): void => {
 		for (const item of items) {
@@ -862,8 +918,8 @@ function flattenTableCellText(nodes: TableCellNode[]): string {
 
 /**
  * セル AST をプレーンテキストへ変換する
- * @param {TableCellNode[]} nodes セル AST
- * @returns {string}
+ * @param nodes - セル AST
+ * @returns 変換後のセル AST をプレーンテキスト
  */
 export function tableCellNodesToPlainText(nodes: TableCellNode[]): string {
 	return flattenTableCellText(nodes).trim();
@@ -871,9 +927,9 @@ export function tableCellNodesToPlainText(nodes: TableCellNode[]): string {
 
 /**
  * Table ノードからヘッダ・行データを抽出する
- * @param {EditorState} state エディタ状態
- * @param {SyntaxNode} tableNode Table ノード
- * @returns {TableData}
+ * @param state - エディタ状態
+ * @param tableNode - Table ノード
+ * @returns Table ノードからヘッダ・行データ
  */
 export function extractTableData(state: EditorState, tableNode: SyntaxNode): TableData {
 	const headers: TableCellNode[][]       = [];
@@ -908,9 +964,9 @@ export function extractTableData(state: EditorState, tableNode: SyntaxNode): Tab
 
 /**
  * ソースの幅が無ければ、ドラッグ中に覚えた幅を使う
- * @param {string} path 画像パス
- * @param {number | null} parsed ソースの幅
- * @returns {number | null}
+ * @param path - 画像パス
+ * @param parsed - ソースの幅
+ * @returns ソースの幅が無ければ、ドラッグ中に覚えた幅を使う。無ければ null
  */
 function resolveCellImageWidth(path: string, parsed: number | null): number | null {
 	if (parsed && parsed > 0) {
@@ -923,8 +979,8 @@ function resolveCellImageWidth(path: string, parsed: number | null): number | nu
 
 /**
  * セルソースが画像だけならパスと幅を返す
- * @param {string} text セルソース
- * @returns {{ path: string; width: number | null } | null}
+ * @param text - セルソース
+ * @returns セルソースが画像だけならパスと幅
  */
 function parseSoleCellImageRef(text: string): { path: string; width: number | null } | null {
 	const trimmed = parseCellSpan(text).text.trim();
@@ -946,9 +1002,8 @@ function parseSoleCellImageRef(text: string): { path: string; width: number | nu
 
 /**
  * ソース編集で幅指定や画像自体を消したら、覚えた幅も消す
- * @param {string} previous 編集前
- * @param {string} next 編集後
- * @returns {void}
+ * @param previous - 編集前
+ * @param next - 編集後
  */
 function forgetCellImageWidthIfSourceDropped(
 	previous: string,
@@ -967,10 +1022,10 @@ function forgetCellImageWidthIfSourceDropped(
 }
 
 /**
- * 画像の `\|幅` / `|幅` と列幅・行高を除いて、表の再描画判定用テキストにする。
- * 幅だけ変わったときに表 DOM を作り直さない。
- * @param {string} text セルソース
- * @returns {string}
+ * 画像の `\|幅` / `|幅` と列幅・行高を除いて、表の再描画判定用テキストにする
+ * 幅だけ変わったときに表 DOM を作り直さない
+ * @param text - セルソース
+ * @returns 画像の `\|幅` / `|幅` と列幅・行高を除いて、表の再描画判定用テキストにする
  */
 export function normalizeTableCellTextForIdentity(text: string): string {
 	const span = parseCellSpan(text);
@@ -982,9 +1037,9 @@ export function normalizeTableCellTextForIdentity(text: string): string {
 }
 
 /**
- * セルの配置だけを再描画判定用のキーにする。
- * @param {string} text セルソース
- * @returns {string}
+ * セルの配置だけを再描画判定用のキーにする
+ * @param text - セルソース
+ * @returns セルの配置だけを再描画判定用のキーにする
  */
 function tableCellAlignmentIdentity(text: string): string {
 	const span = parseCellSpan(text);
@@ -992,10 +1047,10 @@ function tableCellAlignmentIdentity(text: string): string {
 }
 
 /**
- * 表の再描画判定用キーを返す。
- * 位置・行列構造・配置を見る。配置が同じだと CodeMirror が表 DOM を差し替えず、プレビューが古いまま残る。
- * @param {TableData} data 表データ
- * @returns {string}
+ * 表の再描画判定用キーを返す
+ * 位置・行列構造・配置を見る。配置が同じだと CodeMirror が表 DOM を差し替えず、プレビューが古いまま残る
+ * @param data - 表データ
+ * @returns 表の再描画判定用キー
  */
 export function getTableDataIdentity(data: TableData): string {
 	const occupancy = buildTableOccupancy(data);
@@ -1015,10 +1070,10 @@ export function getTableDataIdentity(data: TableData): string {
 
 /**
  * 画像幅の書き戻しでずれたセル位置を、既存ウィジェット側へ反映する
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position 書き換えたセル
- * @param {number} width 幅
- * @returns {number} 増えた文字数
+ * @param data - 表データ
+ * @param position - 書き換えたセル
+ * @param width - 幅
+ * @returns 増えた文字数
  */
 export function syncTableDataAfterImageWidth(
 	data: TableData,
@@ -1044,8 +1099,7 @@ export function syncTableDataAfterImageWidth(
 
 	/**
 	 * 書き戻し位置より後ろのセル範囲をずらす
-	 * @param {TableCellSource} other 他セル
-	 * @returns {void}
+	 * @param other - 他セル
 	 */
 	const shiftSource = (other: TableCellSource): void => {
 		if (other === source || other.from < oldTo) {
@@ -1060,8 +1114,7 @@ export function syncTableDataAfterImageWidth(
 	data.rowSources.forEach((row) => row.forEach(shiftSource));
 
 	/**
-	 * @param {TableCellNode[]} nodes ノード
-	 * @returns {void}
+	 * @param nodes - ノード
 	 */
 	const shiftNodes = (nodes: TableCellNode[]): void => {
 		for (const node of nodes) {
@@ -1092,11 +1145,11 @@ export function syncTableDataAfterImageWidth(
 }
 
 /**
- * 位置を含む Table ノードを返す。
- * 表の終端や表と表の隙間では、次の表を拾わない。
- * @param {EditorState} state 状態
- * @param {number} pos 位置
- * @returns {SyntaxNode | null}
+ * 位置を含む Table ノードを返す
+ * 表の終端や表と表の隙間では、次の表を拾わない
+ * @param state - 状態
+ * @param pos - 位置
+ * @returns 位置を含む Table ノード
  */
 export function findTableNodeAt(state: EditorState, pos: number): SyntaxNode | null {
 	ensureSyntaxTree(state, state.doc.length, 200);
@@ -1104,8 +1157,8 @@ export function findTableNodeAt(state: EditorState, pos: number): SyntaxNode | n
 	let found: SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
-		 * @param {SyntaxNodeRef} ref ノード
-		 * @returns {boolean | void}
+		 * @param ref - ノード
+		 * @returns 子の走査を止めるとき false。続けるときは値を返さない
 		 */
 		enter(ref) {
 			if (ref.name !== 'Table') {
@@ -1126,11 +1179,11 @@ export function findTableNodeAt(state: EditorState, pos: number): SyntaxNode | n
 }
 
 /**
- * 操作中の表ラッパーから、書き戻し先の表開始位置を取る。
- * ウィジェットが再利用されても、いま見えている DOM の位置を優先する。
- * @param {EditorView} view エディタ
- * @param {HTMLElement} wrap 表ラッパー
- * @returns {number | null}
+ * 操作中の表ラッパーから、書き戻し先の表開始位置を取る
+ * ウィジェットが再利用されても、いま見えている DOM の位置を優先する
+ * @param view - エディタ
+ * @param wrap - 表ラッパー
+ * @returns 操作中の表ラッパーから、書き戻し先の表開始位置を取る。無ければ null
  */
 export function resolveTableFromForPersist(view: EditorView, wrap: HTMLElement): number | null {
 	try {
@@ -1154,10 +1207,10 @@ export function resolveTableFromForPersist(view: EditorView, wrap: HTMLElement):
 
 /**
  * セルの現在の表示 AST を文書から取り出す
- * @param {EditorState} state 状態
- * @param {number} tableFrom 表開始位置
- * @param {TableCellPosition} position セル位置
- * @returns {TableCellNode[] | null}
+ * @param state - 状態
+ * @param tableFrom - 表開始位置
+ * @param position - セル位置
+ * @returns セルの現在の表示 AST を文書から取り出す。無ければ null
  */
 export function getCurrentTableCellNodes(
 	state: EditorState,
@@ -1179,9 +1232,8 @@ export function getCurrentTableCellNodes(
 
 /**
  * 画像ノードの表示幅を更新する
- * @param {TableCellNode[]} nodes セル AST
- * @param {number} width 幅
- * @returns {void}
+ * @param nodes - セル AST
+ * @param width - 幅
  */
 function updateImageNodeWidths(nodes: TableCellNode[], width: number): void {
 	for (const node of nodes) {
@@ -1198,8 +1250,8 @@ function updateImageNodeWidths(nodes: TableCellNode[], width: number): void {
 
 /**
  * プレビューが画像だけのセルか判定する
- * @param {HTMLElement} cell セル
- * @returns {boolean}
+ * @param cell - セル
+ * @returns プレビューが画像だけのセルなら true
  */
 function cellShowsOnlyImage(cell: HTMLElement): boolean {
 	const children = [...cell.children];
@@ -1208,10 +1260,9 @@ function cellShowsOnlyImage(cell: HTMLElement): boolean {
 
 /**
  * セル内の画像へ、ソースまたは記憶した幅を適用する
- * @param {HTMLElement} cell セル
- * @param {TableCellNode[]} nodes セル AST
- * @param {TableCellPosition} position セル位置
- * @returns {void}
+ * @param cell - セル
+ * @param nodes - セル AST
+ * @param position - セル位置
  */
 function applyRememberedWidthToCell(
 	cell: HTMLElement,
@@ -1240,10 +1291,10 @@ function applyRememberedWidthToCell(
 
 /**
  * 表セル内の画像幅をセルソースへ書き戻す
- * @param {EditorView} view エディタ
- * @param {HTMLElement} cell セル
- * @param {number} width 幅
- * @returns {boolean} 更新したか
+ * @param view - エディタ
+ * @param cell - セル
+ * @param width - 幅
+ * @returns 更新したか
  */
 export function applyTableCellImageWidth(
 	view: EditorView,
@@ -1295,15 +1346,15 @@ export function applyTableCellImageWidth(
 }
 
 /**
- * 表が持つ EditorView から、セル画像へ `\|幅` を書き戻す。
- * findFromDOM に依存しない。
- * @param {EditorView} view エディタ
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position セル位置
- * @param {HTMLElement} imageWrap 画像ラッパ
- * @param {TableCellNode[]} nodes セル AST
- * @param {number} width 幅
- * @returns {boolean} 更新したか
+ * 表が持つ EditorView から、セル画像へ `\|幅` を書き戻す
+ * findFromDOM に依存しない
+ * @param view - エディタ
+ * @param data - 表データ
+ * @param position - セル位置
+ * @param imageWrap - 画像ラッパ
+ * @param nodes - セル AST
+ * @param width - 幅
+ * @returns 更新したか
  */
 export function writeTableCellImageWidth(
 	view: EditorView,
@@ -1352,8 +1403,8 @@ export function writeTableCellImageWidth(
 
 /**
  * セル AST から画像パスを探す
- * @param {TableCellNode[]} nodes セル AST
- * @returns {string}
+ * @param nodes - セル AST
+ * @returns セル AST から画像パス
  */
 function findTableCellImagePath(nodes: TableCellNode[]): string {
 	for (const node of nodes) {
@@ -1374,11 +1425,11 @@ function findTableCellImagePath(nodes: TableCellNode[]): string {
 
 /**
  * 表データのセル範囲が現文書と一致するとき、その範囲へ幅を書く
- * @param {EditorView} view エディタ
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position セル位置
- * @param {number} width 幅
- * @returns {boolean} 更新したか
+ * @param view - エディタ
+ * @param data - 表データ
+ * @param position - セル位置
+ * @param width - 幅
+ * @returns 更新したか
  */
 function writeExactTableCellImageWidth(
 	view: EditorView,
@@ -1411,10 +1462,9 @@ function writeExactTableCellImageWidth(
 
 /**
  * セル AST を DOM へ展開する
- * @param {HTMLElement} parent 親要素
- * @param {TableCellNode[]} nodes セル AST
- * @param {EditorView} [view] エディタ
- * @returns {void}
+ * @param parent - 親要素
+ * @param nodes - セル AST
+ * @param view - エディタ。省略可
  */
 export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[], view?: EditorView): void {
 	for (const node of nodes) {
@@ -1504,11 +1554,11 @@ export function appendTableCellNodes(parent: HTMLElement, nodes: TableCellNode[]
 }
 
 /**
- * セル全体が画像記法だけなら画像ノードにする。
- * Lezer の表が `\|` で分割しても、行の `|` 分割結果から幅を拾う。
- * @param {EditorState} state 状態
- * @param {TableCellRange} range セル範囲
- * @returns {TableCellNode | null}
+ * セル全体が画像記法だけなら画像ノードにする
+ * Lezer の表が `\|` で分割しても、行の `|` 分割結果から幅を拾う
+ * @param state - 状態
+ * @param range - セル範囲
+ * @returns セル全体が画像記法だけなら画像ノードにする。無ければ null
  */
 function extractSoleTableCellImage(state: EditorState, range: TableCellRange): TableCellNode | null {
 	const raw   = parseCellSpan(state.doc.sliceString(range.from, range.to)).text;
@@ -1547,13 +1597,13 @@ function extractSoleTableCellImage(state: EditorState, range: TableCellRange): T
 
 /**
  * 表セル内の画像ノードを組み立てる
- * @param {EditorState} state 状態
- * @param {number} from ソース開始
- * @param {number} to ソース終了
- * @param {string} raw パスまたは URL
- * @param {string} alt alt
- * @param {boolean} embed WikiEmbed か
- * @returns {TableCellNode}
+ * @param state - 状態
+ * @param from - ソース開始
+ * @param to - ソース終了
+ * @param raw - パスまたは URL
+ * @param alt - alt
+ * @param embed - WikiEmbed か
+ * @returns 表セル内の画像ノード
  */
 function createTableCellImage(
 	state: EditorState,
@@ -1597,10 +1647,9 @@ function createTableCellImage(
 
 /**
  * セル内容を DOM に設定する
- * @param {HTMLElement} cell セル要素
- * @param {TableCellNode[]} nodes セル AST
- * @param {EditorView} [view] エディタ
- * @returns {void}
+ * @param cell - セル要素
+ * @param nodes - セル AST
+ * @param view - エディタ。省略可
  */
 export function fillTableCellContent(cell: HTMLElement, nodes: TableCellNode[], view?: EditorView): void {
 	cell.textContent = '';
@@ -1608,9 +1657,9 @@ export function fillTableCellContent(cell: HTMLElement, nodes: TableCellNode[], 
 }
 
 /**
- * 表の最大列数を返す。
- * @param {TableData} data 表データ
- * @returns {number}
+ * 表の最大列数を返す
+ * @param data - 表データ
+ * @returns 表の最大列数
  */
 export function getTableColumnCount(data: TableData): number {
 	return Math.max(
@@ -1621,10 +1670,10 @@ export function getTableColumnCount(data: TableData): number {
 }
 
 /**
- * 表示上の行番号（ヘッダ=0）からセルソースを返す。
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position セル位置
- * @returns {TableCellSource | null}
+ * 表示上の行番号（ヘッダ=0）からセルソースを返す
+ * @param data - 表データ
+ * @param position - セル位置
+ * @returns 表示上の行番号（ヘッダ=0）からセルソース
  */
 export function getTableCellSource(
 	data: TableData,
@@ -1638,12 +1687,12 @@ export function getTableCellSource(
 }
 
 /**
- * 表セルに対応する Markdown ソース位置へ CodeMirror の選択を同期する。
- * セルは独立した contenteditable のため、クリックだけでは CodeMirror の選択が変わらない。
- * @param {EditorView} view エディタビュー
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position セル位置
- * @returns {boolean} 対応するセル位置を取得できたか
+ * 表セルに対応する Markdown ソース位置へ CodeMirror の選択を同期する
+ * セルは独立した contenteditable のため、クリックだけでは CodeMirror の選択が変わらない
+ * @param view - エディタビュー
+ * @param data - 表データ
+ * @param position - セル位置
+ * @returns 対応するセル位置を取得できたか
  */
 export function syncTableCellEditorSelection(
 	view: EditorView,
@@ -1668,13 +1717,13 @@ export function syncTableCellEditorSelection(
 }
 
 /**
- * 縦移動でテーブル外から入る場合のフォーカス先を返す。
- * 上側からはヘッダー行、下側からは末尾行の第1列へ入る。
- * @param {EditorState} state エディタ状態
- * @param {number} from 移動前の文書位置
- * @param {number} to 通常の縦移動で求めた文書位置
- * @param {boolean} forward 下方向への移動なら true
- * @returns {TableVerticalEntryTarget | null} セルフォーカス先
+ * 縦移動でテーブル外から入る場合のフォーカス先を返す
+ * 上側からはヘッダー行、下側からは末尾行の第1列へ入る
+ * @param state - エディタ状態
+ * @param from - 移動前の文書位置
+ * @param to - 通常の縦移動で求めた文書位置
+ * @param forward - 下方向への移動なら true
+ * @returns セルフォーカス先
  */
 export function getTableVerticalEntryTarget(
 	state: EditorState,
@@ -1720,10 +1769,10 @@ export function getTableVerticalEntryTarget(
 }
 
 /**
- * 指定位置のテーブルウィジェットが現在のビューへ描画されているか返す。
- * @param {EditorView} view エディタビュー
- * @param {number} tableFrom 表開始位置
- * @returns {boolean} 描画済みなら true
+ * 指定位置のテーブルウィジェットが現在のビューへ描画されているか返す
+ * @param view - エディタビュー
+ * @param tableFrom - 表開始位置
+ * @returns 描画済みなら true
  */
 export function hasRenderedTableWidget(view: EditorView, tableFrom: number): boolean {
 	return view.dom.querySelector(
@@ -1731,13 +1780,13 @@ export function hasRenderedTableWidget(view: EditorView, tableFrom: number): boo
 	) !== null;
 }
 
-/** 末尾改行を表示するためのゼロ幅文字。ソースには書かない。 */
+/** 末尾改行を表示するためのゼロ幅文字。ソースには書かない */
 export const TABLE_CELL_BREAK_CARET = '\u200B';
 
 /**
- * 編集用 DOM から読んだ文字列を、ソースへ書く前の改行表現へ整える。
- * @param {string} value 入力値
- * @returns {string}
+ * 編集用 DOM から読んだ文字列を、ソースへ書く前の改行表現へ整える
+ * @param value - 入力値
+ * @returns 編集用 DOM から読んだ文字列を、ソースへ書く前の改行表現へ整える
  */
 export function normalizeEditableCellDomText(value: string): string {
 	return value
@@ -1747,9 +1796,9 @@ export function normalizeEditableCellDomText(value: string): string {
 }
 
 /**
- * セル内の行ブロックか。
- * @param {Node} node ノード
- * @returns {boolean}
+ * セル内の行ブロックか
+ * @param node - ノード
+ * @returns セル内の行ブロックかなら true
  */
 function isTableCellLineBlock(node: Node): node is HTMLElement {
 	return node instanceof HTMLElement
@@ -1757,9 +1806,9 @@ function isTableCellLineBlock(node: Node): node is HTMLElement {
 }
 
 /**
- * 表示に効かない空白テキストか。
- * @param {Node} node ノード
- * @returns {boolean}
+ * 表示に効かない空白テキストか
+ * @param node - ノード
+ * @returns 表示に効かない空白テキストかなら true
  */
 function isIgnorableTableCellNode(node: Node): boolean {
 	if (node.nodeType !== Node.TEXT_NODE) {
@@ -1770,9 +1819,9 @@ function isIgnorableTableCellNode(node: Node): boolean {
 }
 
 /**
- * 空行用の `<div><br></div>` か。内側の br は行そのものなので、改行として二重に数えない。
- * @param {Node} node ノード
- * @returns {boolean}
+ * 空行用の `<div><br></div>` か。内側の br は行そのものなので、改行として二重に数えない
+ * @param node - ノード
+ * @returns 空行用の `<div><br></div>` か。内側の br は行そのものなので、改行として二重に数えないなら true
  */
 export function isTableCellEmptyLineBlock(node: Node): boolean {
 	if (!isTableCellLineBlock(node)) {
@@ -1789,20 +1838,27 @@ export function isTableCellEmptyLineBlock(node: Node): boolean {
 		&& meaningful[0].tagName === 'BR';
 }
 
+// ==============================================
+// セル編集
+// ==============================================
+/** セル DOM の中のキャレット位置 */
 type TableCellCaretPoint = {
+	/** キャレットを置くノード */
 	node: Node;
+	/** そのノード内の位置。文字数 */
 	offset: number;
 };
 
+/** 編集文字列の1区間に対応する DOM。text は文字、break は改行 */
 type TableCellEditableSlot =
 	| { kind: 'text'; node: Text }
 	| { kind: 'break'; caret: TableCellCaretPoint };
 
 /**
- * 行末のプレースホルダ br か。Chrome が行ボックスを残すために付ける。
- * @param {HTMLElement} block 行
- * @param {Node} child 子
- * @returns {boolean}
+ * 行末のプレースホルダ br か。Chrome が行ボックスを残すために付ける
+ * @param block - 行
+ * @param child - 子
+ * @returns 行末のプレースホルダ br か。Chrome が行ボックスを残すために付けるなら true
  */
 function isTrailingLinePlaceholderBr(block: HTMLElement, child: Node): boolean {
 	if (!(child instanceof HTMLElement) || child.tagName !== 'BR') {
@@ -1819,18 +1875,18 @@ function isTrailingLinePlaceholderBr(block: HTMLElement, child: Node): boolean {
 }
 
 /**
- * ノード先頭のキャレット位置を返す。
- * @param {Node} node ノード
- * @returns {TableCellCaretPoint}
+ * ノード先頭のキャレット位置を返す
+ * @param node - ノード
+ * @returns ノード先頭のキャレット位置
  */
 function caretAtNodeStart(node: Node): TableCellCaretPoint {
 	return { node, offset: 0 };
 }
 
 /**
- * ノード直前のキャレット位置を返す。
- * @param {Node} node ノード
- * @returns {TableCellCaretPoint}
+ * ノード直前のキャレット位置を返す
+ * @param node - ノード
+ * @returns ノード直前のキャレット位置
  */
 function caretBeforeNode(node: Node): TableCellCaretPoint {
 	const parent = node.parentNode;
@@ -1842,16 +1898,15 @@ function caretBeforeNode(node: Node): TableCellCaretPoint {
 }
 
 /**
- * セル DOM を、編集用文字列と同じ改行スロットへ分解する。
- * 行ブロックの境界と単独 `<br>` を1改行として並べ、連続空行も落とさない。
- * @param {HTMLElement} cell セル
- * @returns {TableCellEditableSlot[]}
+ * セル DOM を、編集用文字列と同じ改行スロットへ分解する
+ * 行ブロックの境界と単独 `<br>` を1改行として並べ、連続空行も落とさない
+ * @param cell - セル
+ * @returns セル DOM を、編集用文字列と同じ改行スロットへ分解する
  */
 function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot[] {
 	const slots: TableCellEditableSlot[] = [];
 	/**
-	 * @param {Text} node テキスト
-	 * @returns {void}
+	 * @param node - テキスト
 	 */
 	const pushText                       = (node: Text): void => {
 		if (visibleTableCellTextLength(node.textContent ?? '') === 0) {
@@ -1861,9 +1916,8 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 		slots.push({ kind: 'text', node });
 	};
 	/**
-	 * @param {Node} node 対象
-	 * @param {HTMLElement | null} lineBlock 所属する行
-	 * @returns {void}
+	 * @param node - 対象
+	 * @param lineBlock - 所属する行
 	 */
 	const walkInline                     = (node: Node, lineBlock: HTMLElement | null): void => {
 		if (node.nodeType === Node.TEXT_NODE) {
@@ -1922,9 +1976,9 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 }
 
 /**
- * スロットを編集用文字列へ戻す。
- * @param {TableCellEditableSlot[]} slots スロット
- * @returns {string}
+ * スロットを編集用文字列へ戻す
+ * @param slots - スロット
+ * @returns スロットを編集用文字列へ戻す
  */
 function slotsToEditableValue(slots: TableCellEditableSlot[]): string {
 	let result = '';
@@ -1936,20 +1990,20 @@ function slotsToEditableValue(slots: TableCellEditableSlot[]): string {
 }
 
 /**
- * セル DOM の表示テキストを編集用文字列として返す。
- * `<br>` と行ブロックの境界は改行、ゼロ幅文字は捨てる。
- * @param {HTMLElement} cell セル
- * @returns {string}
+ * セル DOM の表示テキストを編集用文字列として返す
+ * `<br>` と行ブロックの境界は改行、ゼロ幅文字は捨てる
+ * @param cell - セル
+ * @returns セル DOM の表示テキストを編集用文字列として返す
  */
 export function readTableCellEditableValue(cell: HTMLElement): string {
 	return slotsToEditableValue(collectTableCellEditableSlots(cell));
 }
 
 /**
- * 指定位置へソフト改行を入れる。
- * @param {string} value 編集用文字列
- * @param {number} offset キャレット位置
- * @returns {string}
+ * 指定位置へソフト改行を入れる
+ * @param value - 編集用文字列
+ * @param offset - キャレット位置
+ * @returns 指定位置へソフト改行を入れる
  */
 export function insertLineBreakAtOffset(value: string, offset: number): string {
 	const bounded = Math.max(0, Math.min(offset, value.length));
@@ -1957,10 +2011,10 @@ export function insertLineBreakAtOffset(value: string, offset: number): string {
 }
 
 /**
- * 表示上の文字数を返す。ゼロ幅のキャレット用文字は数えない。
- * @param {string} text テキスト
- * @param {number} [rawEnd] 生オフセット
- * @returns {number}
+ * 表示上の文字数を返す。ゼロ幅のキャレット用文字は数えない
+ * @param text - テキスト
+ * @param rawEnd - 生オフセット。省略可
+ * @returns 表示上の文字数を返す。ゼロ幅のキャレット用文字は数えない
  */
 export function visibleTableCellTextLength(text: string, rawEnd: number = text.length): number {
 	let visible = 0;
@@ -1975,10 +2029,10 @@ export function visibleTableCellTextLength(text: string, rawEnd: number = text.l
 }
 
 /**
- * 表示オフセットを、ゼロ幅文字を含む生オフセットへ戻す。
- * @param {string} text テキスト
- * @param {number} visibleOffset 表示オフセット
- * @returns {number}
+ * 表示オフセットを、ゼロ幅文字を含む生オフセットへ戻す
+ * @param text - テキスト
+ * @param visibleOffset - 表示オフセット
+ * @returns 表示オフセットを、ゼロ幅文字を含む生オフセットへ戻す
  */
 export function rawTableCellTextOffset(text: string, visibleOffset: number): number {
 	let visible = 0;
@@ -1996,12 +2050,12 @@ export function rawTableCellTextOffset(text: string, visibleOffset: number): num
 }
 
 /**
- * セル書き戻しでずれたセル位置を、既存ウィジェット側へ反映する。
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position 書き換えたセル
- * @param {string} insert 正規化後のソース
- * @param {string} [editableText] 編集用文字列
- * @returns {number} 増えた文字数
+ * セル書き戻しでずれたセル位置を、既存ウィジェット側へ反映する
+ * @param data - 表データ
+ * @param position - 書き換えたセル
+ * @param insert - 正規化後のソース
+ * @param editableText - 編集用文字列。省略可
+ * @returns 増えた文字数
  */
 export function syncTableDataAfterCellChange(
 	data: TableData,
@@ -2022,8 +2076,7 @@ export function syncTableDataAfterCellChange(
 	data.tableTo       += delta;
 
 	/**
-	 * @param {TableCellSource} other 他セル
-	 * @returns {void}
+	 * @param other - 他セル
 	 */
 	const shiftSource = (other: TableCellSource): void => {
 		if (other === source || other.from < oldTo) {
@@ -2040,10 +2093,10 @@ export function syncTableDataAfterCellChange(
 }
 
 /**
- * contenteditable から取得した文字列を Markdown 表セル用に正規化する。
- * 改行は br、未エスケープのパイプはエスケープへ変換する。
- * @param {string} value 入力値
- * @returns {string}
+ * contenteditable から取得した文字列を Markdown 表セル用に正規化する
+ * 改行は br、未エスケープのパイプはエスケープへ変換する
+ * @param value - 入力値
+ * @returns contenteditable から取得した文字列を Markdown 表セル用に正規化する
  */
 export function normalizeTableCellSource(value: string): string {
 	const singleLine = normalizeEditableCellDomText(value)
@@ -2073,10 +2126,10 @@ export function normalizeTableCellSource(value: string): string {
 }
 
 /**
- * 正規化後の Markdown ソース上でのキャレット位置を返す。
- * @param {string} value 正規化前の入力値
- * @param {number} offset 正規化前のキャレット位置
- * @returns {number}
+ * 正規化後の Markdown ソース上でのキャレット位置を返す
+ * @param value - 正規化前の入力値
+ * @param offset - 正規化前のキャレット位置
+ * @returns 正規化後の Markdown ソース上でのキャレット位置
  */
 export function getNormalizedTableCellCaretOffset(value: string, offset: number): number {
 	const boundedOffset = Math.max(0, Math.min(offset, value.length));
@@ -2084,11 +2137,11 @@ export function getNormalizedTableCellCaretOffset(value: string, offset: number)
 }
 
 /**
- * Markdown正規化後に再描画される編集用文字列上のキャレット位置を返す。
- * 改行は編集画面でも1文字のまま、未エスケープのパイプに追加されるバックスラッシュだけを加味する。
- * @param {string} value 正規化前の入力値
- * @param {number} offset 正規化前のキャレット位置
- * @returns {number}
+ * Markdown正規化後に再描画される編集用文字列上のキャレット位置を返す
+ * 改行は編集画面でも1文字のまま、未エスケープのパイプに追加されるバックスラッシュだけを加味する
+ * @param value - 正規化前の入力値
+ * @param offset - 正規化前のキャレット位置
+ * @returns Markdown正規化後に再描画される編集用文字列上のキャレット位置
  */
 export function getTableCellEditableCaretOffset(value: string, offset: number): number {
 	const boundedOffset = Math.max(0, Math.min(offset, value.length));
@@ -2105,10 +2158,10 @@ export function getTableCellEditableCaretOffset(value: string, offset: number): 
 }
 
 /**
- * 表セル内の全選択ショートカットか判定する。
- * CodeMirror 本体へ伝播すると表全体のソース位置が選択されるため、セル側で処理する。
- * @param {Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key'>} event キーイベント
- * @returns {boolean}
+ * 表セル内の全選択ショートカットか判定する
+ * CodeMirror 本体へ伝播すると表全体のソース位置が選択されるため、セル側で処理する
+ * @param event - キーイベント
+ * @returns 表セル内の全選択ショートカットなら true
  */
 export function isTableCellSelectAllKey(
 	event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key'>,
@@ -2119,9 +2172,9 @@ export function isTableCellSelectAllKey(
 }
 
 /**
- * 表セル内へソフト改行を入力するShift+Enterか判定する。
- * @param {Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>} event キーイベント
- * @returns {boolean}
+ * 表セル内へソフト改行を入力するShift+Enterか判定する
+ * @param event - キーイベント
+ * @returns 表セル内へソフト改行を入力するShift+Enterなら true
  */
 export function isTableCellSoftBreakKey(
 	event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>,
@@ -2134,10 +2187,10 @@ export function isTableCellSoftBreakKey(
 }
 
 /**
- * 修飾キーなしの上下キーを表セルの縦移動方向へ変換する。
- * 左右キーはブラウザー標準のセル移動へ任せる。
- * @param {Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>} event キーイベント
- * @returns {'up' | 'down' | null}
+ * 修飾キーなしの上下キーを表セルの縦移動方向へ変換する
+ * 左右キーはブラウザー標準のセル移動へ任せる
+ * @param event - キーイベント
+ * @returns 変換後の修飾キーなしの上下キーを表セルの縦移動方向
  */
 export function getTableCellVerticalArrowDirection(
 	event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>,
@@ -2154,12 +2207,12 @@ export function getTableCellVerticalArrowDirection(
 }
 
 /**
- * 表セルの上下キー移動を解決する。
- * 上下端でも操作済みとして返し、ブラウザー標準処理による左右セルへの流出を防ぐ。
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position 現在位置
- * @param {Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>} event キーイベント
- * @returns {TableCellVerticalNavigation | null}
+ * 表セルの上下キー移動を解決する
+ * 上下端でも操作済みとして返し、ブラウザー標準処理による左右セルへの流出を防ぐ
+ * @param data - 表データ
+ * @param position - 現在位置
+ * @param event - キーイベント
+ * @returns 表セルの上下キー移動。解決できなければ null
  */
 export function getTableCellVerticalNavigation(
 	data: TableData,
@@ -2177,17 +2230,21 @@ export function getTableCellVerticalNavigation(
 	};
 }
 
+/** 編集文字列上のキャレットを、行と行内位置へ分けたもの */
 export type TableCellLineCaretPosition = {
+	/** 行番号。0 始まり */
 	line: number;
+	/** その行の中の位置。0 始まり */
 	column: number;
+	/** 編集文字列の行数 */
 	lineCount: number;
 };
 
 /**
- * 編集用文字列上のキャレットを、行番号と行内位置へ分解する。
- * @param {string} value 編集用文字列
- * @param {number} offset キャレット位置
- * @returns {TableCellLineCaretPosition}
+ * 編集用文字列上のキャレットを、行番号と行内位置へ分解する
+ * @param value - 編集用文字列
+ * @param offset - キャレット位置
+ * @returns 編集用文字列上のキャレットを、行番号と行内位置へ分解する
  */
 export function getTableCellLineCaretPosition(value: string, offset: number): TableCellLineCaretPosition {
 	const text    = normalizeEditableCellDomText(value);
@@ -2212,12 +2269,12 @@ export function getTableCellLineCaretPosition(value: string, offset: number): Ta
 }
 
 /**
- * セル内の上下キーで移るキャレット位置を返す。
- * 先頭行の上・末尾行の下はセル外へ出すため null。
- * @param {string} value 編集用文字列
- * @param {number} offset 現在位置
- * @param {'up' | 'down'} direction 方向
- * @returns {number | null}
+ * セル内の上下キーで移るキャレット位置を返す
+ * 先頭行の上・末尾行の下はセル外へ出すため null
+ * @param value - 編集用文字列
+ * @param offset - 現在位置
+ * @param direction - 方向
+ * @returns セル内の上下キーで移るキャレット位置
  */
 export function getTableCellVerticalCaretOffset(
 	value: string,
@@ -2242,10 +2299,10 @@ export function getTableCellVerticalCaretOffset(
 }
 
 /**
- * セル内改行があるとき、上下キーで同じ桁の行へキャレットを移す。
- * @param {HTMLElement} cell 編集中セル
- * @param {'up' | 'down'} direction 方向
- * @returns {boolean} セル内で移れたか
+ * セル内改行があるとき、上下キーで同じ桁の行へキャレットを移す
+ * @param cell - 編集中セル
+ * @param direction - 方向
+ * @returns セル内で移れたか
  */
 export function moveTableCellCaretVertically(
 	cell: HTMLElement,
@@ -2265,11 +2322,11 @@ export function moveTableCellCaretVertically(
 }
 
 /**
- * セル編集を文書へ反映する変更を構築する。
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position セル位置
- * @param {string} value 新しいセルソース
- * @returns {TableDocumentChange | null}
+ * セル編集を文書へ反映する変更を構築する
+ * @param data - 表データ
+ * @param position - セル位置
+ * @param value - 新しいセルソース
+ * @returns セル編集を文書へ反映する変更
  */
 export function buildTableCellChange(
 	data: TableData,
@@ -2302,11 +2359,11 @@ export function buildTableCellChange(
 }
 
 /**
- * Tab / Shift+Tab / Enter / 上下キーの移動先を返す。
- * @param {TableData} data 表データ
- * @param {TableCellPosition} position 現在位置
- * @param {'next' | 'previous' | 'up' | 'down'} direction 移動方向
- * @returns {TableCellPosition | null}
+ * Tab / Shift+Tab / Enter / 上下キーの移動先を返す
+ * @param data - 表データ
+ * @param position - 現在位置
+ * @param direction - 移動方向
+ * @returns Tab / Shift+Tab / Enter / 上下キーの移動先
  */
 export function getAdjacentTableCellPosition(
 	data: TableData,
@@ -2321,10 +2378,10 @@ export function getAdjacentTableCellPosition(
 }
 
 /**
- * 最終セルでの Tab 用に空行追加変更を構築する。
- * @param {EditorState} state エディタ状態
- * @param {TableData} data 表データ
- * @returns {TableDocumentChange | null}
+ * 最終セルでの Tab 用に空行追加変更を構築する
+ * @param state - エディタ状態
+ * @param data - 表データ
+ * @returns 最終セルでの Tab 用に空行追加変更
  */
 export function buildAppendTableRowChange(
 	state: EditorState,
@@ -2346,9 +2403,9 @@ export function buildAppendTableRowChange(
 }
 
 /**
- * contenteditable 内のキャレットオフセットを返す。
- * @param {HTMLElement} cell セル
- * @returns {number}
+ * contenteditable 内のキャレットオフセットを返す
+ * @param cell - セル
+ * @returns contenteditable 内のキャレットオフセット
  */
 const TABLE_CELL_INLINE_CLASSES: Record<TableCellInlineKind, string> = {
 	em       : 'cm-md-em',
@@ -2361,11 +2418,11 @@ const TABLE_CELL_INLINE_CLASSES: Record<TableCellInlineKind, string> = {
 };
 
 /**
- * キャレットを含むインライン要素のIDを返す。
- * 入れ子の場合は、それぞれの要素が所有する記法を表示するため全件を返す。
- * @param {TableCellInlineRange[]} inlineRanges インライン範囲
- * @param {number} caretOffset 編集文字列上のキャレット位置
- * @returns {number[]}
+ * キャレットを含むインライン要素のIDを返す
+ * 入れ子の場合は、それぞれの要素が所有する記法を表示するため全件を返す
+ * @param inlineRanges - インライン範囲
+ * @param caretOffset - 編集文字列上のキャレット位置
+ * @returns キャレットを含むインライン要素のID
  */
 export function getActiveTableCellInlineRangeIds(
 	inlineRanges: TableCellInlineRange[],
@@ -2377,11 +2434,11 @@ export function getActiveTableCellInlineRangeIds(
 }
 
 /**
- * プレビュー表示上のキャレット位置を、記法を含む編集文字列上の位置へ変換する。
- * @param {string} text 編集用Markdown文字列
- * @param {TableCellInlineRange[]} inlineRanges インライン範囲
- * @param {number} previewOffset 記法を除いたプレビュー文字列上の位置
- * @returns {number}
+ * プレビュー表示上のキャレット位置を、記法を含む編集文字列上の位置へ変換する
+ * @param text - 編集用Markdown文字列
+ * @param inlineRanges - インライン範囲
+ * @param previewOffset - 記法を除いたプレビュー文字列上の位置
+ * @returns 変換後のプレビュー表示上のキャレット位置を、記法を含む編集文字列上の位置
  */
 export function getTableCellEditableOffsetFromPreview(
 	text: string,
@@ -2419,12 +2476,11 @@ export function getTableCellEditableOffsetFromPreview(
 }
 
 /**
- * セルを、ソースを保持したインラインライブプレビューDOMで埋める。
- * 改行は1行1ブロックにし、連続した空行も見えるようにする。
- * @param {HTMLElement} cell 編集対象セル
- * @param {string} text 編集用Markdown文字列
- * @param {TableCellInlineRange[]} inlineRanges インライン範囲
- * @returns {void}
+ * セルを、ソースを保持したインラインライブプレビューDOMで埋める
+ * 改行は1行1ブロックにし、連続した空行も見えるようにする
+ * @param cell - 編集対象セル
+ * @param text - 編集用Markdown文字列
+ * @param inlineRanges - インライン範囲
  */
 export function fillEditableTableCellContent(
 	cell: HTMLElement,
@@ -2454,13 +2510,12 @@ export function fillEditableTableCellContent(
 }
 
 /**
- * 編集行の指定範囲へ、インライン記法付きの断片を載せる。
- * @param {HTMLElement} lineParent 行
- * @param {string} text 編集用文字列全体
- * @param {TableCellInlineRange[]} inlineRanges インライン範囲
- * @param {number} rangeFrom 行開始
- * @param {number} rangeTo 行終了
- * @returns {void}
+ * 編集行の指定範囲へ、インライン記法付きの断片を載せる
+ * @param lineParent - 行
+ * @param text - 編集用文字列全体
+ * @param inlineRanges - インライン範囲
+ * @param rangeFrom - 行開始
+ * @param rangeTo - 行終了
  */
 function appendEditableTableCellSegments(
 	lineParent: HTMLElement,
@@ -2469,7 +2524,7 @@ function appendEditableTableCellSegments(
 	rangeFrom: number,
 	rangeTo: number,
 ): void {
-	/** 装飾範囲を対象セル内へ収め、分割境界がセル外へ漏れないようにする。 */
+	/** 装飾範囲を対象セル内へ収め、分割境界がセル外へ漏れないようにする */
 	const clip       = (position: number): number => Math.max(rangeFrom, Math.min(rangeTo, position));
 	const boundaries = new Set<number>([rangeFrom, rangeTo]);
 	for (const inlineRange of inlineRanges) {
@@ -2487,9 +2542,9 @@ function appendEditableTableCellSegments(
 
 	/**
 	 * インラインコード全体を1つの背景で囲む親要素を返す
-	 * @param {number} from セグメント開始
-	 * @param {number} to セグメント終了
-	 * @returns {HTMLElement}
+	 * @param from - セグメント開始
+	 * @param to - セグメント終了
+	 * @returns インラインコード全体を1つの背景で囲む親要素
 	 */
 	const getSegmentParent = (from: number, to: number): HTMLElement => {
 		const codeOwner = inlineRanges.find((inlineRange) => (
@@ -2576,11 +2631,11 @@ function appendEditableTableCellSegments(
 }
 
 /**
- * 文書上の点がキャレット末尾より前か後かを返す。
- * @param {Node} node 点のノード
- * @param {number} offset 点のオフセット
- * @param {Range} range 選択
- * @returns {number} 負なら前、0なら一致、正なら後
+ * 文書上の点がキャレット末尾より前か後かを返す
+ * @param node - 点のノード
+ * @param offset - 点のオフセット
+ * @param range - 選択
+ * @returns 負なら前、0なら一致、正なら後
  */
 function comparePointToRangeEnd(node: Node, offset: number, range: Range): number {
 	const documentRef = node.ownerDocument;
@@ -2602,10 +2657,10 @@ function comparePointToRangeEnd(node: Node, offset: number, range: Range): numbe
 }
 
 /**
- * セル内の論理テキスト位置としてキャレット位置を返す。
- * 非表示のMarkdown記法テキストも文字数へ含める。
- * @param {HTMLElement} cell 編集対象セル
- * @returns {number}
+ * セル内の論理テキスト位置としてキャレット位置を返す
+ * 非表示のMarkdown記法テキストも文字数へ含める
+ * @param cell - 編集対象セル
+ * @returns セル内の論理テキスト位置としてキャレット位置
  */
 function getCellCaretOffset(cell: HTMLElement, countBreaks: boolean = true): number {
 	const slots     = collectTableCellEditableSlots(cell);
@@ -2664,9 +2719,8 @@ function getCellCaretOffset(cell: HTMLElement, countBreaks: boolean = true): num
 }
 
 /**
- * キャレット位置に応じて、該当インライン要素のMarkdown記法だけを表示する。
- * @param {HTMLElement} cell 編集対象セル
- * @returns {void}
+ * キャレット位置に応じて、該当インライン要素のMarkdown記法だけを表示する
+ * @param cell - 編集対象セル
  */
 function updateTableCellInlineMarks(cell: HTMLElement): void {
 	let inlineRanges: TableCellInlineRange[] = [];
@@ -2690,10 +2744,10 @@ function updateTableCellInlineMarks(cell: HTMLElement): void {
 }
 
 /**
- * 現在のセル選択範囲へ実改行を挿入する。
- * 選択が無くても末尾へ入れ、連続空行も行ブロックとして残す。
- * @param {HTMLElement} cell 編集中セル
- * @returns {boolean} 挿入できたか
+ * 現在のセル選択範囲へ実改行を挿入する
+ * 選択が無くても末尾へ入れ、連続空行も行ブロックとして残す
+ * @param cell - 編集中セル
+ * @returns 挿入できたか
  */
 export function insertTableCellLineBreak(cell: HTMLElement): boolean {
 	let inlineRanges: TableCellInlineRange[] = [];
@@ -2713,11 +2767,11 @@ export function insertTableCellLineBreak(cell: HTMLElement): boolean {
 }
 
 /**
- * 行ブロック先頭へキャレットを置く。
- * @param {Range} range 選択
- * @param {HTMLElement} cell セル
- * @param {boolean} atStart 先頭行なら true
- * @returns {boolean} 置けたか
+ * 行ブロック先頭へキャレットを置く
+ * @param range - 選択
+ * @param cell - セル
+ * @param atStart - 先頭行なら true
+ * @returns 置けたか
  */
 function placeCaretOnTableCellLine(range: Range, cell: HTMLElement, atStart: boolean): boolean {
 	const lines = [...cell.childNodes].filter((node): node is HTMLElement => isTableCellLineBlock(node));
@@ -2732,11 +2786,10 @@ function placeCaretOnTableCellLine(range: Range, cell: HTMLElement, atStart: boo
 }
 
 /**
- * セル内へキャレットまたは全選択を設定する。
- * @param {HTMLElement} cell セル
- * @param {number} offset キャレット位置
- * @param {boolean} selectAll 全選択するか
- * @returns {void}
+ * セル内へキャレットまたは全選択を設定する
+ * @param cell - セル
+ * @param offset - キャレット位置
+ * @param selectAll - 全選択するか
  */
 function setCellSelection(cell: HTMLElement, offset: number, selectAll: boolean): void {
 	const selection = cell.ownerDocument.defaultView?.getSelection();
@@ -2791,11 +2844,10 @@ function setCellSelection(cell: HTMLElement, offset: number, selectAll: boolean)
 }
 
 /**
- * 編集中セルをプレビューへ戻す。値は先に文書へ書く。
- * @param {EditorView} view エディタ
- * @param {HTMLElement} cell セル
- * @param {number} tableFrom 表開始位置
- * @returns {void}
+ * 編集中セルをプレビューへ戻す。値は先に文書へ書く
+ * @param view - エディタ
+ * @param cell - セル
+ * @param tableFrom - 表開始位置
  */
 function persistAndDeactivateTableCell(
 	view: EditorView,
@@ -2848,12 +2900,11 @@ function persistAndDeactivateTableCell(
 }
 
 /**
- * 指定セル以外の編集中セルをプレビューへ戻す。
- * @param {EditorView} view エディタ
- * @param {HTMLElement} wrap 表ラッパー
- * @param {number} tableFrom 表開始位置
- * @param {HTMLElement | null} except 残すセル
- * @returns {void}
+ * 指定セル以外の編集中セルをプレビューへ戻す
+ * @param view - エディタ
+ * @param wrap - 表ラッパー
+ * @param tableFrom - 表開始位置
+ * @param except - 残すセル
  */
 function deactivateOtherEditingTableCells(
 	view: EditorView,
@@ -2869,10 +2920,9 @@ function deactivateOtherEditingTableCells(
 }
 
 /**
- * セルをソース編集状態へ切り替える。
- * @param {HTMLElement} cell セル
- * @param {EditorView} [view] 他セルを閉じるとき使う
- * @returns {void}
+ * セルをソース編集状態へ切り替える
+ * @param cell - セル
+ * @param view - 他セルを閉じるとき使う。省略可
  */
 function activateTableCell(cell: HTMLElement, view?: EditorView): void {
 	const wrap      = cell.closest<HTMLElement>('.cm-md-table-wrap');
@@ -2909,13 +2959,12 @@ function activateTableCell(cell: HTMLElement, view?: EditorView): void {
 }
 
 /**
- * 指定セルへフォーカスを戻す。
- * @param {EditorView} view エディタビュー
- * @param {number} tableFrom 表開始位置
- * @param {TableCellPosition} position セル位置
- * @param {number} offset キャレット位置
- * @param {boolean} selectAll 全選択するか
- * @returns {void}
+ * 指定セルへフォーカスを戻す
+ * @param view - エディタビュー
+ * @param tableFrom - 表開始位置
+ * @param position - セル位置
+ * @param offset - キャレット位置
+ * @param selectAll - 全選択するか
  */
 export function restoreTableCellFocus(
 	view: EditorView,
@@ -2948,19 +2997,19 @@ export function restoreTableCellFocus(
 		activateTableCell(cell, view);
 		cell.focus({ preventScroll: true });
 		setCellSelection(cell, offset, selectAll);
-		// 結合などで Widget を作り直した直後は、focusin で選択ヘッダー用の余白が付く。
-		// 編集DOMの復元前ではなく、フォーカスとキャレットを戻し終えた確定配置でも再計測する。
+		// 結合などで Widget を作り直した直後は、focusin で選択ヘッダー用の余白が付く
+		// 編集DOMの復元前ではなく、フォーカスとキャレットを戻し終えた確定配置でも再計測する
 		notifyTableGeometryChange(cell);
 	}, 0);
 }
 
 /**
- * 表の上下端から、表外の隣接行へ移動する文書位置を返す。
- * @param {EditorState} state エディタ状態
- * @param {number} tableFrom 表開始位置
- * @param {number} tableTo 表終了位置
- * @param {boolean} forward 下方向なら true
- * @returns {number | null} 移動先行の先頭位置。文書端なら null
+ * 表の上下端から、表外の隣接行へ移動する文書位置を返す
+ * @param state - エディタ状態
+ * @param tableFrom - 表開始位置
+ * @param tableTo - 表終了位置
+ * @param forward - 下方向なら true
+ * @returns 移動先行の先頭位置。文書端なら null
  */
 export function getTableVerticalExitPosition(
 	state: EditorState,
@@ -2982,12 +3031,12 @@ export function getTableVerticalExitPosition(
 }
 
 /**
- * 表セルから表外の隣接行へCodeMirrorのキャレットを移す。
- * @param {EditorView} view エディタビュー
- * @param {number} tableFrom 表開始位置
- * @param {number} tableTo 表終了位置
- * @param {boolean} forward 下方向なら true
- * @returns {boolean} 移動できたか
+ * 表セルから表外の隣接行へCodeMirrorのキャレットを移す
+ * @param view - エディタビュー
+ * @param tableFrom - 表開始位置
+ * @param tableTo - 表終了位置
+ * @param forward - 下方向なら true
+ * @returns 移動できたか
  */
 function moveTableCellFocusOutside(
 	view: EditorView,
@@ -3016,11 +3065,11 @@ function moveTableCellFocusOutside(
 }
 
 /**
- * CodeMirror側へ渡った上下キーを、編集中の描画済み表セルで処理する。
- * 空セルでkeydownの送信先がセル外になる場合を補完し、上下端では表外へ移動する。
- * @param {EditorView} view エディタビュー
- * @param {boolean} forward 下方向なら true
- * @returns {boolean} 表セルの上下移動として処理したか
+ * CodeMirror側へ渡った上下キーを、編集中の描画済み表セルで処理する
+ * 空セルでkeydownの送信先がセル外になる場合を補完し、上下端では表外へ移動する
+ * @param view - エディタビュー
+ * @param forward - 下方向なら true
+ * @returns 表セルの上下移動として処理したか
  */
 export function moveActiveTableCellVertically(view: EditorView, forward: boolean): boolean {
 	const cell = view.dom.querySelector<HTMLElement>('.cm-md-table-cell-editing');
@@ -3067,10 +3116,9 @@ export function moveActiveTableCellVertically(view: EditorView, forward: boolean
 }
 
 /**
- * 配置クラスをセルへ付け直す。既定の左詰め・上詰めはクラスを外す。
- * @param {HTMLElement} cell セル
- * @param {string} sourceText セルソース
- * @returns {void}
+ * 配置クラスをセルへ付け直す。既定の左詰め・上詰めはクラスを外す
+ * @param cell - セル
+ * @param sourceText - セルソース
  */
 function applyCellAlignmentClasses(cell: HTMLElement, sourceText: string): void {
 	for (const name of [...cell.classList]) {
@@ -3092,11 +3140,10 @@ function applyCellAlignmentClasses(cell: HTMLElement, sourceText: string): void 
 }
 
 /**
- * 結合属性をセル DOM へ付ける。
- * @param {HTMLTableCellElement} cell セル
- * @param {ReturnType<typeof buildTableOccupancy>} occupancy 占有
- * @param {TableCellPosition} position 位置
- * @returns {void}
+ * 結合属性をセル DOM へ付ける
+ * @param cell - セル
+ * @param occupancy - 占有
+ * @param position - 位置
  */
 function applyCellSpan(
 	cell: HTMLTableCellElement,
@@ -3121,9 +3168,9 @@ function applyCellSpan(
 }
 
 /**
- * 表の選択範囲を dataset から読む。
- * @param {HTMLElement} wrap 表ラッパー
- * @returns {TableSelectionRect | null}
+ * 表の選択範囲を dataset から読む
+ * @param wrap - 表ラッパー
+ * @returns 表の選択範囲を dataset から読む。無ければ null
  */
 function readTableSelectionRect(wrap: HTMLElement): TableSelectionRect | null {
 	const raw = wrap.dataset.tableSelection;
@@ -3144,16 +3191,21 @@ function readTableSelectionRect(wrap: HTMLElement): TableSelectionRect | null {
 	};
 }
 
+/** 上部テーブルメニューへ状態変化を知らせるイベント名 */
 export const TABLE_MENU_STATE_CHANGE_EVENT = 'tms-mde-table-menu-state-change';
 
+/** このエディタで上部メニューが操作する表とセル */
 type ActiveTableMenuTarget = {
+	/** 対象表の開始位置 */
 	tableFrom: number;
+	/** メニューが覚えるセル。セルが無ければ null */
 	cell: TableCellPosition | null;
 };
 
+/** EditorView から、上部メニューの操作対象。ビューが捨てられるまで */
 const activeTableMenuTargets = new WeakMap<EditorView, ActiveTableMenuTarget>();
 
-/** 上部テーブルメニューの操作対象を、このEditorView内の1表へ固定する。 */
+/** 上部テーブルメニューの操作対象を、このEditorView内の1表へ固定する */
 function activateTableMenuTarget(
 	view: EditorView,
 	wrap: HTMLElement,
@@ -3170,7 +3222,7 @@ function activateTableMenuTarget(
 	wrap.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
 }
 
-/** 表外へ操作対象が移ったとき、上部テーブルメニューの表対象を解除する。 */
+/** 表外へ操作対象が移ったとき、上部テーブルメニューの表対象を解除する */
 export function clearActiveTableMenuTarget(view: EditorView): void {
 	let changed = false;
 	if (activeTableMenuTargets.delete(view)) changed = true;
@@ -3182,17 +3234,16 @@ export function clearActiveTableMenuTarget(view: EditorView): void {
 	if (changed) view.dom.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
 }
 
-/** 選択変更を上部テーブルメニューの状態同期へ通知する。 */
+/** 選択変更を上部テーブルメニューの状態同期へ通知する */
 function notifyTableMenuStateChange(wrap: HTMLElement): void {
 	wrap.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
 }
 
 /**
- * 選択範囲を表へ書き、見た目を更新する。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLTableElement} table 表
- * @param {TableSelectionRect} rect 矩形
- * @returns {void}
+ * 選択範囲を表へ書き、見た目を更新する
+ * @param wrap - 表ラッパー
+ * @param table - 表
+ * @param rect - 矩形
  */
 function writeTableSelectionRect(
 	wrap: HTMLElement,
@@ -3228,6 +3279,7 @@ function writeTableSelectionRect(
 	notifyTableMenuStateChange(wrap);
 }
 
+/** セル選択の外周に付けるクラス名。実行中は変えない */
 const TABLE_CELL_SELECTION_CLASS_NAMES = [
 	'cm-md-table-cell-selected',
 	'cm-md-table-sel-n',
@@ -3237,10 +3289,9 @@ const TABLE_CELL_SELECTION_CLASS_NAMES = [
 ] as const;
 
 /**
- * 表の矩形選択を消す。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLTableElement} table 表
- * @returns {void}
+ * 表の矩形選択を消す
+ * @param wrap - 表ラッパー
+ * @param table - 表
  */
 export function clearTableSelectionRect(wrap: HTMLElement, table: HTMLTableElement): void {
 	const changed = wrap.dataset.tableSelection !== undefined;
@@ -3252,8 +3303,8 @@ export function clearTableSelectionRect(wrap: HTMLElement, table: HTMLTableEleme
 }
 
 /**
- * 単一セルの編集位置へ同期する左クリックか判定する。
- * Shift+左クリックは複数セル選択、右クリックは現在の選択を使うメニュー表示に任せる。
+ * 単一セルの編集位置へ同期する左クリックか判定する
+ * Shift+左クリックは複数セル選択、右クリックは現在の選択を使うメニュー表示に任せる
  */
 export function shouldSyncTableCellEditorOnMouseDown(
 	event: Pick<MouseEvent, 'button' | 'shiftKey'>,
@@ -3261,7 +3312,7 @@ export function shouldSyncTableCellEditorOnMouseDown(
 	return event.button === 0 && !event.shiftKey;
 }
 
-/** 複数セル選択中の右クリックで、ブラウザー既定のセルフォーカス移動を抑止する。 */
+/** 複数セル選択中の右クリックで、ブラウザー既定のセルフォーカス移動を抑止する */
 export function shouldPreserveTableCellSelectionOnMouseDown(
 	event: Pick<MouseEvent, 'button'>,
 	hasSelection: boolean,
@@ -3270,11 +3321,10 @@ export function shouldPreserveTableCellSelectionOnMouseDown(
 }
 
 /**
- * 複数セルなら塗り、1セルなら消す。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLTableElement} table 表
- * @param {TableSelectionRect} rect 矩形
- * @returns {void}
+ * 複数セルなら塗り、1セルなら消す
+ * @param wrap - 表ラッパー
+ * @param table - 表
+ * @param rect - 矩形
  */
 function writeOrClearTableSelection(
 	wrap: HTMLElement,
@@ -3290,10 +3340,9 @@ function writeOrClearTableSelection(
 }
 
 /**
- * 描画済みの表から矩形選択を消す。
- * @param {EditorView} view エディタ
- * @param {number} tableFrom 表開始位置
- * @returns {void}
+ * 描画済みの表から矩形選択を消す
+ * @param view - エディタ
+ * @param tableFrom - 表開始位置
  */
 function clearRenderedTableSelection(view: EditorView, tableFrom: number): void {
 	const wrap  = view.dom.querySelector<HTMLElement>(`.cm-md-table-wrap[data-table-from="${tableFrom}"]`);
@@ -3306,12 +3355,11 @@ function clearRenderedTableSelection(view: EditorView, tableFrom: number): void 
 }
 
 /**
- * ライブプレビュー表のセル選択を付ける。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {HTMLTableElement} table 表
- * @param {TableData} data 表データ
- * @param {EditorView} view エディタ
- * @returns {void}
+ * ライブプレビュー表のセル選択を付ける
+ * @param wrap - 表ラッパー
+ * @param table - 表
+ * @param data - 表データ
+ * @param view - エディタ
  */
 function attachTableCellSelection(
 	wrap: HTMLElement,
@@ -3324,8 +3372,9 @@ function attachTableCellSelection(
 	let dragOrigin: { x: number; y: number } | null = null;
 
 	/**
-	 * @param {EventTarget | null} target 対象
-	 * @returns {TableCellPosition | null}
+	 * クリック先のセル要素から、表の中の位置を読む
+	 * @param target - イベントの対象。セルの外なら null
+	 * @returns 見出し行を 0 とした位置。セルでなければ null
 	 */
 	const positionFromTarget = (target: EventTarget | null): TableCellPosition | null => {
 		const cell = target instanceof Element
@@ -3398,11 +3447,11 @@ function attachTableCellSelection(
 }
 
 /**
- * 表の再配置だけで発生する mouseover と、実際のドラッグ操作を区別する。
- * @param {{ x: number; y: number }} origin mousedown 座標
- * @param {{ x: number; y: number }} current 現在座標
- * @param {number} threshold 開始とみなす最小移動量
- * @returns {boolean} 実ドラッグとして扱うか
+ * 表の再配置だけで発生する mouseover と、実際のドラッグ操作を区別する
+ * @param origin - mousedown 座標
+ * @param current - 現在座標
+ * @param threshold - 開始とみなす最小移動量
+ * @returns 実ドラッグとして扱うか
  */
 export function hasTableSelectionPointerMoved(
 	origin: { x: number; y: number },
@@ -3414,14 +3463,18 @@ export function hasTableSelectionPointerMoved(
 	return deltaX * deltaX + deltaY * deltaY >= threshold * threshold;
 }
 
+/** 行・列選択に含まれるセルへ付けるクラス */
 const TABLE_STRUCTURE_SELECTION_CLASS        = 'cm-md-table-structure-selected';
+/** 選択ヘッダーを出しているあいだ表の枠へ付けるクラス */
 const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS = 'cm-md-table-structure-controls-visible';
+/** セル DOM の差し替えを、表の外側の補助 UI へ知らせるイベント名 */
 const TABLE_GEOMETRY_CHANGE_EVENT            = 'tms-mde-table-geometry-change';
+/** 選択ヘッダーのために空ける余白（px） */
 const TABLE_STRUCTURE_CONTROLS_GUTTER_PX     = 26;
 
 /**
- * 選択ヘッダーの基準となる表本体とラッパーの両方をサイズ監視する。
- * ヘッダー表示時はラッパーへ余白が付き、表の位置だけが変わる場合がある。
+ * 選択ヘッダーの基準となる表本体とラッパーの両方をサイズ監視する
+ * ヘッダー表示時はラッパーへ余白が付き、表の位置だけが変わる場合がある
  */
 export function observeTableStructureGeometry(
 	observer: Pick<ResizeObserver, 'observe'>,
@@ -3433,7 +3486,7 @@ export function observeTableStructureGeometry(
 }
 
 /**
- * 選択ヘッダー表示用の余白がレイアウト計測へ反映される前でも、表本体の基準位置を返す。
+ * 選択ヘッダー表示用の余白がレイアウト計測へ反映される前でも、表本体の基準位置を返す
  */
 export function resolveTableStructureOffset(
 	measuredOffset: number,
@@ -3444,8 +3497,8 @@ export function resolveTableStructureOffset(
 }
 
 /**
- * セルの表示DOMを差し替えたことを、表外周の補助UIへ通知する。
- * @param {HTMLElement} cell 対象セル
+ * セルの表示DOMを差し替えたことを、表外周の補助UIへ通知する
+ * @param cell - 対象セル
  */
 function notifyTableGeometryChange(cell: HTMLElement): void {
 	const wrap = cell.closest<HTMLElement>('.cm-md-table-wrap');
@@ -3456,7 +3509,7 @@ function notifyTableGeometryChange(cell: HTMLElement): void {
 	wrap.dispatchEvent(new Event(TABLE_GEOMETRY_CHANGE_EVENT));
 }
 
-/** 表構造選択ヘッダーを表の外周へ追加する。 */
+/** 表構造選択ヘッダーを表の外周へ追加する */
 function attachTableStructureControls(
 	wrap: HTMLElement,
 	table: HTMLTableElement,
@@ -3478,7 +3531,12 @@ function attachTableStructureControls(
 	let anchor: { axis: TableStructureAxis; group: TableStructureRange } | null = null;
 	let dragging                                                                = false;
 
-	/** @param {TableStructureAxis} axis 軸 @param {TableStructureRange} group グループ @returns {HTMLButtonElement} */
+	/**
+	 * 行または列の選択ボタンを作る
+	 * @param axis - row は行、column は列
+	 * @param group - ボタンが担当する選択単位。start と end は 0 始まり
+	 * @returns 番号を表示する button。フォーカスは受け取らない
+	 */
 	const createButton = (axis: TableStructureAxis, group: TableStructureRange): HTMLButtonElement => {
 		const button                       = document.createElement('button');
 		button.type                        = 'button';
@@ -3500,7 +3558,7 @@ function attachTableStructureControls(
 	columnGroups.forEach((group) => controls.appendChild(createButton('column', group)));
 	rowGroups.forEach((group) => controls.appendChild(createButton('row', group)));
 
-	/** ボタンを表の実寸へ合わせる。 */
+	/** ボタンを表の実寸へ合わせる */
 	const sync = (): void => {
 		const wrapRect   = wrap.getBoundingClientRect();
 		const tableRect  = table.getBoundingClientRect();
@@ -3540,7 +3598,7 @@ function attachTableStructureControls(
 		});
 	};
 
-	/** セルDOMの切替直後とレイアウト確定後の両方で、表外周の補助UIを合わせ直す。 */
+	/** セルDOMの切替直後とレイアウト確定後の両方で、表外周の補助UIを合わせ直す */
 	const syncAfterGeometryChange = (): void => {
 		sync();
 		onGeometryChange();
@@ -3551,7 +3609,7 @@ function attachTableStructureControls(
 		});
 	};
 
-	/** ヘッダーと専用余白をまとめて切り替え、表上のリサイズハンドルを追従させる。 */
+	/** ヘッダーと専用余白をまとめて切り替え、表上のリサイズハンドルを追従させる */
 	const setVisible = (visible: boolean): void => {
 		if (controls.hidden === !visible) return;
 		controls.hidden = !visible;
@@ -3559,7 +3617,12 @@ function attachTableStructureControls(
 		syncAfterGeometryChange();
 	};
 
-	/** @param {TableStructureAxis} axis 軸 @param {TableStructureRange} group 対象 @param {boolean} extend 拡張 */
+	/**
+	 * 行または列の選択を、ボタン操作に合わせて更新する
+	 * @param axis - 選択する軸。現在の軸と違うときは拡張しない
+	 * @param group - クリックした選択単位
+	 * @param extend - true なら現在の選択とつなげ、false ならその単位だけにする
+	 */
 	const select = (axis: TableStructureAxis, group: TableStructureRange, extend: boolean): void => {
 		const current = readTableStructureSelection(wrap);
 		if (!extend
@@ -3662,21 +3725,33 @@ function attachTableStructureControls(
 	void view;
 }
 
-/** @param {HTMLElement} button ボタン @returns {{ axis: TableStructureAxis; range: TableStructureRange } | null} */
+/**
+ * 選択ボタンの dataset から、軸と範囲を読む
+ * @param button - 行または列の選択ボタン
+ * @returns 軸と範囲。dataset が欠けていれば null
+ */
 function readTableStructureButton(button: HTMLElement): { axis: TableStructureAxis; range: TableStructureRange } | null {
 	const axis  = button.dataset.tableStructureAxis;
 	const range = readTableStructureRange(button);
 	return (axis === 'row' || axis === 'column') && range ? { axis, range } : null;
 }
 
-/** @param {HTMLElement} element 要素 @returns {TableStructureRange | null} */
+/**
+ * 要素の dataset から、選択単位の開始と終了を読む
+ * @param element - start と end を dataset に持つ要素
+ * @returns 開始が終了以下の範囲。数値でなければ null
+ */
 function readTableStructureRange(element: HTMLElement): TableStructureRange | null {
 	const start = Number(element.dataset.tableStructureStart);
 	const end   = Number(element.dataset.tableStructureEnd);
 	return Number.isInteger(start) && Number.isInteger(end) && start <= end ? { start, end } : null;
 }
 
-/** @param {HTMLElement} wrap ラッパー @returns {TableStructureSelection | null} */
+/**
+ * 表ラッパーに記録した行または列の選択を読む
+ * @param wrap - dataset.tableStructureSelection を持つ表の枠
+ * @returns 軸と範囲。未選択や壊れた値なら null
+ */
 function readTableStructureSelection(wrap: HTMLElement): TableStructureSelection | null {
 	const [axis, rawStart, rawEnd] = (wrap.dataset.tableStructureSelection ?? '').split(',');
 	const start                    = Number(rawStart);
@@ -3686,7 +3761,11 @@ function readTableStructureSelection(wrap: HTMLElement): TableStructureSelection
 		: null;
 }
 
-/** @param {HTMLElement} wrap ラッパー @param {HTMLTableElement} table 表 */
+/**
+ * 行と列の選択表示を消し、メニューへ状態変化を通知する
+ * @param wrap - 選択 dataset を消す表の枠
+ * @param table - 選択クラスを外す表要素
+ */
 function clearTableStructureSelection(wrap: HTMLElement, table: HTMLTableElement): void {
 	const changed = wrap.dataset.tableStructureSelection !== undefined;
 	delete wrap.dataset.tableStructureSelection;
@@ -3700,7 +3779,13 @@ function clearTableStructureSelection(wrap: HTMLElement, table: HTMLTableElement
 	if (changed) notifyTableMenuStateChange(wrap);
 }
 
-/** @param {HTMLElement} wrap ラッパー @param {HTMLTableElement} table 表 @param {TableStructureSelection} selection 選択 */
+/**
+ * 行または列の選択を dataset とボタンの押下状態へ書く
+ * セル範囲の選択は先に消す
+ * @param wrap - 選択を記録する表の枠
+ * @param table - 選択クラスを付ける表要素
+ * @param selection - 書く軸と範囲
+ */
 function writeTableStructureSelection(
 	wrap: HTMLElement,
 	table: HTMLTableElement,
@@ -3730,6 +3815,7 @@ function writeTableStructureSelection(
 	notifyTableMenuStateChange(wrap);
 }
 
+/** 行・列メニューが固定した、表位置と選択と操作可否 */
 export type TableStructureMenuSnapshot = TableStructureSelection & {
 	tableFrom: number;
 	canDelete: boolean;
@@ -3737,7 +3823,7 @@ export type TableStructureMenuSnapshot = TableStructureSelection & {
 	canMoveNext: boolean;
 };
 
-/** 右クリックした行・列選択ヘッダーの操作対象を固定する。 */
+/** 右クリックした行・列選択ヘッダーの操作対象を固定する */
 export function snapshotTableStructureActionFromEvent(
 	view: EditorView,
 	event: MouseEvent,
@@ -3757,7 +3843,7 @@ export function snapshotTableStructureActionFromEvent(
 	return { tableFrom, ...selection, ...state };
 }
 
-/** 固定済みの行・列範囲へ構造操作を適用する。 */
+/** 固定済みの行・列範囲へ構造操作を適用する */
 export function applyTableStructureSnapshot(
 	view: EditorView,
 	snapshot: Pick<TableStructureMenuSnapshot, 'tableFrom' | 'axis' | 'start' | 'end'>,
@@ -3776,22 +3862,26 @@ export function applyTableStructureSnapshot(
 }
 
 /**
- * マウス位置の表結合操作状態を返す。
- * @param {EditorView} view エディタ
- * @param {MouseEvent} event マウス
- * @returns {TableMergeActionState | null}
+ * マウス位置の表結合操作状態を返す
+ * @param view - エディタ
+ * @param event - マウス
+ * @returns マウス位置の表結合操作状態
  */
 export type TableMergeMenuSnapshot = TableMergeActionState & {
 	tableFrom: number;
 };
 
+/** 上部メニューが読む、最後に操作した表の状態 */
 export type TableMenuSnapshot = {
+	/** 操作対象が Markdown 表なら true。表の外なら false */
 	inMarkdownTable: boolean;
+	/** 行・列選択の操作。セル選択中は null */
 	structure: TableStructureMenuSnapshot | null;
+	/** セル結合の操作。行・列選択中は null */
 	merge: TableMergeMenuSnapshot | null;
 };
 
-/** 上部メニュー用に、最後に操作した表と現在の行・列・セル選択を取得する。 */
+/** 上部メニュー用に、最後に操作した表と現在の行・列・セル選択を取得する */
 export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
 	const target = activeTableMenuTargets.get(view) ?? null;
 	const wrap   = view.dom.querySelector<HTMLElement>('.cm-md-table-wrap[data-table-menu-active="true"]')
@@ -3837,10 +3927,10 @@ export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
 }
 
 /**
- * 右クリック時点の結合操作対象を残す。メニュー選択時の DOM には依存しない。
- * @param {EditorView} view エディタ
- * @param {MouseEvent} event マウス
- * @returns {TableMergeMenuSnapshot | null}
+ * 右クリック時点の結合操作対象を残す。メニュー選択時の DOM には依存しない
+ * @param view - エディタ
+ * @param event - マウス
+ * @returns 右クリック時点の結合操作対象を残す。メニュー選択時の DOM には依存しない。無ければ null
  */
 export function snapshotTableMergeActionFromEvent(
 	view: EditorView,
@@ -3859,7 +3949,7 @@ export function snapshotTableMergeActionFromEvent(
 	};
 }
 
-/** コンテキストメニュー表示中に固定したセル範囲から、結合可否を返す。 */
+/** コンテキストメニュー表示中に固定したセル範囲から、結合可否を返す */
 export function getTableMergeActionStateFromEvent(
 	view: EditorView,
 	event: MouseEvent,
@@ -3868,13 +3958,13 @@ export function getTableMergeActionStateFromEvent(
 }
 
 /**
- * 表位置とクリック／選択から結合操作対象を決める。
- * メニュー選択までに右クリック先の DOM が外れても、文書上の表を対象にする。
- * @param {EditorState} state 状態
- * @param {number} tableFrom 表開始位置
- * @param {TableSelectionRect | null} selected ドラッグ選択
- * @param {TableCellPosition | null} clicked クリック位置
- * @returns {{ data: TableData; state: TableMergeActionState } | null}
+ * 表位置とクリック／選択から結合操作対象を決める
+ * メニュー選択までに右クリック先の DOM が外れても、文書上の表を対象にする
+ * @param state - 状態
+ * @param tableFrom - 表開始位置
+ * @param selected - ドラッグ選択
+ * @param clicked - クリック位置
+ * @returns 表位置とクリック／選択から結合操作対象を決める。無ければ null
  */
 export function resolveTableMergeTargetFromParts(
 	state: EditorState,
@@ -3901,11 +3991,11 @@ export function resolveTableMergeTargetFromParts(
 }
 
 /**
- * セル結合または解除を文書へ書く。
- * @param {EditorView} view エディタ
- * @param {MouseEvent} event マウス
- * @param {'merge' | 'unmerge'} action 操作
- * @returns {boolean}
+ * セル結合または解除を文書へ書く
+ * @param view - エディタ
+ * @param event - マウス
+ * @param action - 操作
+ * @returns セル結合または解除を文書へ書くなら true
  */
 export function applyTableMergeSnapshot(
 	view: EditorView,
@@ -3943,7 +4033,7 @@ export function applyTableMergeSnapshot(
 	return true;
 }
 
-/** クリック時点の選択範囲を固定し、再描画後も同じセルへ結合操作を適用する。 */
+/** クリック時点の選択範囲を固定し、再描画後も同じセルへ結合操作を適用する */
 export function applyTableMergeAction(
 	view: EditorView,
 	event: MouseEvent,
@@ -3958,11 +4048,11 @@ export function applyTableMergeAction(
 }
 
 /**
- * メニュー時点の矩形へ配置を書く。選択時の DOM には依存しない。
- * @param {EditorView} view エディタ
- * @param {Pick<TableMergeMenuSnapshot, 'tableFrom' | 'rect'>} snapshot 右クリック時点の対象
- * @param {TableAlignPatch} patch 配置
- * @returns {boolean}
+ * メニュー時点の矩形へ配置を書く。選択時の DOM には依存しない
+ * @param view - エディタ
+ * @param snapshot - 右クリック時点の対象
+ * @param patch - 配置
+ * @returns メニュー時点の矩形へ配置を書く。選択時の DOM には依存しないなら true
  */
 export function applyTableAlignSnapshot(
 	view: EditorView,
@@ -4000,15 +4090,15 @@ export function applyTableAlignSnapshot(
 }
 
 /**
- * セル単位の変更を表全体の1置換にする。
+ * セル単位の変更を表全体の1置換にする
  * 表ウィジェットは複数行 replace のため、内部だけの変更だと CodeMirror が
- * 既存 DOM を continueWidget で残し、配置クラスが付いた新しい表が乗らない。
- * 表の右側（同じソース行）をクリックすると行が組み直されて反映されるのはこのため。
- * @param {string} tableText 表ソース
- * @param {number} tableFrom 表開始
- * @param {number} tableTo 表終了
- * @param {TableDocumentChange[]} changes セル変更
- * @returns {TableDocumentChange}
+ * 既存 DOM を continueWidget で残し、配置クラスが付いた新しい表が乗らない
+ * 表の右側（同じソース行）をクリックすると行が組み直されて反映されるのはこのため
+ * @param tableText - 表ソース
+ * @param tableFrom - 表開始
+ * @param tableTo - 表終了
+ * @param changes - セル変更
+ * @returns セル単位の変更を表全体の1置換にする
  */
 export function collapseTableDocumentChanges(
 	tableText: string,
@@ -4028,11 +4118,10 @@ export function collapseTableDocumentChanges(
 }
 
 /**
- * いま描画されている表へ、文書上の配置クラスを付け直す。
- * ウィジェット再利用では `eq` が同じだと `updateDOM` が呼ばれず、プレビューだけ古いまま残る。
- * @param {EditorView} view エディタ
- * @param {number} tableFrom 表開始位置
- * @returns {void}
+ * いま描画されている表へ、文書上の配置クラスを付け直す
+ * ウィジェット再利用では `eq` が同じだと `updateDOM` が呼ばれず、プレビューだけ古いまま残る
+ * @param view - エディタ
+ * @param tableFrom - 表開始位置
  */
 export function syncRenderedTableAlignment(view: EditorView, tableFrom: number): void {
 	const wrap = findRenderedTableWrap(view, tableFrom);
@@ -4049,10 +4138,10 @@ export function syncRenderedTableAlignment(view: EditorView, tableFrom: number):
 }
 
 /**
- * 描画中の表ラッパーを返す。位置がずれたあとも表を拾う。
- * @param {EditorView} view エディタ
- * @param {number} tableFrom 表開始位置
- * @returns {HTMLElement | null}
+ * 描画中の表ラッパーを返す。位置がずれたあとも表を拾う
+ * @param view - エディタ
+ * @param tableFrom - 表開始位置
+ * @returns 描画中の表ラッパーを返す。位置がずれたあとも表を拾う。無ければ null
  */
 function findRenderedTableWrap(view: EditorView, tableFrom: number): HTMLElement | null {
 	const roots = [view.contentDOM, view.dom].filter((node): node is HTMLElement => Boolean(node));
@@ -4086,10 +4175,9 @@ function findRenderedTableWrap(view: EditorView, tableFrom: number): HTMLElement
 }
 
 /**
- * 表ラッパー内のセルへ配置クラスを付ける。
- * @param {HTMLElement} wrap 表ラッパー
- * @param {TableData} data 表
- * @returns {void}
+ * 表ラッパー内のセルへ配置クラスを付ける
+ * @param wrap - 表ラッパー
+ * @param data - 表
  */
 function applyTableAlignmentClassesToWrap(wrap: HTMLElement, data: TableData): void {
 	wrap.dataset.tableFrom = String(data.tableFrom);
@@ -4111,11 +4199,11 @@ function applyTableAlignmentClassesToWrap(wrap: HTMLElement, data: TableData): v
 }
 
 /**
- * セル配置を文書へ書く。
- * @param {EditorView} view エディタ
- * @param {MouseEvent} event マウス
- * @param {TableAlignPatch} patch 配置
- * @returns {boolean}
+ * セル配置を文書へ書く
+ * @param view - エディタ
+ * @param event - マウス
+ * @param patch - 配置
+ * @returns セル配置を文書へ書くなら true
  */
 export function applyTableAlignAction(
 	view: EditorView,
@@ -4131,12 +4219,12 @@ export function applyTableAlignAction(
 }
 
 /**
- * 罫線ドラッグで決めた列幅・行高を見出し左上セルへ書く。
- * @param {EditorView} view エディタ
- * @param {number} tableFrom 表開始位置
- * @param {TableLayout} layout 測ったレイアウト
- * @param {TableResizeHit} hit 操作した罫線
- * @returns {boolean}
+ * 罫線ドラッグで決めた列幅・行高を見出し左上セルへ書く
+ * @param view - エディタ
+ * @param tableFrom - 表開始位置
+ * @param layout - 測ったレイアウト
+ * @param hit - 操作した罫線
+ * @returns 罫線ドラッグで決めた列幅・行高を見出し左上セルへ書くなら true
  */
 export function persistTableLayout(
 	view: EditorView,
@@ -4172,9 +4260,10 @@ export function persistTableLayout(
 }
 
 /**
- * @param {EditorView} view エディタ
- * @param {MouseEvent} event マウス
- * @returns {{ data: TableData; state: TableMergeActionState } | null}
+ * 右クリック位置から、結合または解除の対象を決める
+ * @param view - 構文木と表位置を読むエディタ
+ * @param event - 右クリック。対象セルが取れなければ null
+ * @returns 表データと結合可否。表の外なら null
  */
 function resolveTableMergeTarget(
 	view: EditorView,
@@ -4194,9 +4283,9 @@ function resolveTableMergeTarget(
 }
 
 /**
- * 右クリック先が DOM から外れても、表位置とセル位置を読む。
- * @param {MouseEvent} event マウス
- * @returns {{ tableFrom: number; selected: TableSelectionRect | null; clicked: TableCellPosition | null } | null}
+ * 右クリック先が DOM から外れても、表位置とセル位置を読む
+ * @param event - マウス
+ * @returns 右クリック先が DOM から外れても、表位置とセル位置
  */
 function readTableMergeEventParts(
 	event: MouseEvent,
@@ -4224,10 +4313,9 @@ function readTableMergeEventParts(
 }
 
 /**
- * いま描画されている表の編集中セルを文書へ書いて閉じる。
- * @param {EditorView} view エディタ
- * @param {number} tableFrom 表開始位置
- * @returns {void}
+ * いま描画されている表の編集中セルを文書へ書いて閉じる
+ * @param view - エディタ
+ * @param tableFrom - 表開始位置
  */
 function persistEditingTableCellsAt(view: EditorView, tableFrom: number): void {
 	const wrap = view.dom.querySelector<HTMLElement>(`.cm-md-table-wrap[data-table-from="${tableFrom}"]`);
@@ -4237,9 +4325,9 @@ function persistEditingTableCellsAt(view: EditorView, tableFrom: number): void {
 }
 
 /**
- * セルソースの配置クラスを正規化する。
- * @param {string} sourceText セルソース
- * @returns {string}
+ * セルソースの配置クラスを正規化する
+ * @param sourceText - セルソース
+ * @returns 正規化したセルソースの配置クラス
  */
 function tableAlignmentClassKey(sourceText: string): string {
 	return cellAlignmentClassNames(parseCellSpan(sourceText))
@@ -4250,9 +4338,9 @@ function tableAlignmentClassKey(sourceText: string): string {
 }
 
 /**
- * セル DOM に付いている配置クラスを正規化する。
- * @param {HTMLElement} cell セル
- * @returns {string}
+ * セル DOM に付いている配置クラスを正規化する
+ * @param cell - セル
+ * @returns 正規化したセル DOM に付いている配置クラス
  */
 function readCellAlignmentClassKey(cell: HTMLElement): string {
 	return [...cell.classList]
@@ -4262,11 +4350,11 @@ function readCellAlignmentClassKey(cell: HTMLElement): string {
 }
 
 /**
- * 既存 DOM の配置クラスが文書と一致するか。違うときは作り直す。
- * クラスだけ付け替えても WebView では描画が更新されない。
- * @param {HTMLElement} dom 表ラッパー
- * @param {TableData} data 表
- * @returns {boolean}
+ * 既存 DOM の配置クラスが文書と一致するか。違うときは作り直す
+ * クラスだけ付け替えても WebView では描画が更新されない
+ * @param dom - 表ラッパー
+ * @param data - 表
+ * @returns 既存 DOM の配置クラスが文書と一致するか。違うときは作り直すなら true
  */
 function tableDomMatchesAlignment(dom: HTMLElement, data: TableData): boolean {
 	for (const cell of dom.querySelectorAll<HTMLElement>('[data-table-row][data-table-column]')) {
@@ -4288,10 +4376,10 @@ function tableDomMatchesAlignment(dom: HTMLElement, data: TableData): boolean {
 }
 
 /**
- * 既存 DOM のセル数が占有グリッドと一致するか。結合の増減では作り直す。
- * @param {HTMLElement} dom 表ラッパー
- * @param {ReturnType<typeof buildTableOccupancy>} occupancy 占有
- * @returns {boolean}
+ * 既存 DOM のセル数が占有グリッドと一致するか。結合の増減では作り直す
+ * @param dom - 表ラッパー
+ * @param occupancy - 占有
+ * @returns 既存 DOM のセル数が占有グリッドと一致するか。結合の増減では作り直すなら true
  */
 function tableDomMatchesOccupancy(
 	dom: HTMLElement,
@@ -4336,15 +4424,20 @@ function tableDomMatchesOccupancy(
 	});
 }
 
+// ==============================================
+// 表ウィジェット
+// ==============================================
 /**
  * テーブル HTML ウィジェット
  */
 export class TableWidget extends WidgetType {
+	/** 今描いている表データ。同じ表の更新で差し替える */
 	readonly data: TableData;
+	/** コードハイライトの世代。言語の読み込み後に印を変える */
 	readonly languageGeneration: number;
 
 	/**
-	 * @param {TableData} data テーブルデータ
+	 * @param data - テーブルデータ
 	 */
 	constructor(data: TableData) {
 		super();
@@ -4353,8 +4446,8 @@ export class TableWidget extends WidgetType {
 	}
 
 	/**
-	 * @param {WidgetType} other 比較対象
-	 * @returns {boolean}
+	 * @param other - 比較対象
+	 * @returns 同一なら true
 	 */
 	eq(other: WidgetType): boolean {
 		if (!(other instanceof TableWidget)) {
@@ -4367,11 +4460,11 @@ export class TableWidget extends WidgetType {
 	}
 
 	/**
-	 * 同じ表として再利用するとき、位置と非編集セルだけ更新する。
-	 * 編集中セルは IME / 改行用に DOM を維持する。
-	 * @param {HTMLElement} dom 既存 DOM
-	 * @param {EditorView} view エディタ
-	 * @returns {boolean}
+	 * 同じ表として再利用するとき、位置と非編集セルだけ更新する
+	 * 編集中セルは IME / 改行用に DOM を維持する
+	 * @param dom - 既存 DOM
+	 * @param view - エディタ
+	 * @returns 同じ表として再利用するとき、位置と非編集セルだけ更新するなら true
 	 */
 	updateDOM(dom: HTMLElement, view: EditorView): boolean {
 		if (!dom?.classList?.contains('cm-md-table-wrap')) {
@@ -4424,7 +4517,7 @@ export class TableWidget extends WidgetType {
 	}
 
 	/**
-	 * @returns {HTMLElement}
+	 * @returns 生成した要素
 	 */
 	toDOM(view: EditorView): HTMLElement {
 		const wrap     = document.createElement('div');
@@ -4440,12 +4533,12 @@ export class TableWidget extends WidgetType {
 		table.dataset.columnCount = String(columnCount);
 
 		/**
-		 * 編集可能セルを生成する。
-		 * @param {'th' | 'td'} tagName 要素名
-		 * @param {TableCellNode[]} nodes 表示ノード
-		 * @param {TableCellSource | undefined} source セルソース
-		 * @param {TableCellPosition} position セル位置
-		 * @returns {HTMLTableCellElement}
+		 * 編集可能セルを生成する
+		 * @param tagName - 要素名
+		 * @param nodes - 表示ノード
+		 * @param source - セルソース
+		 * @param position - セル位置
+		 * @returns 編集可能セル
 		 */
 		const createCell = (
 			tagName: 'th' | 'td',
@@ -4467,8 +4560,7 @@ export class TableWidget extends WidgetType {
 			applyRememberedWidthToCell(cell, nodes, position);
 			/**
 			 * セル内画像へ、表の view から直接書き戻す処理を束縛する
-			 * @param {TableCellNode[]} cellNodes セル AST
-			 * @returns {void}
+			 * @param cellNodes - セル AST
 			 */
 			const bindCellImagePersist = (cellNodes: TableCellNode[]): void => {
 				if (view.state.readOnly) {
@@ -4508,7 +4600,7 @@ export class TableWidget extends WidgetType {
 					return;
 				}
 
-				// CodeMirror のカーソル同期で再描画される前に、直前の表選択表示を確実に消す。
+				// CodeMirror のカーソル同期で再描画される前に、直前の表選択表示を確実に消す
 				clearTableSelectionRect(wrap, table);
 				clearTableStructureSelection(wrap, table);
 				syncTableCellEditorSelection(view, this.data, position);
@@ -4532,7 +4624,7 @@ export class TableWidget extends WidgetType {
 
 				/**
 				 * 束縛済み view からソースへ書く
-				 * @returns {boolean} 書けたか
+				 * @returns 書けたか
 				 */
 				const persist = (): boolean => writeTableCellImageWidth(
 					view,
@@ -4571,9 +4663,9 @@ export class TableWidget extends WidgetType {
 			let compositionCommitPending = false;
 			let persistGuard             = 0;
 			/**
-			 * セル値だけを文書へ書く。フォーカスは動かさない。
-			 * @param {string} userEvent CodeMirror のユーザーイベント名
-			 * @returns {boolean} 書いたか
+			 * セル値だけを文書へ書く。フォーカスは動かさない
+			 * @param userEvent - CodeMirror のユーザーイベント名
+			 * @returns 書いたか
 			 */
 			const persistCellValue       = (userEvent: string): boolean => {
 				if (cell.dataset.editing !== 'true' || composing) {
@@ -4607,9 +4699,8 @@ export class TableWidget extends WidgetType {
 				return true;
 			};
 			/**
-			 * セルの表示値を CodeMirror 文書へ反映し、編集中ならキャレットを戻す。
-			 * @param {string} userEvent CodeMirror のユーザーイベント名
-			 * @returns {void}
+			 * セルの表示値を CodeMirror 文書へ反映し、編集中ならキャレットを戻す
+			 * @param userEvent - CodeMirror のユーザーイベント名
 			 */
 			const dispatchCellValue = (userEvent: string): void => {
 				const caret = getCellCaretOffset(cell);
@@ -4929,7 +5020,7 @@ export class TableWidget extends WidgetType {
 
 		wrap.appendChild(table);
 		attachTableCellSelection(wrap, table, this.data, view);
-		/** 構造ヘッダーの余白切替後にリサイズハンドルを表へ合わせ直す。 */
+		/** 構造ヘッダーの余白切替後にリサイズハンドルを表へ合わせ直す */
 		let syncResizeHandles = (): void => undefined;
 		if (columnCount > 0) {
 			syncResizeHandles = attachTableResize(wrap, table, getTableLayoutKey(this.data.tableFrom, columnCount), {
@@ -4973,7 +5064,7 @@ export class TableWidget extends WidgetType {
 
 	/**
 	 * 行数に応じた推定高さ（ビューポート計測の安定化）
-	 * @returns {number}
+	 * @returns 行数に応じた推定高さ（ビューポート計測の安定化）
 	 */
 	get estimatedHeight(): number {
 		const rowCount = this.data.headers.length > 0
@@ -4983,7 +5074,7 @@ export class TableWidget extends WidgetType {
 	}
 
 	/**
-	 * @returns {boolean}
+	 * @returns 同一なら true
 	 */
 	ignoreEvent(): boolean {
 		return true;
@@ -4993,11 +5084,10 @@ export class TableWidget extends WidgetType {
 /**
  * テーブル全体をウィジェットへ置換する Decoration を追加する
  * （複数行 replace はインライン。`block: true` は使わない）
- * @param {DecorationEntry[]} entries エントリ配列
- * @param {number} from 開始位置
- * @param {number} to 終了位置
- * @param {TableData} data テーブルデータ
- * @returns {void}
+ * @param entries - エントリ配列
+ * @param from - 開始位置
+ * @param to - 終了位置
+ * @param data - テーブルデータ
  */
 export function pushTableReplace(
 	entries: DecorationEntry[],
