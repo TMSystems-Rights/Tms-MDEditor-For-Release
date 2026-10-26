@@ -54,17 +54,17 @@ function cellKey(cell: CellImagePosition, path: string = ''): string {
  * @param width - 幅（px）。24 未満は 24 として覚える
  * @param cell - 表セル位置。行と列が整数のときだけセルキーを更新する
  */
-export function rememberCellImageWidth(
-	path: string,
-	width: number,
-	cell?: CellImagePosition,
-): void {
+export function rememberCellImageWidth(path: string, width: number, cell?: CellImagePosition): void {
+	// 覚える幅（px）。24 未満は 24 に切り上げ、小数は四捨五入
 	const rounded = Math.max(24, Math.round(width));
+	// 比較用のパス。空白だけなら空文字で、パスキーは作らない
 	const key     = normalizePath(path);
+	// パスが空でなければパスから幅を引けるようにする。空ならセルキーだけが候補
 	if (key) {
 		widthsByPath.set(key, rounded);
 	}
 
+	// セルがあり、行と列が両方整数のときだけセルキーを更新する。どれか一つが欠けてもパスキー以外は変えない
 	if (cell && Number.isInteger(cell.row) && Number.isInteger(cell.column)) {
 		widthsByCell.set(cellKey(cell, path), rounded);
 		widthsByCell.set(cellKey(cell), rounded);
@@ -78,15 +78,15 @@ export function rememberCellImageWidth(
  * @param cell - 表セル位置。パスで見つからないときの予備
  * @returns 幅（px）。覚えていない、またはセルが整数でないときは undefined
  */
-export function recallCellImageWidth(
-	path: string,
-	cell?: CellImagePosition,
-): number | undefined {
+export function recallCellImageWidth(path: string, cell?: CellImagePosition): number | undefined {
+	// パスで覚えた幅（px）。覚えていなければ undefined。0 は入らない
 	const fromPath = widthsByPath.get(normalizePath(path));
+	// パスの記憶があるときはセルを見ない
 	if (fromPath) {
 		return fromPath;
 	}
 
+	// セルが無い、または行か列が整数でないときはパス以外を見ない。どれか一つでも欠ければ undefined
 	if (!cell || !Number.isInteger(cell.row) || !Number.isInteger(cell.column)) {
 		return undefined;
 	}
@@ -101,16 +101,20 @@ export function recallCellImageWidth(
  * @param cell - 表セル位置。整数のとき、パス付きとセルだけのキーを消す
  */
 export function forgetCellImageWidth(path: string, cell?: CellImagePosition): void {
+	// 消すパスの比較形。空ならパスキーは消さない
 	const key = normalizePath(path);
+	// パスがあるとき、そのパスの記憶と、キー末尾がそのパスのセル記憶を消す
 	if (key) {
 		widthsByPath.delete(key);
 		for (const stored of [...widthsByCell.keys()]) {
+			// セルキーの末尾がそのパスなら、行と列が違っても同じ画像の記憶を消す
 			if (stored.endsWith(`:${key}`)) {
 				widthsByCell.delete(stored);
 			}
 		}
 	}
 
+	// セル位置が整数のとき、パス付きとセルだけのキーを消す。どれか一つが欠けてもセル位置の削除はしない
 	if (cell && Number.isInteger(cell.row) && Number.isInteger(cell.column)) {
 		widthsByCell.delete(cellKey(cell, path));
 		widthsByCell.delete(cellKey(cell));

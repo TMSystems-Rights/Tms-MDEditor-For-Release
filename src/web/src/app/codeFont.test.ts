@@ -4,13 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-	applyCodeFontFamily,
-	buildCodeFontCss,
-	CODE_FONT_STYLE_ID,
-	DEFAULT_CODE_FONT_FAMILY,
-	sanitizeCssFontFamily,
-} from './codeFont';
+import { applyCodeFontFamily, buildCodeFontCss, CODE_FONT_STYLE_ID, DEFAULT_CODE_FONT_FAMILY, sanitizeCssFontFamily } from './codeFont';
 import { CSS_SNIPPET_STYLE_ATTRIBUTE } from '../settings/cssSnippets';
 
 /** テストが style 要素の代わりに使う、属性と本文を記録するノード */
@@ -61,8 +55,8 @@ function createStyleNode(id = ''): StyleNode {
 	const attributes      = new Map<string, string>();
 	const node: StyleNode = {
 		id,
-		tagName     : 'STYLE',
-		textContent : '',
+		tagName: 'STYLE',
+		textContent: '',
 		attributes,
 		/**
 		 * 属性を取得する
@@ -77,7 +71,7 @@ function createStyleNode(id = ''): StyleNode {
 		 */
 		setAttribute: (name, value) => {
 			attributes.set(name, value);
-		},
+		}
 	};
 	return node;
 }
@@ -125,7 +119,7 @@ function createDocumentDom(): DocumentDom {
 				return head.children.find((child) => child.getAttribute(CSS_SNIPPET_STYLE_ATTRIBUTE) !== null) ?? null;
 			}
 			return null;
-		},
+		}
 	};
 
 	return {
@@ -148,7 +142,7 @@ function createDocumentDom(): DocumentDom {
 				throw new Error(`unexpected tag: ${tagName}`);
 			}
 			return createStyleNode();
-		},
+		}
 	};
 }
 
@@ -166,15 +160,11 @@ describe('sanitizeCssFontFamily', () => {
 
 describe('buildCodeFontCss', () => {
 	it('CSS 変数へフォントを書き出す', () => {
-		expect(buildCodeFontCss('"BIZ UDゴシック", monospace')).toBe(
-			':root { --tms-mde-font-mono: "BIZ UDゴシック", monospace; }',
-		);
+		expect(buildCodeFontCss('"BIZ UDゴシック", monospace')).toBe(':root { --tms-mde-font-mono: "BIZ UDゴシック", monospace; }');
 	});
 
 	it('セレクタを差し替えられる', () => {
-		expect(buildCodeFontCss('Consolas', '.tms-mde-export-root')).toBe(
-			'.tms-mde-export-root { --tms-mde-font-mono: Consolas; }',
-		);
+		expect(buildCodeFontCss('Consolas', '.tms-mde-export-root')).toBe('.tms-mde-export-root { --tms-mde-font-mono: Consolas; }');
 	});
 });
 
@@ -198,9 +188,7 @@ describe('applyCodeFontFamily', () => {
 		applyCodeFontFamily('"HackGen Console NF", monospace');
 
 		expect(dom.head.children[0]?.id).toBe(CODE_FONT_STYLE_ID);
-		expect(dom.head.children[0]?.textContent).toBe(
-			'.tms-mde-editor-host { --tms-mde-font-mono: "HackGen Console NF", monospace; }',
-		);
+		expect(dom.head.children[0]?.textContent).toBe('.tms-mde-editor-host { --tms-mde-font-mono: "HackGen Console NF", monospace; }');
 		expect(dom.head.children[1]).toBe(snippet);
 	});
 

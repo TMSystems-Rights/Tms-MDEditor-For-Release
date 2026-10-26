@@ -39,11 +39,14 @@ export class HtmlTableWidget extends WidgetType {
 	 * @returns クラス `cm-md-html-table-wrap` の要素
 	 */
 	toDOM(): HTMLElement {
+		// 表を包む編集不可の要素。innerHTML にはサニタイズ済みの表を入れる
 		const wrap     = document.createElement('div');
 		wrap.className = 'cm-md-html-table-wrap';
 		wrap.setAttribute('contenteditable', 'false');
 		wrap.innerHTML = this.html;
+		// ラッパー内の最初の table。サニタイズ結果に表が無ければ null
 		const table    = wrap.querySelector('table');
+		// 表要素があるときだけ Markdown 表と HTML 表のクラスを付ける。無ければクラスは足さない
 		if (table) {
 			table.classList.add('cm-md-table', 'cm-md-html-table');
 		}
@@ -69,23 +72,24 @@ export class HtmlTableWidget extends WidgetType {
  * @param raw - サニタイズ前の HTML。表が取り出せなければ追加しない
  * @returns 装飾を追加したら true
  */
-export function pushHtmlTableReplace(
-	entries: DecorationEntry[],
-	from: number,
-	to: number,
-	raw: string,
-): boolean {
+export function pushHtmlTableReplace(entries: DecorationEntry[], from: number, to: number, raw: string): boolean {
+	// サニタイズ後の表 HTML。表を取り出せなければ null
 	const html = sanitizeHtmlTable(raw);
+	// 表 HTML が無い、または範囲が空なら装飾を足さない。どちらか一方でも false
 	if (!html || from >= to) {
 		return false;
 	}
 
+	// 編集できない表ウィジェットへの replace
 	entries.push({
+		// 置き換えるブロックの開始。ドキュメント先頭からの文字位置
 		from,
+		// 置き換えるブロックの終端。from より大きい
 		to,
+		// サニタイズ済み HTML を固定したウィジェット。元のタグ文字は残さない
 		decoration: Decoration.replace({
-			widget: new HtmlTableWidget(html),
-		}),
+			widget: new HtmlTableWidget(html)
+		})
 	});
 	return true;
 }

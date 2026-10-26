@@ -36,6 +36,7 @@ internal sealed class AppApi
 	/// <returns>シェルへ渡したのと同じ可否。Web 層への応答に使う</returns>
 	public CloseDecisionResult ReportCloseReady(JsonElement paramsElement)
 	{
+		// 閉じてよいか。プロパティが無い、または false のときはウィンドウを開いたままにする
 		bool allowClose = paramsElement.TryGetProperty(BridgeProperty.AllowClose, out JsonElement allowCloseElement)
 			&& allowCloseElement.GetBoolean();
 

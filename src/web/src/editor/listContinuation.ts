@@ -10,5 +10,6 @@ import { insertNewlineContinueMarkupCommand } from '@codemirror/lang-markdown';
  * 空のマーカー行ではレベルを解除する。非タイト化のための空行は挿入しない
  */
 export const continueListMarkup = insertNewlineContinueMarkupCommand({
-	nonTightLists: false,
+	// 継続時に空行を挟まない。false のあいだは、項目のあいだを非タイトなリストにしない
+	nonTightLists: false
 });

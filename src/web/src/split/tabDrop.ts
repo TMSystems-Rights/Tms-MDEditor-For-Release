@@ -38,19 +38,27 @@ type RectLike = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
  */
 export function calculatePaneDropPlacement(rect: RectLike, clientX: number, clientY: number): PaneDropPlacement {
 	// 幅・高さが異なるペインでも4辺を同じ尺度で比較できるよう0〜1へ正規化し、最も近い辺を採用する
+	// 幅に対する横位置。幅が 0 以下のときは中央の 0.5。はみ出しは 0〜1 に切る
 	const normalizedX                              = rect.width > 0 ? Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) : 0.5;
+	// 高さに対する縦位置。高さが 0 以下のときは中央の 0.5
 	const normalizedY                              = rect.height > 0 ? Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)) : 0.5;
+	// 4 辺までの距離。小さい辺ほどドロップ位置に近い。単位は正規化後の割合
 	const distances: Array<[PaneDropZone, number]> = [
 		['left', normalizedX],
 		['right', 1 - normalizedX],
 		['top', normalizedY],
-		['bottom', 1 - normalizedY],
+		['bottom', 1 - normalizedY]
 	];
-	const zone                                     = distances.reduce((nearest, candidate) => candidate[1] < nearest[1] ? candidate : nearest)[0];
+	// 距離が最小の辺。同じ距離のときは left から順に先へ残った方
+	const zone                                     = distances.reduce((nearest, candidate) => (candidate[1] < nearest[1] ? candidate : nearest))[0];
 
+	// このドロップで作る分割。最も近い辺から向きと前後を決める
 	return {
+		// 採用した辺。left、right、top、bottom のいずれか
 		zone,
+		// 左右の辺なら縦分割、上下なら横分割
 		direction: zone === 'left' || zone === 'right' ? 'vertical' : 'horizontal',
-		newPanePosition: zone === 'left' || zone === 'top' ? 'first' : 'second',
+		// 左または上なら既存ペインの前。右または下なら後ろ
+		newPanePosition: zone === 'left' || zone === 'top' ? 'first' : 'second'
 	};
 }

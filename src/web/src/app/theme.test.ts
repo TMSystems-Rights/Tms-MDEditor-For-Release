@@ -61,7 +61,7 @@ function createThemeDom(): ThemeDom {
 			 */
 			removeAttribute: (name) => {
 				htmlAttrs.delete(name);
-			},
+			}
 		},
 		body: {
 			classList: {
@@ -86,9 +86,9 @@ function createThemeDom(): ThemeDom {
 				 * @param name - 調べるクラス名
 				 * @returns 付いていれば true
 				 */
-				contains: (name) => bodyClasses.has(name),
-			},
-		},
+				contains: (name) => bodyClasses.has(name)
+			}
+		}
 	};
 }
 
@@ -105,7 +105,7 @@ describe('theme', () => {
 			 * prefers-color-scheme のモックを返す
 			 * @returns OS がダークなら matches が true
 			 */
-			matchMedia: () => ({ matches: prefersDark }),
+			matchMedia: () => ({ matches: prefersDark })
 		});
 	});
 

@@ -21,8 +21,10 @@ export type DocumentContext = {
  * filePath は null、リモート画像の読み込みは許可。実行中は置き換えず、コピーして返す
  */
 const DEFAULT_DOCUMENT_CONTEXT: DocumentContext = {
-	filePath         : null,
-	loadRemoteImages : true,
+	// 未保存のパス。文脈をまだ受け取っていないときはファイルが無い
+	filePath: null,
+	// リモート画像を読むか。未設定時は許可し、false にはしない
+	loadRemoteImages: true
 };
 
 /**
@@ -43,7 +45,7 @@ export const documentContextFacet = Facet.define<DocumentContext, DocumentContex
 	 */
 	combine(values) {
 		return values.length > 0 ? values[values.length - 1]! : DEFAULT_DOCUMENT_CONTEXT;
-	},
+	}
 });
 
 /**
@@ -67,6 +69,7 @@ export const documentContextField = StateField.define<DocumentContext>({
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
+			// 文脈の置き換えが見つかった時点で、その値を次の文脈にする。他の Effect では値を変えない
 			if (effect.is(setDocumentContextEffect)) {
 				return effect.value;
 			}
@@ -79,7 +82,7 @@ export const documentContextField = StateField.define<DocumentContext>({
 	 * @param field - 文脈を保持する StateField
 	 * @returns Facet へ値を流す拡張
 	 */
-	provide: (field) => documentContextFacet.from(field),
+	provide: (field) => documentContextFacet.from(field)
 });
 
 /**
@@ -89,9 +92,7 @@ export const documentContextField = StateField.define<DocumentContext>({
  * @returns documentContextField を初期化する拡張の配列
  */
 export function createDocumentContextExtensions(initial: DocumentContext): Extension[] {
-	return [
-		documentContextField.init(() => initial),
-	];
+	return [documentContextField.init(() => initial)];
 }
 
 /**

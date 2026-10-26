@@ -4,16 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-	applyImageBorder,
-	buildImageBorderCss,
-	DEFAULT_IMAGE_BORDER,
-	IMAGE_BORDER_STYLE_ID,
-	isCssHexColor,
-	resolveImageBorder,
-	sanitizeCssHexColor,
-	toColorInputValue,
-} from './imageBorder';
+import { applyImageBorder, buildImageBorderCss, DEFAULT_IMAGE_BORDER, IMAGE_BORDER_STYLE_ID, isCssHexColor, resolveImageBorder, sanitizeCssHexColor, toColorInputValue } from './imageBorder';
 import { CSS_SNIPPET_STYLE_ATTRIBUTE } from '../settings/cssSnippets';
 
 /** テストが style 要素の代わりに使う、属性と本文を記録するノード */
@@ -64,7 +55,7 @@ function createStyleNode(id = ''): StyleNode {
 	const attributes      = new Map<string, string>();
 	const node: StyleNode = {
 		id,
-		tagName    : 'STYLE',
+		tagName: 'STYLE',
 		textContent: '',
 		attributes,
 		/**
@@ -80,7 +71,7 @@ function createStyleNode(id = ''): StyleNode {
 		 */
 		setAttribute: (name, value) => {
 			attributes.set(name, value);
-		},
+		}
 	};
 	return node;
 }
@@ -128,7 +119,7 @@ function createDocumentDom(): DocumentDom {
 				return head.children.find((child) => child.getAttribute(CSS_SNIPPET_STYLE_ATTRIBUTE) !== null) ?? null;
 			}
 			return null;
-		},
+		}
 	};
 
 	return {
@@ -151,7 +142,7 @@ function createDocumentDom(): DocumentDom {
 				throw new Error(`unexpected tag: ${tagName}`);
 			}
 			return createStyleNode();
-		},
+		}
 	};
 }
 
@@ -188,18 +179,21 @@ describe('resolveImageBorder', () => {
 
 describe('buildImageBorderCss', () => {
 	it('空のホバー色はテーマのアクセントを使う', () => {
-		expect(buildImageBorderCss(DEFAULT_IMAGE_BORDER, '.tms-mde-editor-host')).toBe(
-			'.tms-mde-editor-host { --tms-mde-image-border-width: 1px; --tms-mde-image-border-color: #888888; --tms-mde-image-border-hover-width: 3px; --tms-mde-image-border-hover-color: var(--tms-mde-color-primary); }',
-		);
+		expect(buildImageBorderCss(DEFAULT_IMAGE_BORDER, '.tms-mde-editor-host')).toBe('.tms-mde-editor-host { --tms-mde-image-border-width: 1px; --tms-mde-image-border-color: #888888; --tms-mde-image-border-hover-width: 3px; --tms-mde-image-border-hover-color: var(--tms-mde-color-primary); }');
 	});
 
 	it('指定色を書き出す', () => {
-		expect(buildImageBorderCss({
-			width     : 2,
-			color     : '#444444',
-			hoverWidth: 5,
-			hoverColor: '#2563eb',
-		}, '.tms-mde-export-root')).toContain('--tms-mde-image-border-hover-color: #2563eb;');
+		expect(
+			buildImageBorderCss(
+				{
+					width: 2,
+					color: '#444444',
+					hoverWidth: 5,
+					hoverColor: '#2563eb'
+				},
+				'.tms-mde-export-root'
+			)
+		).toContain('--tms-mde-image-border-hover-color: #2563eb;');
 	});
 });
 

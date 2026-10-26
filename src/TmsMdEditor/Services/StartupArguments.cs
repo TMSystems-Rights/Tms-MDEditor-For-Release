@@ -47,11 +47,14 @@ internal static class StartupArguments
 	/// <returns>開く対象の絶対パス。無ければ空配列</returns>
 	public static string[] ResolveFilePaths(string[] args)
 	{
+		// 実在したファイルの絶対パス。未知の引数でも実在しなければ入れない
 		var paths = new List<string>();
 		for (int index = 0; index < args.Length; index++)
 		{
+			// 今見ている引数。値を持つオプションなら次の要素もファイルにしない
 			string arg = args[index];
 			// 内部オプションの値をファイルパスと誤認しないよう、オプションと次の1要素をまとめて飛ばす
+			// 値を持つ印のどれか一つに一致すれば入る。どれでもなければファイル候補へ進む
 			if (string.Equals(arg, DetachedTabOption, StringComparison.OrdinalIgnoreCase)
 				|| string.Equals(arg, WindowXOption, StringComparison.OrdinalIgnoreCase)
 				|| string.Equals(arg, WindowYOption, StringComparison.OrdinalIgnoreCase))
@@ -59,9 +62,12 @@ internal static class StartupArguments
 				index++;
 				continue;
 			}
+			// 新規ウィンドウの印は値を持たないので、その要素だけファイルにしない
 			if (string.Equals(arg, ForceNewWindowOption, StringComparison.OrdinalIgnoreCase)) continue;
 
+			// 前後の引用符を外した候補。実在しなければ捨てる
 			string path = arg.Trim('"');
+			// 実在するときだけ絶対パスを追加する。無いパスでは入らない
 			if (File.Exists(path)) paths.Add(Path.GetFullPath(path));
 		}
 		return paths.ToArray();
@@ -74,6 +80,7 @@ internal static class StartupArguments
 	/// <returns>パス。印が無い、または値が無いときは null。前後の引用符は外す</returns>
 	public static string? GetDetachedTabPath(string[] args)
 	{
+		// 切り離し印の位置。無ければ -1 で null を返す
 		int markerIndex = Array.FindIndex(args, arg => string.Equals(arg, DetachedTabOption, StringComparison.OrdinalIgnoreCase));
 		return markerIndex >= 0 && markerIndex + 1 < args.Length ? args[markerIndex + 1].Trim('"') : null;
 	}
@@ -85,7 +92,9 @@ internal static class StartupArguments
 	/// <returns>スクリーン座標。単位は px。どちらかが整数でなければ null</returns>
 	public static Point? GetDetachedWindowPoint(string[] args)
 	{
+		// 水平座標の文字列。単位は px。オプションや値が無ければ null で点にしない
 		string? x = GetOptionValue(args, WindowXOption);
+		// 垂直座標の文字列。単位は px。null や整数でないときは点にしない
 		string? y = GetOptionValue(args, WindowYOption);
 		return int.TryParse(x, out int screenX) && int.TryParse(y, out int screenY)
 			? new Point(screenX, screenY)
@@ -100,6 +109,7 @@ internal static class StartupArguments
 	/// <returns>次の引数。前後の引用符は外す。オプションや値が無ければ null</returns>
 	private static string? GetOptionValue(string[] args, string option)
 	{
+		// オプションの位置。無ければ -1 で null。次の要素が無ければ値も null
 		int markerIndex = Array.FindIndex(args, arg => string.Equals(arg, option, StringComparison.OrdinalIgnoreCase));
 		return markerIndex >= 0 && markerIndex + 1 < args.Length ? args[markerIndex + 1].Trim('"') : null;
 	}

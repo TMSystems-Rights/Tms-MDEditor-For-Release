@@ -98,6 +98,7 @@ internal sealed class Logger
 	/// <param name="data">本文の後ろへ JSON で付ける項目。null または空なら付けない</param>
 	private void Write(LogLevel level, string source, string message, IDictionary<string, object?>? data)
 	{
+		// 下限より弱い行はファイルへ出さない
 		if (LevelPriority[level] < LevelPriority[_minLogLevel])
 		{
 			return;
@@ -105,11 +106,14 @@ internal sealed class Logger
 
 		lock (_syncRoot)
 		{
+			// 追記先ディレクトリ。呼び出しのたびに AppPaths から読む
 			string logDir = GetLogDirectory();
 			Directory.CreateDirectory(logDir);
 			PurgeOldLogs(logDir);
 
+			// タイムスタンプ付きの 1 行。末尾改行はまだ付けない
 			string line = FormatLine(level, source, message, data);
+			// 当日の app-yyyyMMdd.log。日付をまたぐと別ファイルになる
 			string path = Path.Combine(logDir, GetTodayLogFileName());
 			File.AppendAllText(path, line + Environment.NewLine);
 		}
@@ -125,7 +129,9 @@ internal sealed class Logger
 	/// <returns>ファイルへ追記する 1 行。末尾の改行は含まない</returns>
 	private static string FormatLine(LogLevel level, string source, string message, IDictionary<string, object?>? data)
 	{
+		// ローカル時刻とオフセット。書式は yyyy-MM-ddTHH:mm:ss.fffK
 		string timestamp = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss.fffK");
+		// 本文の後ろへ付ける JSON。data が null または空なら空文字で何も付けない
 		string payload   = data is null || data.Count == 0
 			? string.Empty
 			: " " + JsonSerializer.Serialize(data);
@@ -157,10 +163,12 @@ internal sealed class Logger
 	/// <param name="logDir">削除対象を探すディレクトリ。存在することは呼び出し側が保証する</param>
 	private static void PurgeOldLogs(string logDir)
 	{
+		// これより前の最終更新を削除する境界。単位はローカル日時で、保持は 14 日
 		DateTime cutoff = DateTime.Now.AddDays(-LogRetentionDays);
 
 		foreach (string file in Directory.EnumerateFiles(logDir, "app-*.log"))
 		{
+			// 最終更新が境界より前のファイルだけ削除する。境界ちょうどは残す
 			if (File.GetLastWriteTime(file) < cutoff)
 			{
 				File.Delete(file);

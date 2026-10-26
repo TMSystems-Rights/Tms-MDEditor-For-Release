@@ -4,18 +4,7 @@
  */
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import {
-	adjustUiZoom,
-	computeZoomedFontSize,
-	formatUiZoomPercent,
-	getUiZoom,
-	handleUiZoomKeydown,
-	isUiZoomInKey,
-	isUiZoomOutKey,
-	setUiZoom,
-	UI_ZOOM_MAX,
-	UI_ZOOM_MIN,
-} from './uiZoom';
+import { adjustUiZoom, computeZoomedFontSize, formatUiZoomPercent, getUiZoom, handleUiZoomKeydown, isUiZoomInKey, isUiZoomOutKey, setUiZoom, UI_ZOOM_MAX, UI_ZOOM_MIN } from './uiZoom';
 
 describe('uiZoom', () => {
 	beforeEach(() => {
@@ -49,24 +38,26 @@ describe('uiZoom', () => {
 	it('isUiZoomInKey / isUiZoomOutKey を判定する', () => {
 		expect(isUiZoomInKey({ ctrlKey: true, altKey: false, key: '=' } as KeyboardEvent)).toBe(true);
 		expect(isUiZoomOutKey({ ctrlKey: true, altKey: false, key: '-' } as KeyboardEvent)).toBe(true);
-		expect(isUiZoomOutKey({
-			ctrlKey : true,
-			altKey  : false,
-			shiftKey: true,
-			key     : '_',
-		} as KeyboardEvent)).toBe(false);
+		expect(
+			isUiZoomOutKey({
+				ctrlKey: true,
+				altKey: false,
+				shiftKey: true,
+				key: '_'
+			} as KeyboardEvent)
+		).toBe(false);
 	});
 
 	it('handleUiZoomKeydown は Ctrl+= でズームインする', () => {
 		const event = {
-			ctrlKey : true,
-			altKey  : false,
+			ctrlKey: true,
+			altKey: false,
 			shiftKey: false,
-			key     : '=',
+			key: '=',
 			/**
 			 * 既定のキー処理を抑止する（テスト用スタブ）
 			 */
-			preventDefault() {},
+			preventDefault() {}
 		} as KeyboardEvent;
 
 		expect(handleUiZoomKeydown(event)).toBe(true);

@@ -49,20 +49,28 @@ internal static partial class Program
 	/// <returns>起動できれば 0。本体が無い、または起動に失敗したときは 1</returns>
 	private static int Main(string[] args)
 	{
+		// stub 自身の配置ディレクトリ。ZIP を展開した直下
 		string baseDirectory = AppContext.BaseDirectory;
+		// 本体を置く app フォルダ。ここに exe が無いと起動しない
 		string appDirectory = Path.Combine(baseDirectory, AppFolderName);
+		// 起動する本体の絶対パス。ファイルが無いときは 1 で戻る
 		string appExePath = Path.Combine(appDirectory, AppExeFileName);
 
+		// 本体 exe が無いとき。ダイアログを出して 1 で戻る
 		if (!File.Exists(appExePath))
 		{
 			ShowError("本体が見つかりません。フォルダごと移動してください。\n" + AppFolderName + "\\" + AppExeFileName);
 			return 1;
 		}
 
+		// 作業フォルダを app にした起動情報。引数は存在するファイルだけ絶対パスにして足す
 		ProcessStartInfo startInfo = new()
 		{
+			// 起動する本体の絶対パス
 			FileName = appExePath,
+			// 本体のカレント。相対パスの解決基準になる
 			WorkingDirectory = appDirectory,
+			// false ならシェルを介さず起動し、作業フォルダが本体に渡る
 			UseShellExecute = false,
 		};
 
@@ -73,7 +81,9 @@ internal static partial class Program
 
 		try
 		{
+			// 起動した本体。null はプロセスを作れなかったときで、1 で戻る
 			using Process? process = Process.Start(startInfo);
+			// プロセスを作れなかったとき。例外にならない失敗はここで 1 を返す
 			if (process is null)
 			{
 				ShowError("本体を起動できませんでした。");

@@ -29,24 +29,38 @@ export type CssSnippetsReloadStatus = {
  * @returns 表示文言と、失敗として扱うか
  */
 export function getCssSnippetsReloadStatus(response: CssSnippetsResponse): CssSnippetsReloadStatus {
+	// 一覧自体の失敗。件数は見ずにその文言を失敗として出す
 	if (response.error) {
-		return { message: response.error, isError: true };
-	}
-
-	const errorCount = response.snippets.filter((snippet) => snippet.error).length;
-	if (errorCount > 0) {
+		// 一覧取得の失敗。スニペット件数は使わない
 		return {
-			message : `CSSスニペットを再読み込みしました（${errorCount}件の読み込みエラー）。`,
-			isError : true,
+			// ステータス行。ホストが返したエラー文言
+			message: response.error,
+			// 失敗として目立たせる
+			isError: true
 		};
 	}
 
+	// ファイルごとの読み込みエラー件数。0 なら有効件数の文言へ進む
+	const errorCount = response.snippets.filter((snippet) => snippet.error).length;
+	// 1 件でも読めなかったファイルがある。再読み込み自体は終わっている
+	if (errorCount > 0) {
+		// 部分失敗。有効件数よりエラー件数を優先する
+		return {
+			// ステータス行。エラー件数を含む
+			message: `CSSスニペットを再読み込みしました（${errorCount}件の読み込みエラー）。`,
+			// 読めないファイルがあるので失敗表示
+			isError: true
+		};
+	}
+
+	// 有効なスニペット件数。0 なら有効ファイル無しの文言
 	const enabledCount = response.snippets.filter((snippet) => snippet.enabled).length;
+	// エラーの無い再読み込み結果。有効 0 件は失敗にしない
 	return {
-		message : enabledCount > 0
-			? `CSSスニペットを再読み込みしました（有効 ${enabledCount}件）。`
-			: 'CSSスニペットを再読み込みしました（有効なファイルはありません）。',
-		isError : false,
+		// ステータス行。有効件数があるときと無いときで文言が分かれる
+		message: enabledCount > 0 ? `CSSスニペットを再読み込みしました（有効 ${enabledCount}件）。` : 'CSSスニペットを再読み込みしました（有効なファイルはありません）。',
+		// 失敗表示にはしない
+		isError: false
 	};
 }
 
@@ -61,6 +75,7 @@ export function applyCssSnippets(response: CssSnippetsResponse): void {
 	response.snippets
 		.filter((snippet) => snippet.enabled && !snippet.error)
 		.forEach((snippet) => {
+			// 1 件分の style。無効と読み込みエラーは filter で除いてある
 			const style        = document.createElement('style');
 			style.dataset.name = snippet.name;
 			style.textContent  = snippet.cssText;

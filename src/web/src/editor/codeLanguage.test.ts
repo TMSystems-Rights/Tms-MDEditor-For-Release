@@ -4,13 +4,7 @@
  * @file
  */
 import { describe, expect, it } from 'vitest';
-import {
-	collectInlineCodeContentRanges,
-	extractCodeLanguageName,
-	parseInlineCodeLanguagePrefix,
-	resolveCodeLanguage,
-	resolveFencedCodeLanguage,
-} from './codeLanguage';
+import { collectInlineCodeContentRanges, extractCodeLanguageName, parseInlineCodeLanguagePrefix, resolveCodeLanguage, resolveFencedCodeLanguage } from './codeLanguage';
 import { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { createTmsMarkdownSupport } from './createTmsMarkdown';
@@ -22,10 +16,14 @@ import { createTmsMarkdownSupport } from './createTmsMarkdown';
  * @returns state は生成した EditorState。node は最初の InlineCode。無いときは null
  */
 function findInlineCode(doc: string) {
+	// 構文木を作る状態。選択は先頭
 	const state                                          = EditorState.create({
+		// 呼び出し側の本文
 		doc,
-		extensions: [createTmsMarkdownSupport()],
+		// インラインコードのノードを得る Markdown サポート
+		extensions: [createTmsMarkdownSupport()]
 	});
+	// 最初の InlineCode。無ければ null のまま
 	let found: import('@lezer/common').SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
@@ -36,13 +34,21 @@ function findInlineCode(doc: string) {
 		 * @returns InlineCode を見つけたとき false。それ以外は未指定で探索を続ける
 		 */
 		enter(ref) {
+			// InlineCode の最初の 1 つだけを採用し、探索を止める
 			if (ref.name === 'InlineCode') {
+				// 採用するノード。2 件目は見ない
 				found = ref.node;
 				return false;
 			}
-		},
+		}
 	});
-	return { state, node: found };
+	// 状態と、見つかったノード。ノードが無いときは null
+	return {
+		// 構文木を読む状態
+		state,
+		// 最初の InlineCode。無ければ null
+		node: found
+	};
 }
 
 describe('codeLanguage', () => {
@@ -55,16 +61,16 @@ describe('codeLanguage', () => {
 
 	it('インライン `{java}` は直後スペースなしでも解釈し、空白は prefixLength に含める', () => {
 		expect(parseInlineCodeLanguagePrefix('{java}String a = b;')).toEqual({
-			language    : 'java',
-			prefixLength: 6,
+			language: 'java',
+			prefixLength: 6
 		});
 		expect(parseInlineCodeLanguagePrefix('{java} String a = b;')).toEqual({
-			language    : 'java',
-			prefixLength: 7,
+			language: 'java',
+			prefixLength: 7
 		});
 		expect(parseInlineCodeLanguagePrefix('{javascript}   const a = b;')).toEqual({
-			language    : 'javascript',
-			prefixLength: '{javascript}   '.length,
+			language: 'javascript',
+			prefixLength: '{javascript}   '.length
 		});
 		expect(parseInlineCodeLanguagePrefix('{java}\tcode')?.prefixLength).toBe(7);
 		expect(parseInlineCodeLanguagePrefix('   const a = b;')).toBeNull();
@@ -93,6 +99,7 @@ describe('codeLanguage', () => {
 	it('InlineCode の本文範囲を返す', () => {
 		const { state, node } = findInlineCode('x `{java}String a;` y');
 		expect(node).not.toBeNull();
+		// 言語接頭辞を除いた本文範囲。ノードが無いときは見ない
 		const ranges = collectInlineCodeContentRanges(node!);
 		expect(ranges).toHaveLength(1);
 		expect(state.doc.sliceString(ranges[0]!.from, ranges[0]!.to)).toBe('{java}String a;');

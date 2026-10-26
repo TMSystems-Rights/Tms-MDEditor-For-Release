@@ -10,10 +10,15 @@ import type { ImageBorderSettings } from '../types/app';
  * 画像枠線の既定値
  * 通常は 1px の `#888888`、ホバーは 3px で色未指定（テーマのアクセントへ任せる）
  */
+// prettier-ignore
 export const DEFAULT_IMAGE_BORDER: ImageBorderSettings = {
+	// 通常時の太さ。単位は px。0 は枠なし
 	width     : 1,
+	// 通常時の 16進色。空にはしない
 	color     : '#888888',
+	// ホバー時の太さ。単位は px。通常より太い既定
 	hoverWidth: 3,
+	// ホバー時の色。空はテーマのアクセントへ任せる
 	hoverColor: '',
 };
 
@@ -42,7 +47,9 @@ export function isCssHexColor(value: string | null | undefined): boolean {
  * @returns 採用する色。空を許して空だったときは空文字
  */
 export function sanitizeCssHexColor(value: string | null | undefined, fallback: string, allowEmpty = false): string {
+	// 前後の空白を除いた色指定。空なら 16進判定をせず、空を許すときだけ空文字を返す
 	const trimmed = (value ?? '').trim();
+	// 空文字のときは形式を見ない。allowEmpty が false なら代替色、true なら空のまま返す。null や未設定もここへ来る
 	if (trimmed.length === 0) {
 		return allowEmpty ? '' : fallback;
 	}
@@ -58,15 +65,19 @@ export function sanitizeCssHexColor(value: string | null | undefined, fallback: 
  * @returns `#` 付き 6 桁の小文字
  */
 export function toColorInputValue(value: string | null | undefined, fallback: string): string {
+	// 注入に使える 16進カラー。空や不正な入力は代替に置き換わっている。3、6、8 桁以外の代替は末尾で小文字にする
 	const hex = sanitizeCssHexColor(value, fallback);
+	// 3 桁のときだけ各桁を重ねて 6 桁の小文字にする。6 桁や 8 桁はこの分岐に入らない
 	if (/^#[0-9A-Fa-f]{3}$/.test(hex)) {
 		return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`.toLowerCase();
 	}
 
+	// 8 桁のときだけ先頭 6 桁を残して小文字にする。アルファは color input が受け取れない
 	if (/^#[0-9A-Fa-f]{8}$/.test(hex)) {
 		return hex.slice(0, 7).toLowerCase();
 	}
 
+	// 6 桁のときだけ小文字にする。3 桁と 8 桁はここまで来ない
 	if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
 		return hex.toLowerCase();
 	}
@@ -80,17 +91,26 @@ export function toColorInputValue(value: string | null | undefined, fallback: st
  * @param settings - 部分的な設定。null や未設定の項目は既定値
  * @returns 注入に使える完全な枠線設定。ホバー色の空文字は「アクセント色を使う」
  */
+// prettier-ignore
 export function resolveImageBorder(settings: Partial<ImageBorderSettings> | null | undefined): ImageBorderSettings {
+	// 数値化した通常の太さ。単位は px。未設定や数値でないときは NaN になり、戻り値では既定の 1 に戻す
 	const width      = Number(settings?.width);
+	// 数値化したホバーの太さ。単位は px。未設定や数値でないときは NaN になり、戻り値では既定の 3 に戻す
 	const hoverWidth = Number(settings?.hoverWidth);
+	// 注入に使える枠線。範囲外の太さと不正な色は既定へ戻し、ホバー色の空はアクセント色の印として残す
 	return {
+		// 0〜8 の整数だけ採用する。範囲外、小数、NaN は既定の 1。単位は px。どれか一つ欠けても既定へ戻す
 		width     : Number.isInteger(width) && width >= 0 && width <= 8 ? width : DEFAULT_IMAGE_BORDER.width,
+		// 16進以外は既定の #888888。空も代替へ戻す
 		color     : sanitizeCssHexColor(settings?.color, DEFAULT_IMAGE_BORDER.color),
+		// 0〜16 の整数だけ採用する。範囲外、小数、NaN は既定の 3。単位は px。どれか一つ欠けても既定へ戻す
 		hoverWidth: Number.isInteger(hoverWidth) && hoverWidth >= 0 && hoverWidth <= 16 ? hoverWidth : DEFAULT_IMAGE_BORDER.hoverWidth,
+		// 空はアクセント色を使う印として残す。不正な色は空へ戻す
 		hoverColor: sanitizeCssHexColor(settings?.hoverColor, '', true),
 	};
 }
 
+// prettier-ignore
 /**
  * 画像枠線の CSS 変数ルールを生成する
  * ホバー色が空のときは `--tms-mde-color-primary` を参照する
@@ -98,8 +118,11 @@ export function resolveImageBorder(settings: Partial<ImageBorderSettings> | null
  * @param selector - ルールを適用するセレクタ。省略時は `:root`
  * @returns 1 つの CSS ルール文字列。太さの単位は px
  */
+// prettier-ignore
 export function buildImageBorderCss(settings: Partial<ImageBorderSettings> | null | undefined, selector = ':root'): string {
+	// 既定値で補完した枠線。太さは px の整数、ホバー色の空はアクセント色の印
 	const resolved   = resolveImageBorder(settings);
+	// CSS に書くホバー色。設定が空のときはテーマのアクセント変数。空のまま変数へは書かない
 	const hoverColor = resolved.hoverColor.length > 0
 		? resolved.hoverColor
 		: 'var(--tms-mde-color-primary)';
@@ -111,13 +134,20 @@ export function buildImageBorderCss(settings: Partial<ImageBorderSettings> | nul
  * style 要素が無ければ作り、CSS スニペットより前へ置く。既存要素は位置を変えず中身だけ更新する
  * @param settings - 部分的な設定。null や未設定は既定値で補う
  */
+// prettier-ignore
 export function applyImageBorder(settings: Partial<ImageBorderSettings> | null | undefined): void {
+	// エディタホストへ書く枠線変数の 1 ルール。太さの単位は px。ホバー色が空ならアクセント変数
 	const css = buildImageBorderCss(settings, '.tms-mde-editor-host');
+	// 既存の画像枠線用 style。同じ id が無いときは null で、このあと作る
 	let style = document.getElementById(IMAGE_BORDER_STYLE_ID) as HTMLStyleElement | null;
+	// 同じ id の style が無いときだけ要素を作る。あるときは位置を変えず、中身だけ後で更新する
 	if (!style) {
+		// 新しく作る style。この時点ではまだ head に無い
 		style              = document.createElement('style');
 		style.id           = IMAGE_BORDER_STYLE_ID;
+		// 先頭の CSS スニペット style。無いときは null で、枠線用 style は head の末尾へ足す
 		const firstSnippet = document.head.querySelector(`style[${CSS_SNIPPET_STYLE_ATTRIBUTE}]`);
+		// スニペットがあるときだけその直前へ挿入し、スニペットからの上書きを残す。スニペットが無いときはこの分岐に入らない
 		if (firstSnippet) {
 			document.head.insertBefore(style, firstSnippet);
 		} else {

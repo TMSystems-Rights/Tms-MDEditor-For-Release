@@ -44,11 +44,14 @@
 	--tms-mde-color-link-hover: #0369a1;
 	--tms-mde-color-active-line: rgba(37, 99, 235, 0.08);
 	--tms-mde-color-caret: #1a1a1a;
+	/* CodeMirror が cursorLayer へ inline で付ける 150。選択レイヤー（1）より手前 */
 	--tms-mde-caret-layer-z-index: 150;
 	--tms-mde-color-selection: #d97706;
 	--tms-mde-selection-opacity: 0.28;
 	--tms-mde-selection-opacity-focused: 0.34;
+	/* 不透明度は 0〜1。color-mix のパーセントへ 100 倍して透明と合成する */
 	--tms-mde-color-selection-bg: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity) * 100%), transparent);
+	/* フォーカス中は focused の不透明度で、同じ換算をする */
 	--tms-mde-color-selection-bg-focused: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity-focused) * 100%), transparent);
 	--tms-mde-selection-layer-z-index: 1;
 	--tms-mde-color-heading: #111827;
@@ -65,9 +68,10 @@
 	/* フォント、余白、影 */
 	/* ---------------------------------------------- */
 
+	/* リストの入れ子幅。字体の幅（ch）に合わせ、px だと表示倍率でずれる */
 	--tms-mde-list-indent-unit: 4ch;
-	--tms-mde-font-family: "Segoe UI", "Meiryo", sans-serif;
-	--tms-mde-font-mono: Consolas, "Cascadia Mono", "Meiryo UI", monospace;
+	--tms-mde-font-family: 'Segoe UI', 'Meiryo', sans-serif;
+	--tms-mde-font-mono: Consolas, 'Cascadia Mono', 'Meiryo UI', monospace;
 	--tms-mde-radius: 6px;
 	--tms-mde-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
@@ -78,7 +82,7 @@
 
 /* 明示の dark と、system かつ OS がダークのときだけ。ダークの色の定義はここだけ */
 body.tms-mde-theme-dark,
-html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) {
+html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
 	--tms-bg: #1e1e1e;
 	--tms-fg: #f0f0f0;
 	--tms-accent: #3b82f6;
@@ -106,6 +110,7 @@ html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) {
 	--tms-mde-color-active-line: rgba(96, 165, 250, 0.09);
 	--tms-mde-color-caret: #ffff00;
 	--tms-mde-color-selection: #ca8a04;
+	/* 暗い地では同じ色が薄く見えるため、ライトより不透明度を上げる */
 	--tms-mde-selection-opacity: 0.42;
 	--tms-mde-selection-opacity-focused: 0.5;
 	--tms-mde-color-selection-bg: color-mix(in srgb, var(--tms-mde-color-selection) calc(var(--tms-mde-selection-opacity) * 100%), transparent);

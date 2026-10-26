@@ -57,6 +57,7 @@ public class ConfigStoreTests : IDisposable
 		PortableRuntime.ResetForTests();
 		AppPaths.SetOverrideAppDataRoot(null);
 
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot))
 		{
 			Directory.Delete(_tempRoot, recursive: true);
@@ -69,6 +70,7 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_creates_default_config_and_bootstrap_files()
 	{
+		// 初回読込で作った既定設定。失敗時は Success が false
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success);
@@ -88,6 +90,7 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_reads_legacy_pascal_case_bootstrap_data_dir()
 	{
+		// PascalCase の DataDir が指す、まだ設定の無いディレクトリ
 		string customDataDir = Path.Combine(_tempRoot, "legacy-installer-data");
 		Directory.CreateDirectory(customDataDir);
 		Directory.CreateDirectory(AppPaths.AppDataRoot);
@@ -97,6 +100,7 @@ public class ConfigStoreTests : IDisposable
 			{"SchemaVersion":1,"DataDir":"{{customDataDir.Replace("\\", "\\\\")}}"}
 			""");
 
+		// PascalCase の DataDir を保存先として読んだ結果。失敗時は Message に理由がある
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -112,12 +116,14 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// テーマを dark にした保存結果。失敗時は Success が false
 		SaveConfigResult saveResult = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"theme":"dark"}""").RootElement);
 
 		Assert.True(saveResult.Success);
 		Assert.Equal("dark", saveResult.Config?.Settings.Theme);
 
+		// 保存後に読み直した設定。テーマは dark のまま
 		LoadConfigResult reload = _configStore.Load();
 		Assert.Equal("dark", reload.Config.Settings.Theme);
 		Assert.True(Directory.EnumerateFiles(AppPaths.GetBackupDirectory(AppPaths.DefaultDataDir)).Any());
@@ -129,6 +135,7 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_supplies_default_external_browser_settings()
 	{
+		// 外部ブラウザ項目の無い初期設定。コマンドは空
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -142,6 +149,7 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_supplies_default_context_menu_settings()
 	{
+		// コンテキストメニューの初期設定。エディタ側の非表示は空
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -159,12 +167,14 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// 未知の項目と重複を含む並びと非表示を渡した保存結果
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
 				"""{"contextMenu":{"editorOrder":["copy","unknown","copy"],"editorHidden":["copy","unknown","copy"]}}""")
 				.RootElement);
 
 		Assert.True(update.Success, update.Message);
+		// 未知と重複を除いたメニュー設定。非表示は copy だけ
 		ContextMenuSettings settings = Assert.IsType<ContextMenuSettings>(update.Config?.Settings.ContextMenu);
 		Assert.Equal("copy", settings.EditorOrder[0]);
 		Assert.Equal(settings.EditorOrder.Count, settings.EditorOrder.Distinct().Count());
@@ -179,17 +189,23 @@ public class ConfigStoreTests : IDisposable
 	public void UpdateSettings_places_appended_paste_plain_after_paste()
 	{
 		_configStore.Load();
+		// 正規化の基準にする既定の並び。pastePlain の位置を見る
 		List<string> defaults = new ContextMenuSettings().EditorOrder;
+		// pastePlain を除いて末尾へ足した並び。保存後は既定の位置へ戻る
 		List<string> appended = [.. defaults.Where(item => item != "pastePlain"), "pastePlain"];
+		// editorOrder だけを渡す更新 JSON。他の項目は既定のまま
 		string payload = "{\"contextMenu\":{\"editorOrder\":"
 			+ System.Text.Json.JsonSerializer.Serialize(appended)
 			+ "}}";
 
+		// 末尾へ足した並びを保存した結果。失敗時は Message に理由がある
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(payload).RootElement);
 
 		Assert.True(update.Success, update.Message);
+		// 正規化後のメニュー設定。pastePlain は paste の直後
 		ContextMenuSettings settings = Assert.IsType<ContextMenuSettings>(update.Config?.Settings.ContextMenu);
+		// paste の位置。0 未満なら paste が落ちている
 		int pasteIndex = settings.EditorOrder.IndexOf("paste");
 		Assert.True(pasteIndex >= 0);
 		Assert.Equal("pastePlain", settings.EditorOrder[pasteIndex + 1]);
@@ -201,11 +217,12 @@ public class ConfigStoreTests : IDisposable
 	/// カスタムのブラウザコマンドは、引用符付きの引数を含めて保存される
 	/// </summary>
 	[Fact]
-	public void UpdateSettings_persists_custom_external_browser_settings()
 	{
+		// カスタムコマンドを載せる前の初期設定
 		LoadConfigResult load = _configStore.Load();
 		Assert.True(load.Success, load.Message);
 
+		// 引用符付き引数を含むカスタムコマンドの保存結果
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
 				"""{"externalBrowser":{"mode":"custom","customCommand":"firefox -p \"MyProfile_TMSystems\""}}""")
@@ -217,13 +234,14 @@ public class ConfigStoreTests : IDisposable
 	}
 
 	/// <summary>
-	/// 起動時にセッションを復元する指定は保存され、再読込でもオンのままである。
+	/// 起動時にセッションを復元する指定は保存され、再読込でもオンのままである
 	/// </summary>
 	[Fact]
 	public void UpdateSettings_persists_session_restore_preference()
 	{
 		_configStore.Load();
 
+		// 起動時復元をオンにした保存結果。再読込でもオンのまま
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"restoreSessionOnStartup":true}""").RootElement);
 
@@ -233,7 +251,7 @@ public class ConfigStoreTests : IDisposable
 	}
 
 	/// <summary>
-	/// セッション復元の項目が無い設定はオフになり、スキーマは現行へ上がる。
+	/// セッション復元の項目が無い設定はオフになり、スキーマは現行へ上がる
 	/// </summary>
 	[Fact]
 	public void Load_defaults_missing_session_restore_preference_to_off()
@@ -243,6 +261,7 @@ public class ConfigStoreTests : IDisposable
 			AppPaths.GetConfigPath(AppPaths.DefaultDataDir),
 			"""{"schemaVersion":6,"settings":{}}""");
 
+		// 復元項目の無い設定を現行スキーマへ読んだ結果。復元はオフ
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -251,7 +270,7 @@ public class ConfigStoreTests : IDisposable
 	}
 
 	/// <summary>
-	/// 書き出し様式が無い設定は live-preview になり、同時に欠けている表示と操作の既定も埋まる。
+	/// 書き出し様式が無い設定は live-preview になり、同時に欠けている表示と操作の既定も埋まる
 	/// </summary>
 	[Fact]
 	public void Load_defaults_missing_export_style_to_live_preview()
@@ -261,11 +280,12 @@ public class ConfigStoreTests : IDisposable
 			AppPaths.GetConfigPath(AppPaths.DefaultDataDir),
 			"""{"schemaVersion":7,"settings":{}}""");
 
+		// 様式の無い設定を読んだ結果。live-preview と、欠けていた既定が入る
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
 		Assert.Equal("live-preview", result.Config.Settings.Export.Style);
-		// NOTE: 様式以外に、アウトライン、書き出しのショートカット、コードフォント、添付先、画像枠も欠けていれば既定で埋まる。
+		// NOTE: 様式以外に、アウトライン、書き出しのショートカット、コードフォント、添付先、画像枠も欠けていれば既定で埋まる
 		Assert.True(result.Config.Settings.Export.Outline.Enabled);
 		Assert.Equal("right", result.Config.Settings.Export.Outline.Side);
 		Assert.Equal("right", result.Config.Settings.Outline.Side);
@@ -288,6 +308,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// 指定したコード用フォントの保存結果。再読込でも同じ文字列
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
 				"""{"codeFontFamily":"\"HackGen Console NF\", monospace"}"""
@@ -306,6 +327,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// 幅、色、ホバー幅、ホバー色を渡した保存結果
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
 				"""{"imageBorder":{"width":2,"color":"#444444","hoverWidth":5,"hoverColor":"#2563eb"}}"""
@@ -326,6 +348,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// 範囲外の幅と16進でない色を渡した保存結果。更新自体は成功し、値は既定へ戻る
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
 				"""{"imageBorder":{"color":"red","hoverColor":"url(x)","width":99}}"""
@@ -345,6 +368,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// 空白だけのフォントを渡した保存結果。コンソール系の既定へ戻る
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"codeFontFamily":"   "}""").RootElement);
 
@@ -360,6 +384,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// clean を渡した保存結果。再読込でも clean のまま
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"export":{"style":"clean"}}""").RootElement);
 
@@ -376,6 +401,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// アウトラインと書き出しアウトラインの配置を渡した保存結果。様式は渡していない
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse(
 				"""{"outline":{"visible":false,"side":"left","width":1200},"export":{"outline":{"enabled":false,"side":"left"}}}"""
@@ -388,6 +414,7 @@ public class ConfigStoreTests : IDisposable
 		Assert.False(update.Config?.Settings.Export.Outline.Enabled);
 		Assert.Equal("left", update.Config?.Settings.Export.Outline.Side);
 
+		// 保存後に読み直した設定。渡していない様式は live-preview のまま
 		LoadConfigResult reload = _configStore.Load();
 		Assert.False(reload.Config.Settings.Outline.Visible);
 		Assert.Equal("left", reload.Config.Settings.Outline.Side);
@@ -406,6 +433,7 @@ public class ConfigStoreTests : IDisposable
 	{
 		_configStore.Load();
 
+		// 範囲外の幅を渡した保存結果。幅は 300 へ戻る
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"outline":{"width":9999}}""").RootElement);
 
@@ -419,6 +447,7 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void CreateDefaultConfig_shows_outline_on_startup()
 	{
+		// 新規インストールの既定設定。起動時のアウトラインは表示
 		AppConfigDocument config = ConfigStore.CreateDefaultConfig();
 
 		Assert.True(config.Settings.Outline.Visible);
@@ -435,6 +464,7 @@ public class ConfigStoreTests : IDisposable
 			AppPaths.GetConfigPath(AppPaths.DefaultDataDir),
 			"""{"schemaVersion":8,"settings":{"outline":{"side":"left"}}}""");
 
+		// 表示指定の無い既存設定を移行した読込結果。アウトラインは非表示のまま
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -442,6 +472,7 @@ public class ConfigStoreTests : IDisposable
 		Assert.Equal("left", result.Config.Settings.Outline.Side);
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, result.Config.SchemaVersion);
 
+		// ファイルへ残った移行後の設定。表示は false のまま
 		AppConfigDocument persisted = JsonFileHelper.Read<AppConfigDocument>(AppPaths.GetConfigPath(AppPaths.DefaultDataDir));
 		Assert.False(persisted.Settings.Outline.Visible);
 	}
@@ -456,6 +487,7 @@ public class ConfigStoreTests : IDisposable
 		_configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"outline":{"visible":false}}""").RootElement);
 
+		// outline.visible を初期化した結果。起動時の表示は true へ戻る
 		SaveConfigResult reset = _configStore.ResetSettingItem("outline.visible");
 
 		Assert.True(reset.Success, reset.Message);
@@ -468,27 +500,37 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void UpdateCustomDecorations_persists_japanese_rule()
 	{
+		// 装飾を置き換える前の初期設定。既定の下線が1件ある
 		LoadConfigResult load = _configStore.Load();
 		Assert.True(load.Success, load.Message);
 
+		// 日本語名のルール1件で置き換えた保存結果
 		SaveConfigResult update = _configStore.UpdateCustomDecorations(
 		[
+			// パターンとクラス名を持つ日本語の装飾。有効のまま保存する
 			new CustomDecorationRule
 			{
+				// 保存後も残すルール名
 				Name           = "重要・要確認",
+				// 有効。false だと装飾を適用しない
 				Enabled        = true,
+				// 隅付き括弧の中を取るパターン。改行は含めない
 				Pattern        = "【([^】\\n]+)】",
+				// 区切り文字を表示しない
 				HideDelimiters = true,
+				// 適用する CSS クラス。空だと装飾が付かない
 				CssClass       = "tms-important-ja",
 			},
 		]);
 
 		Assert.True(update.Success, update.Message);
+		// 保存された唯一のルール。名前、パターン、クラスを見る
 		CustomDecorationRule rule = Assert.Single(update.Config?.CustomDecorations ?? []);
 		Assert.Equal("重要・要確認", rule.Name);
 		Assert.Equal("【([^】\\n]+)】", rule.Pattern);
 		Assert.Equal("tms-important-ja", rule.CssClass);
 
+		// 再読込した設定。ルール名が残る
 		LoadConfigResult reload = _configStore.Load();
 		Assert.Equal("重要・要確認", Assert.Single(reload.Config.CustomDecorations).Name);
 	}
@@ -499,15 +541,18 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void UpdateCustomDecorations_keeps_explicitly_empty_list()
 	{
+		// 空リストで置き換える前の初期設定。既定の下線がある
 		LoadConfigResult load = _configStore.Load();
 		Assert.True(load.Success, load.Message);
 
+		// 空リストを明示して保存した結果。既定の下線は復活しない
 		SaveConfigResult update = _configStore.UpdateCustomDecorations([]);
 
 		Assert.True(update.Success, update.Message);
 		Assert.Empty(update.Config?.CustomDecorations ?? []);
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, update.Config?.SchemaVersion);
 
+		// 再読込した設定。装飾は空のまま
 		LoadConfigResult reload = _configStore.Load();
 		Assert.Empty(reload.Config.CustomDecorations);
 	}
@@ -518,24 +563,33 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_applies_pending_installer_data_dir_migration()
 	{
+		// 移行元になる初期設定。この時点の data が移動元
 		LoadConfigResult initial = _configStore.Load();
 		Assert.True(initial.Success, initial.Message);
 
+		// 移行後も残る dark を書いた保存結果
 		SaveConfigResult saveResult = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"theme":"dark"}""").RootElement);
 		Assert.True(saveResult.Success, saveResult.Message);
 
+		// インストーラが移す元の data。dark の設定がここにある
 		string oldDataDir = AppPaths.DefaultDataDir;
+		// インストーラが指示する移動先。まだ設定は無い
 		string newDataDir = Path.Combine(_tempRoot, "installer-updated-data");
 		Directory.CreateDirectory(newDataDir);
 
+		// 移動先と、まだ空になっていない移行元を同時に指すブートストラップ
 		_bootstrapConfigStore.Save(new BootstrapConfigDocument
 		{
+			// 現行のブートストラップスキーマ。古い版のままでは移行指示を読まない
 			SchemaVersion             = BootstrapConfigStore.CurrentSchemaVersion,
+			// 移行後に設定を置く data
 			DataDir                   = newDataDir,
+			// 設定をコピーする元。成功後は空になる
 			PendingMigrationSourceDir = oldDataDir,
 		});
 
+		// 移行指示を適用した読込結果。テーマは dark のまま
 		LoadConfigResult migrated = _configStore.Load();
 
 		Assert.True(migrated.Success, migrated.Message);
@@ -550,17 +604,20 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_migrates_legacy_default_replace_shortcut_to_ctrl_r()
 	{
+		// スキーマ1へ戻し、置換を当時の既定 Ctrl+H にした設定。ファイルへ書いてから読み直す
 		AppConfigDocument config = _configStore.Load().Config;
 		config.SchemaVersion = 1;
 		config.Settings.Keybindings.Replace = "Ctrl+H";
 		JsonFileHelper.WriteAtomic(AppPaths.GetConfigPath(AppPaths.DefaultDataDir), config);
 
+		// 移行後の読込。スキーマは現行、置換は Ctrl+R
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.True(reload.Success);
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, reload.Config.SchemaVersion);
 		Assert.Equal("Ctrl+R", reload.Config.Settings.Keybindings.Replace);
 
+		// ファイルへ残った移行後の設定。バックアップとは別
 		AppConfigDocument persisted = JsonFileHelper.Read<AppConfigDocument>(AppPaths.GetConfigPath(AppPaths.DefaultDataDir));
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, persisted.SchemaVersion);
 		Assert.Equal("Ctrl+R", persisted.Settings.Keybindings.Replace);
@@ -573,11 +630,13 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_preserves_custom_replace_shortcut_during_schema_migration()
 	{
+		// スキーマ1でも独自の Ctrl+Alt+R を残す設定
 		AppConfigDocument config = _configStore.Load().Config;
 		config.SchemaVersion = 1;
 		config.Settings.Keybindings.Replace = "Ctrl+Alt+R";
 		JsonFileHelper.WriteAtomic(AppPaths.GetConfigPath(AppPaths.DefaultDataDir), config);
 
+		// 移行後の読込。独自の置換ショートカットは変わらない
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.True(reload.Success);
@@ -591,17 +650,20 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_migrates_windows_reserved_unsplit_shortcut()
 	{
+		// スキーマ2へ戻し、分割解除を予約済みの Ctrl+Shift+0 にした設定
 		AppConfigDocument config = _configStore.Load().Config;
 		config.SchemaVersion = 2;
 		config.Settings.Keybindings.Unsplit = "Ctrl+Shift+0";
 		JsonFileHelper.WriteAtomic(AppPaths.GetConfigPath(AppPaths.DefaultDataDir), config);
 
+		// 予約を避けて Ctrl+Shift+U へ移行した読込
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.True(reload.Success);
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, reload.Config.SchemaVersion);
 		Assert.Equal("Ctrl+Shift+U", reload.Config.Settings.Keybindings.Unsplit);
 
+		// ファイルへ残った移行後の分割解除。Ctrl+Shift+U のまま
 		AppConfigDocument persisted = JsonFileHelper.Read<AppConfigDocument>(AppPaths.GetConfigPath(AppPaths.DefaultDataDir));
 		Assert.Equal("Ctrl+Shift+U", persisted.Settings.Keybindings.Unsplit);
 	}
@@ -612,11 +674,13 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_preserves_custom_unsplit_shortcut_during_schema_migration()
 	{
+		// スキーマ2でも独自の Ctrl+Alt+U を残す設定
 		AppConfigDocument config = _configStore.Load().Config;
 		config.SchemaVersion = 2;
 		config.Settings.Keybindings.Unsplit = "Ctrl+Alt+U";
 		JsonFileHelper.WriteAtomic(AppPaths.GetConfigPath(AppPaths.DefaultDataDir), config);
 
+		// 移行後の読込。独自の分割解除は変わらない
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.Equal("Ctrl+Alt+U", reload.Config.Settings.Keybindings.Unsplit);
@@ -628,14 +692,17 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_migrates_legacy_empty_custom_decorations_to_default_rule()
 	{
+		// スキーマ3へ戻し、装飾を空にした設定。空は未設定として既定の下線へ補う
 		AppConfigDocument config = _configStore.Load().Config;
 		config.SchemaVersion = 3;
 		config.CustomDecorations.Clear();
 		JsonFileHelper.WriteAtomic(AppPaths.GetConfigPath(AppPaths.DefaultDataDir), config);
 
+		// 空の装飾を既定の下線1件へ補った読込
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.Equal(ConfigStore.CurrentSchemaVersion, reload.Config.SchemaVersion);
+		// 補われた既定の下線。パターンは新しい記法
 		CustomDecorationRule rule = Assert.Single(reload.Config.CustomDecorations);
 		Assert.Equal("下線", rule.Name);
 		Assert.Equal("_v(.+?)_v", rule.Pattern);
@@ -647,29 +714,43 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_migrates_legacy_default_underline_pattern_without_changing_custom_rule()
 	{
+		// スキーマ4の下線と、同じチルダパターンの独自ルールを並べた設定
 		AppConfigDocument config = _configStore.Load().Config;
 		config.SchemaVersion = 4;
 		config.CustomDecorations =
 		[
+			// 名前が下線の既定ルール。パターンだけ新しい記法へ替え、無効のまま残す
 			new CustomDecorationRule
 			{
+				// 移行対象を見分ける既定の名前
 				Name           = "下線",
+				// 無効のまま移行する。有効には戻さない
 				Enabled        = false,
+				// 取り消し線と競合し得る古いチルダパターン。これだけを替える
 				Pattern        = "~([^~\\n]+)~",
+				// 区切りを隠す指定。移行では変えない
 				HideDelimiters = true,
+				// 下線用の CSS クラス。移行では変えない
 				CssClass       = "tms-underline",
 			},
+			// 同じパターンでも名前が下線ではない独自ルール。パターンは変えない
 			new CustomDecorationRule
 			{
+				// 移行対象から外す独自の名前
 				Name           = "独自チルダ",
+				// 有効のまま残す
 				Enabled        = true,
+				// 下線と同じ古いパターン。独自ルールなので残す
 				Pattern        = "~([^~\\n]+)~",
+				// 区切りを隠す指定。移行では変えない
 				HideDelimiters = true,
+				// 独自ルールの CSS クラス。移行では変えない
 				CssClass       = "tms-custom-tilde",
 			},
 		];
 		JsonFileHelper.WriteAtomic(AppPaths.GetConfigPath(AppPaths.DefaultDataDir), config);
 
+		// 下線だけパターンを替えた読込。独自ルールのパターンは残る
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.Equal("_v(.+?)_v", reload.Config.CustomDecorations[0].Pattern);
@@ -693,7 +774,9 @@ public class ConfigStoreTests : IDisposable
 			AppPaths.GetNoteViewPositionsPath(AppPaths.DefaultDataDir),
 			"""{"schemaVersion":1,"entries":[{"filePath":"C:\\docs\\one.md","anchor":10}]}""");
 
+		// 移す先。まだ存在しない
 		string newDataDir = Path.Combine(_tempRoot, "custom-data");
+		// 設定、セッション、表示位置を移した結果。失敗時は Success が false
 		MigrateDataDirResult migrateResult = _configStore.MigrateDataDir(newDataDir);
 
 		Assert.True(migrateResult.Success);
@@ -704,9 +787,11 @@ public class ConfigStoreTests : IDisposable
 		Assert.True(File.Exists(AppPaths.GetNoteViewPositionsPath(newDataDir)));
 		Assert.Contains("one.md", File.ReadAllText(AppPaths.GetNoteViewPositionsPath(newDataDir)));
 
+		// 移動後のブートストラップ。DataDir が新しい場所を指す
 		BootstrapConfigDocument bootstrap = _bootstrapConfigStore.Load();
 		Assert.Equal(newDataDir, bootstrap.DataDir);
 
+		// 新しい場所から読み直した設定。テーマは light のまま
 		LoadConfigResult reload = _configStore.Load();
 		Assert.Equal("light", reload.Config.Settings.Theme);
 	}
@@ -718,12 +803,15 @@ public class ConfigStoreTests : IDisposable
 	public void Load_does_not_recreate_missing_custom_data_directory()
 	{
 		_configStore.Load();
+		// 一度移した data。直後に名前を変えて欠落させる
 		string customDataDir = Path.Combine(_tempRoot, "custom-data");
 		Assert.True(_configStore.MigrateDataDir(customDataDir).Success);
 
+		// 改名後の実体。読込はこちらを探さない
 		string renamedDataDir = Path.Combine(_tempRoot, "custom-data-renamed");
 		Directory.Move(customDataDir, renamedDataDir);
 
+		// 欠落した data の読込。Success は false で、元のパスは作られない
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.False(reload.Success);
@@ -737,18 +825,26 @@ public class ConfigStoreTests : IDisposable
 	[Fact]
 	public void ResetAllSettings_keeps_window_and_custom_data()
 	{
+		// 初期化後も残すウィンドウ幅、装飾、最近使ったファイルを載せた設定。テーマは後で dark にする
 		AppConfigDocument config = _configStore.Load().Config;
 		config.Window.Width = 1200;
 		config.CustomDecorations.Clear();
+		// 初期化後も残す独自装飾。名前、パターン、クラスの3つを明示する
+		// ルール名。既定の下線とは別で、初期化後もこの名前のまま
+		// パターン。初期化では消さない
+		// CSS クラス。初期化では消さない
 		config.CustomDecorations.Add(new CustomDecorationRule { Name = "underline", Pattern = "~(.+)~", CssClass = "tms-underline" });
 		config.RecentFiles.Add("C:\\sample.md");
 
+		// 幅と装飾と最近使ったファイルを書いた保存。失敗すると初期化の前提が崩れる
 		SaveConfigResult initialSave = _configStore.Save(config);
 		Assert.True(initialSave.Success, initialSave.Message);
 
+		// 初期化で system へ戻ることを見るための dark
 		SaveConfigResult themeSave = _configStore.UpdateSettings(System.Text.Json.JsonDocument.Parse("""{"theme":"dark"}""").RootElement);
 		Assert.True(themeSave.Success, themeSave.Message);
 
+		// 全設定を初期化した結果。幅、装飾、最近使ったファイルは残る
 		SaveConfigResult resetResult = _configStore.ResetAllSettings();
 
 		Assert.True(resetResult.Success, resetResult.Message);
@@ -769,9 +865,11 @@ public class ConfigStoreTests : IDisposable
 		_configStore.UpdateSettings(System.Text.Json.JsonDocument.Parse("""{"theme":"dark"}""").RootElement);
 		_configStore.UpdateSettings(System.Text.Json.JsonDocument.Parse("""{"theme":"light"}""").RootElement);
 
+		// 壊す対象の設定ファイル。light の保存の直後に不正な JSON へする
 		string configPath = AppPaths.GetConfigPath(AppPaths.DefaultDataDir);
 		File.WriteAllText(configPath, "{ invalid json");
 
+		// バックアップから復旧した読込。RecoveredFromBackup が true で、テーマは dark
 		LoadConfigResult reload = _configStore.Load();
 
 		Assert.True(reload.Success);

@@ -35,6 +35,7 @@ public sealed class PortableModeTests : IDisposable
 	public void Dispose()
 	{
 		PortableRuntime.ResetForTests();
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot))
 		{
 			Directory.Delete(_tempRoot, recursive: true);
@@ -47,12 +48,17 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void DetectPortableMode_uses_exec_path_not_cwd()
 	{
+		// マーカーを置く exe のディレクトリ。カレントとは別に作る
 		string exeDir = Path.Combine(_tempRoot, "app");
 		Directory.CreateDirectory(exeDir);
+		// 判定に渡す exe のパス。ファイル自体は作らず、隣のマーカーだけを置く
 		string execPath = Path.Combine(exeDir, "TmsMdEditor.exe");
+		// 中身が JSON でなくても、exe の隣にあることだけを判定に使う
 		File.WriteAllText(Path.Combine(exeDir, PortableMode.MarkerFileName), "{ not-json");
+		// カレントにする、マーカーの無いディレクトリ
 		string otherDir = Path.Combine(_tempRoot, "other");
 		Directory.CreateDirectory(otherDir);
+		// テスト前のカレント。finally で必ず戻す
 		string previous = Environment.CurrentDirectory;
 		try
 		{
@@ -72,6 +78,7 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void DetectPortableMode_treats_broken_json_as_portable()
 	{
+		// 隣に壊れた中身のマーカーを置く exe。ファイル自体は作らない
 		string execPath = Path.Combine(_tempRoot, "TmsMdEditor.exe");
 		File.WriteAllText(PortableMode.ResolveMarkerPath(execPath), "broken");
 		Assert.True(PortableMode.DetectPortableMode(execPath));
@@ -83,6 +90,7 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void DetectPortableMode_is_false_without_marker()
 	{
+		// マーカーを置かない exe。親ディレクトリだけ作る
 		string execPath = Path.Combine(_tempRoot, "plain", "TmsMdEditor.exe");
 		Directory.CreateDirectory(Path.GetDirectoryName(execPath)!);
 		Assert.False(PortableMode.DetectPortableMode(execPath));
@@ -94,7 +102,9 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void ResolvePortableDataPaths_flattens_data_dir()
 	{
+		// ポータブル data の基準にする exe のディレクトリ
 		string exeDir = Path.Combine(_tempRoot, "TMS-MDEditor");
+		// exe 隣の data と、その下の logs、webview2、temp
 		PortableDataPaths paths = PortableMode.ResolvePortableDataPaths(exeDir);
 
 		Assert.Equal(Path.Combine(exeDir, "data"), paths.DataDir);
@@ -112,6 +122,7 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void ResolveDefaultDataDir_keeps_installer_nested_layout()
 	{
+		// インストーラ版では data を一段下に足し、ポータブルではそのまま data にする基準パス
 		string userData = Path.Combine(_tempRoot, "tms-mdeditor");
 		Assert.Equal(Path.Combine(userData, "data"), PortableMode.ResolveDefaultDataDir(userData, isPortable: false));
 		Assert.Equal(userData, PortableMode.ResolveDefaultDataDir(userData, isPortable: true));
@@ -137,7 +148,9 @@ public sealed class PortableModeTests : IDisposable
 		Assert.Equal(PortableMode.InstallerAppUserModelId, PortableMode.ResolveAppUserModelId(false, false));
 		Assert.Equal(PortableMode.DevAppUserModelId, PortableMode.ResolveAppUserModelId(false, true));
 
+		// copy-a を exe の位置にしたポータブルのインスタンス範囲
 		string first = PortableMode.ResolveInstanceScope(true, Path.Combine(_tempRoot, "copy-a"), "data");
+		// copy-b を exe の位置にした、別コピーのインスタンス範囲。first と一致しない
 		string second = PortableMode.ResolveInstanceScope(true, Path.Combine(_tempRoot, "copy-b"), "data");
 		Assert.StartsWith("portable-", first);
 		Assert.NotEqual(first, second);
@@ -151,13 +164,17 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void ProbeWritableDirectory_reports_failure_without_fallback()
 	{
+		// 親が無いため作られない data。失敗してもこのパスは出現しない
 		string missingParent = Path.Combine(_tempRoot, "no-such-parent", "data");
 		File.WriteAllText(Path.Combine(_tempRoot, "blocker"), "x");
+		// 親をファイルにしておけば、その下の data はディレクトリとして作れない
 		string blocked = Path.Combine(_tempRoot, "blocker", "data");
 
+		// 書けるディレクトリの探査結果。Ok が true
 		WritableProbeResult ok = PortableMode.ProbeWritableDirectory(Path.Combine(_tempRoot, "writable"));
 		Assert.True(ok.Ok);
 
+		// 親がファイルのパスの探査結果。Ok は false で Error は空にならない
 		WritableProbeResult failed = PortableMode.ProbeWritableDirectory(blocked);
 		Assert.False(failed.Ok);
 		Assert.False(string.IsNullOrWhiteSpace(failed.Error));
@@ -171,6 +188,7 @@ public sealed class PortableModeTests : IDisposable
 	[Fact]
 	public void EnablePortable_switches_app_paths_to_flattened_data()
 	{
+		// ポータブルの exe 位置にするディレクトリ。隣の data が各パスの基準になる
 		string exeDir = Path.Combine(_tempRoot, "pack");
 		PortableRuntime.EnableForTests(exeDir);
 

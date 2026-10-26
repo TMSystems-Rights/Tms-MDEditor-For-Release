@@ -370,7 +370,8 @@ internal sealed class CssSnippetsSettings
 }
 
 /// <summary>
-/// 検索・置換設定
+/// 検索で移動したあとの折りたたみの戻し方。置換文字列は持たない
+/// 項目が無い古い設定では false で、展開したコールアウトは戻さない
 /// </summary>
 internal sealed class SearchSettings
 {
@@ -492,7 +493,7 @@ internal sealed class KeybindingsSettings
 }
 
 /// <summary>
-/// アプリ画面のアウトライン配置
+/// 編集画面のアウトラインペイン。HTML 出力のアウトラインとは別で、幅はピクセル
 /// </summary>
 internal sealed class OutlineSettings
 {
@@ -507,7 +508,7 @@ internal sealed class OutlineSettings
 	public string Side { get; set; } = "right";
 
 	/// <summary>
-	/// アウトラインの幅（px）
+	/// アウトラインペインの幅。ピクセル。既定は 300
 	/// </summary>
 	public int Width { get; set; } = 300;
 }
@@ -539,7 +540,7 @@ internal sealed class ExportSettings
 	public string Style { get; set; } = "live-preview";
 
 	/// <summary>
-	/// HTML に含めるアウトライン
+	/// HTML 出力に含める見出し一覧。画面のアウトライン設定とは別
 	/// </summary>
 	public ExportOutlineSettings Outline { get; set; } = new();
 }

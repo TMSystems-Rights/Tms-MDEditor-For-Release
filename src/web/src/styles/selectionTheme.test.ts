@@ -14,11 +14,11 @@ import { describe, expect, it } from 'vitest';
 const stylesDir = dirname(fileURLToPath(import.meta.url));
 
 describe('範囲選択の CSS 変数', () => {
-	/** 色と透過度の変数を読む CSS 本文 */
+	// 色と透過度の変数を読む CSS 本文。テスト中は書き換えない
 	const baseCss        = readFileSync(join(stylesDir, 'base.css'), 'utf8');
-	/** 選択レイヤーの重なりを読む CSS 本文 */
+	// 選択レイヤーの重なりを読む CSS 本文。テスト中は書き換えない
 	const shellCss       = readFileSync(join(stylesDir, 'shell.css'), 'utf8');
-	/** ライブプレビュー側の選択スタイルを読む CSS 本文 */
+	// ライブプレビュー側の選択スタイルを読む CSS 本文。テスト中は書き換えない
 	const livePreviewCss = readFileSync(join(stylesDir, 'livePreview.css'), 'utf8');
 
 	it('色と透過度を CSS 変数として公開する', () => {
@@ -38,14 +38,13 @@ describe('範囲選択の CSS 変数', () => {
 	});
 
 	it('キャレット色は color-mix より前に定義する', () => {
-		const blocks = [
-			baseCss.slice(baseCss.indexOf(':root {'), baseCss.indexOf('body.tms-mde-theme-dark')),
-			baseCss.slice(baseCss.indexOf('body.tms-mde-theme-dark'), baseCss.indexOf('body.tms-mde-theme-light')),
-			baseCss.slice(baseCss.indexOf('body.tms-mde-theme-light')),
-		];
+		// :root、ダーク、ライトの 3 ブロック。キャレット変数が color-mix より前かを見る
+		const blocks = [baseCss.slice(baseCss.indexOf(':root {'), baseCss.indexOf('body.tms-mde-theme-dark')), baseCss.slice(baseCss.indexOf('body.tms-mde-theme-dark'), baseCss.indexOf('body.tms-mde-theme-light')), baseCss.slice(baseCss.indexOf('body.tms-mde-theme-light'))];
 
 		blocks.forEach((block) => {
+			// キャレット色の定義位置。見つからなければ -1
 			const caretAt = block.indexOf('--tms-mde-color-caret:');
+			// color-mix の定義位置。キャレット変数より後ろであることを見る
 			const mixAt   = block.indexOf('color-mix(');
 			expect(caretAt).toBeGreaterThan(-1);
 			expect(mixAt).toBeGreaterThan(-1);
@@ -62,7 +61,9 @@ describe('範囲選択の CSS 変数', () => {
 	});
 
 	it('表セル選択は縞模様より後に定義し、選択色で範囲を示す', () => {
+		// 縞模様の定義位置。選択色はこの後ろに無いと上書きされる
 		const zebraAt    = livePreviewCss.indexOf('.cm-md-table tr:nth-child(even) td');
+		// セル選択の最後の定義位置。縞模様より後ろであることを見る
 		const selectedAt = livePreviewCss.lastIndexOf('cm-md-table-cell-selected');
 		expect(zebraAt).toBeGreaterThan(-1);
 		expect(selectedAt).toBeGreaterThan(zebraAt);

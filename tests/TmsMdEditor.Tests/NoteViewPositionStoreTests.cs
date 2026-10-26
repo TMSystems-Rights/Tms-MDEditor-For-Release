@@ -37,7 +37,9 @@ public class NoteViewPositionStoreTests : IDisposable
 	{
 		_tempRoot = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-viewpos-test-{Guid.NewGuid():N}");
 		AppPaths.SetOverrideAppDataRoot(_tempRoot);
+		// 設定と表示位置の両方へ渡すログ。ファイルへは書かない
 		var logger = new Logger();
+		// データディレクトリのポインタ。このテストでは既定の data を指す
 		var bootstrapConfigStore = new BootstrapConfigStore(logger);
 		_configStore = new ConfigStore(logger, bootstrapConfigStore);
 		_store       = new NoteViewPositionStore(logger, _configStore);
@@ -50,6 +52,7 @@ public class NoteViewPositionStoreTests : IDisposable
 	public void Dispose()
 	{
 		AppPaths.SetOverrideAppDataRoot(null);
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot)) Directory.Delete(_tempRoot, recursive: true);
 	}
 
@@ -59,6 +62,7 @@ public class NoteViewPositionStoreTests : IDisposable
 	[Fact]
 	public void Save_and_load_round_trips_note_view_positions()
 	{
+		// アンカー、余白、選択範囲を持つ保存入力。折りたたみは含まない
 		using JsonDocument document = JsonDocument.Parse("""
 			{
 			  "schemaVersion": 1,
@@ -76,11 +80,14 @@ public class NoteViewPositionStoreTests : IDisposable
 			}
 			""");
 
+		// 保存の成否。失敗時は Success が false で Message に理由がある
 		NoteViewPositionSaveResult save = _store.Save(document.RootElement);
+		// data ディレクトリから読み戻した表示位置。失敗時は Success が false
 		NoteViewPositionLoadResult load = _store.Load();
 
 		Assert.True(save.Success, save.Message);
 		Assert.True(load.Success);
+		// 読み戻した先頭エントリ。折りたたみは空
 		JsonElement entry = load.Document.GetProperty("entries")[0];
 		Assert.Equal(120, entry.GetProperty("anchor").GetInt32());
 		Assert.Equal(-8.5, entry.GetProperty("yMargin").GetDouble());
@@ -95,6 +102,7 @@ public class NoteViewPositionStoreTests : IDisposable
 	[Fact]
 	public void Save_and_load_round_trips_collapsed_headings()
 	{
+		// 重複を含む折りたたみ位置の保存結果。失敗時は Success が false
 		NoteViewPositionSaveResult save = Save("""
 			{
 			  "schemaVersion": 2,
@@ -113,7 +121,9 @@ public class NoteViewPositionStoreTests : IDisposable
 			}
 			""");
 
+		// 読み戻した表示位置。折りたたみは先頭エントリにある
 		NoteViewPositionLoadResult load = _store.Load();
+		// 重複を除いて昇順にした折りたたみ位置。空なら保存に失敗している
 		JsonElement collapsed = load.Document.GetProperty("entries")[0].GetProperty("collapsedHeadingFroms");
 
 		Assert.True(save.Success, save.Message);
@@ -145,6 +155,7 @@ public class NoteViewPositionStoreTests : IDisposable
 			""");
 
 		// 区切り文字と大文字小文字が違っても同じファイルとみなし、古い時刻では上書きしない
+		// その2件を保存した結果。失敗時は Success が false
 		NoteViewPositionSaveResult save = Save("""
 			{
 			  "schemaVersion": 1,
@@ -171,8 +182,10 @@ public class NoteViewPositionStoreTests : IDisposable
 			}
 			""");
 
+		// 新しい順に並んだ保存後の表示位置
 		NoteViewPositionLoadResult load = _store.Load();
 		Assert.True(save.Success, save.Message);
+		// 先頭が b.md、2件目の anchor は上書きされず 3 のまま
 		JsonElement entries = load.Document.GetProperty("entries");
 		Assert.Equal(2, entries.GetArrayLength());
 		Assert.Equal("C:\\docs\\b.md", entries[0].GetProperty("filePath").GetString());
@@ -185,9 +198,11 @@ public class NoteViewPositionStoreTests : IDisposable
 	[Fact]
 	public void Save_drops_entries_beyond_the_limit()
 	{
+		// 上限より1件多いエントリ JSON。index が大きいほど新しい
 		List<string> entries = [];
 		for (int index = 0; index < NoteViewPositionStore.MaxEntries + 1; index++)
 		{
+			// 基準時刻から index 秒後の更新時刻。文字列はラウンドトリップ形式
 			string updatedAt = DateTimeOffset.Parse("2026-10-04T00:00:00Z").AddSeconds(index).ToString("o");
 			entries.Add($$"""
 				{
@@ -202,10 +217,13 @@ public class NoteViewPositionStoreTests : IDisposable
 				""");
 		}
 
+		// 上限超過の一覧を保存した結果。失敗時は Success が false
 		NoteViewPositionSaveResult save = Save($$"""{"schemaVersion":1,"entries":[{{string.Join(',', entries)}}]}""");
+		// 保存後に読み戻した表示位置
 		NoteViewPositionLoadResult load = _store.Load();
 
 		Assert.True(save.Success, save.Message);
+		// 新しい方から上限件だけ残したエントリ。最も古い anchor 0 は含まない
 		JsonElement stored = load.Document.GetProperty("entries");
 		Assert.Equal(NoteViewPositionStore.MaxEntries, stored.GetArrayLength());
 		// 残すのは新しい方から上限件で、最も古い anchor 0 は落ちる
@@ -219,8 +237,10 @@ public class NoteViewPositionStoreTests : IDisposable
 	[Fact]
 	public void Save_rejects_unknown_schema_version()
 	{
+		// 未対応の schemaVersion 99。保存してはいけない
 		using JsonDocument document = JsonDocument.Parse("""{"schemaVersion":99,"entries":[]}""");
 
+		// 拒否された保存結果。Success は false で、ファイルは作らない
 		NoteViewPositionSaveResult result = _store.Save(document.RootElement);
 
 		Assert.False(result.Success);
@@ -233,9 +253,11 @@ public class NoteViewPositionStoreTests : IDisposable
 	[Fact]
 	public void Load_ignores_corrupt_file_without_replacing_it()
 	{
+		// 壊れた JSON を置く表示位置ファイル。Load 後もこの中身のまま残る
 		string path = AppPaths.GetNoteViewPositionsPath(AppPaths.DefaultDataDir);
 		File.WriteAllText(path, "{broken");
 
+		// 壊れたファイルの読込結果。Success は false で、エントリは空
 		NoteViewPositionLoadResult result = _store.Load();
 
 		Assert.False(result.Success);
@@ -250,6 +272,7 @@ public class NoteViewPositionStoreTests : IDisposable
 	/// <returns>保存結果。マージ後の内容は Load で見る</returns>
 	private NoteViewPositionSaveResult Save(string json)
 	{
+		// 渡した JSON を要素へした保存入力。不正な JSON はこの前に失敗する
 		using JsonDocument document = JsonDocument.Parse(json);
 		return _store.Save(document.RootElement);
 	}

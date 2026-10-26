@@ -240,20 +240,27 @@ end;
 }
 function EscapeJsonString(Value: String): String;
 var
+  // 走査位置。1 始まり。空文字ならループに入らない
   I: Integer;
+  // 今見ている 1 文字。制御文字と引用符だけをエスケープする
   Ch: String;
 begin
   Result := '';
   for I := 1 to Length(Value) do begin
     Ch := Copy(Value, I, 1);
+    // パス区切りを JSON のエスケープにする。生のままだと次の文字が制御扱いになる
     if Ch = '\' then
       Result := Result + '\\'
+    // 値の二重引用符が文字列を閉じないようにする
     else if Ch = '"' then
       Result := Result + '\"'
+    // 復帰を \r にする。生の改行は JSON 文字列に置けない
     else if Ch = #13 then
       Result := Result + '\r'
+    // 改行を \n にする
     else if Ch = #10 then
       Result := Result + '\n'
+    // タブを \t にする
     else if Ch = #9 then
       Result := Result + '\t'
     else
@@ -304,43 +311,60 @@ end;
 }
 function TryExtractJsonStringValue(Json, PropertyName: String; var Value: String): Boolean;
 var
+  // 探すプロパティ名。引用符付き
   Key: String;
+  // 今見ている 1 文字。エスケープの次の文字もこれで見る
   Ch: String;
+  // 走査位置。1 始まり。0 は名前が無い
   I: Integer;
+  // 直前がバックスラッシュか。True のとき次の 1 文字を制御文字として読む
   Escaped: Boolean;
 begin
+  // 未発見の初期値。終端の引用符まで読めなければこのまま返す
   Result := False;
+  // 読み取り前に空へ戻す。途中で抜けたとき前の値が残らない
   Value := '';
   Key := '"' + PropertyName + '"';
+  // 名前の先頭位置。0 はファイルにその名前が無い
   I := Pos(Key, Json);
+  // 名前が無いときは値を読まず空のまま返す
   if I = 0 then exit;
 
   I := I + Length(Key);
   while (I <= Length(Json)) and (Copy(Json, I, 1) <> ':') do
     I := I + 1;
+  // 名前のあとコロンが無いときは、文字列値ではない
   if I > Length(Json) then exit;
 
   I := I + 1;
   while (I <= Length(Json)) and (Copy(Json, I, 1) <> '"') do
     I := I + 1;
+  // 値の開始引用符が無いときは文字列プロパティではない
   if I > Length(Json) then exit;
 
   I := I + 1;
+  // 値の開始引用符の次から読む。まだエスケープ中ではない
   Escaped := False;
   while I <= Length(Json) do begin
     Ch := Copy(Json, I, 1);
+    // バックスラッシュの次の 1 文字を制御文字として足す
     if Escaped then begin
+      // \r を復帰にする
       if Ch = 'r' then
         Value := Value + #13
+      // \n を改行にする
       else if Ch = 'n' then
         Value := Value + #10
+      // \t をタブにする
       else if Ch = 't' then
         Value := Value + #9
       else
         Value := Value + Ch;
       Escaped := False;
+    // バックスラッシュは次の文字のエスケープ開始。文字自体はまだ足さない
     end else if Ch = '\' then begin
       Escaped := True;
+    // 終端の引用符まで読めた。エスケープ中でなければここで成功
     end else if Ch = '"' then begin
       Result := True;
       exit;
@@ -365,6 +389,7 @@ end;
 function TryExtractDataDir(Json: String; var DataDir: String): Boolean;
 begin
   Result := TryExtractJsonStringValue(Json, 'dataDir', DataDir);
+  // 新しい名前が無いときだけ旧名を読む。両方空なら False のまま
   if not Result then
     Result := TryExtractJsonStringValue(Json, 'DataDir', DataDir);
 end;
@@ -381,13 +406,17 @@ end;
 }
 function TryGetConfiguredDataDir(var DataDir: String): Boolean;
 var
+  // ファイルから読んだ生のバイト列。ファイルが無いときは未使用
   BootstrapConfigContent: AnsiString;
+  // JSON として解釈する文字列。読めなければ空のまま
   BootstrapConfig: String;
 begin
   Result := False;
   DataDir := '';
+  // 起動設定が無いときは既定へ落とす判断を呼び出し側に残す
   if LoadStringFromFile(GetBootstrapConfigPath, BootstrapConfigContent) then begin
     BootstrapConfig := BootstrapConfigContent;
+    // 抽出と、空白以外の中身の両方が揃ったときだけ成功。一方だけでは False
     Result := TryExtractDataDir(BootstrapConfig, DataDir) and (Trim(DataDir) <> '');
   end;
 end;
@@ -404,6 +433,7 @@ end;
 }
 function GetInitialDataDir: String;
 begin
+  // 既存設定が読めないときは既定の保存先を表示する
   if not TryGetConfiguredDataDir(Result) then
     Result := GetDefaultDataDir;
 end;
@@ -453,12 +483,15 @@ end;
 }
 function SaveBootstrapConfig(DataDir, PendingMigrationSourceDir: String): Boolean;
 var
+  // 書き込む app-config.json。ユーザーの AppData 配下
   BootstrapConfigPath: String;
+  // 組み立て中の JSON。移行元が空ならそのプロパティは書かない
   BootstrapConfig: String;
 begin
   BootstrapConfigPath := GetBootstrapConfigPath;
   ForceDirectories(ExtractFileDir(BootstrapConfigPath));
   BootstrapConfig := '{"schemaVersion":1,"dataDir":"' + EscapeJsonString(NormalizeDir(DataDir)) + '"';
+  // 移行元があるときだけプロパティを足す。空なら保存先だけの JSON にする
   if Trim(PendingMigrationSourceDir) <> '' then
     BootstrapConfig := BootstrapConfig + ',"pendingMigrationSourceDir":"' + EscapeJsonString(NormalizeDir(PendingMigrationSourceDir)) + '"';
   BootstrapConfig := BootstrapConfig + '}' + #13#10;
@@ -519,21 +552,32 @@ end;
 }
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
+  // 利用者が入力した保存先。空のときはこのページに留まる
   NewDataDir: String;
+  // 変更前の保存先。設定が無いときは既定パス
   OldDataDir: String;
+  // 起動設定から保存先を読めたか。False なら移行元は書かない
   HasConfiguredDataDir: Boolean;
 begin
+  // このページ以外では次へ進む。データ保存先の検証はしない
   Result := True;
+  // データ保存先ページ以外では設定を書かない
   if CurPageID <> DataDirPage.ID then exit;
 
+  // 前後空白と末尾区切りを除いた保存先。空なら保存しない
   NewDataDir := NormalizeDir(DataDirPage.Values[0]);
+  // 空の入力では既定へ戻さず、このページに留まる
   if NewDataDir = '' then exit;
 
+  // 既存の起動設定が読めれば True。ファイルが無いときは False
   HasConfiguredDataDir := TryGetConfiguredDataDir(OldDataDir);
+  // 設定ファイルが無いときは比較用の旧パスを既定にする。利用者データは移動しない
   if not HasConfiguredDataDir then
     OldDataDir := GetDefaultDataDir;
 
+  // 保存先が変わっていないときは移行元を書かない
   if IsSameDir(OldDataDir, NewDataDir) then begin
+    // 設定ファイルを書けないときは権限不足としてこのページに留める
     if not SaveBootstrapConfig(NewDataDir, '') then begin
       MsgBox('データ保存先の設定ファイルを保存できませんでした。保存先の書き込み権限を確認してください。', mbError, MB_OK);
       Result := False;
@@ -541,13 +585,16 @@ begin
     exit;
   end;
 
+  // 新しいフォルダを用意できないときは移行情報を書かず、このページに留める
   if not VerifyWritableDirectory(NewDataDir) then begin
     MsgBox('データ保存先フォルダへ書き込めません。保存先の書き込み権限を確認してください。' + #13#10 + NewDataDir, mbError, MB_OK);
     Result := False;
     exit;
   end;
 
+  // 旧設定があるときだけ移行元を残す。利用者データそのものは移動しない
   if HasConfiguredDataDir then begin
+    // 移行元付きの設定を書けないときは、このページに留める
     if not SaveBootstrapConfig(NewDataDir, OldDataDir) then begin
       MsgBox('初回データ保存先の設定ファイルを作成できませんでした。保存先の書き込み権限を確認してください。', mbError, MB_OK);
       Result := False;
@@ -555,6 +602,7 @@ begin
     exit;
   end;
 
+  // 初回の設定を書けないときは、このページに留める
   if not SaveBootstrapConfig(NewDataDir, '') then begin
     MsgBox('初回データ保存先の設定ファイルを作成できませんでした。保存先の書き込み権限を確認してください。', mbError, MB_OK);
     Result := False;
@@ -575,8 +623,10 @@ end;
 }
 procedure RemoveAssociationIfOwned(Extension, ProgId: String);
 var
+  // 拡張子の現在の既定 ProgId。読めなければ削除しない
   CurrentValue: String;
 begin
+  // このアプリの ProgId のときだけ消す。別アプリの既定や、値が読めないときは残す。一方だけでは消さない
   if RegQueryStringValue(HKCU, 'Software\Classes\' + Extension, '', CurrentValue) and (CompareText(CurrentValue, ProgId) = 0) then
     RegDeleteValue(HKCU, 'Software\Classes\' + Extension, '');
 end;
@@ -596,28 +646,39 @@ end;
 }
 procedure SetLegacyAssociationIfUnassigned(Extension, ProgId: String; var Applied, NeedsSettings: Boolean);
 var
+  // 従来の既定 ProgId。空なら未設定
   CurrentValue: String;
+  // 利用者が選んだ ProgId。UserChoice が無いときは空のまま
   UserChoiceProgId: String;
 begin
+  // まだ書いていない。下の分岐で書けたときだけ True
   Applied := False;
+  // 設定アプリが不要な初期値。保護された既定や別アプリがあるときに True
   NeedsSettings := False;
 
+  // 利用者の既定があるときは従来の ProgId を上書きしない
   if IsUserChoicePresent(Extension) then begin
+    // 既にこのアプリが選ばれているときは、設定アプリも開かない。読めないときは下で案内する
     if QueryUserChoiceProgId(Extension, UserChoiceProgId) and (CompareText(UserChoiceProgId, ProgId) = 0) then
       exit;
+    // 別のアプリが選ばれている。ProgId は書けないので設定アプリが必要
     NeedsSettings := True;
     exit;
   end;
 
+  // 従来の既定があるときだけ中身を見る。キーが無いときは下で書く
   if RegQueryStringValue(HKCU, 'Software\Classes\' + Extension, '', CurrentValue) then begin
+    // 既にこのアプリなら書き直さない
     if CompareText(CurrentValue, ProgId) = 0 then
       exit;
+    // 空白以外の別 ProgId があるときは上書きせず、設定アプリへ回す
     if Trim(CurrentValue) <> '' then begin
       NeedsSettings := True;
       exit;
     end;
   end;
 
+  // 未設定のときだけ書く。書けないときは設定アプリが必要
   if RegWriteStringValue(HKCU, 'Software\Classes\' + Extension, '', ProgId) then
     Applied := True
   else
@@ -636,10 +697,13 @@ end;
 }
 function BuildAssociationTargetText(MdNeedsSettings, MdcNeedsSettings: Boolean): String;
 begin
+  // 両方とも設定アプリが必要なときだけ、二つの拡張子を並べる。一方だけでは入らない
   if MdNeedsSettings and MdcNeedsSettings then
     Result := '.md と .mdc'
+  // .md だけ設定が必要
   else if MdNeedsSettings then
     Result := '.md'
+  // .mdc だけ設定が必要
   else if MdcNeedsSettings then
     Result := '.mdc'
   else
@@ -656,6 +720,7 @@ end;
 }
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  // アンインストール完了後だけ関連付けを外す。途中の段階ではレジストリを触らない
   if CurUninstallStep <> usPostUninstall then exit;
   RemoveAssociationIfOwned('.md', 'TMS-MDEditor.md');
   RemoveAssociationIfOwned('.mdc', 'TMS-MDEditor.mdc');
@@ -671,29 +736,41 @@ end;
 }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
+  // 設定アプリを開けなかったときのコード。メッセージは出さない
   ErrorCode: Integer;
+  // .md の従来の既定を書けたか。手続きが False のまま返すことがある
   LegacyMdApplied: Boolean;
+  // .mdc の従来の既定を書けたか。手続きが False のまま返すことがある
   LegacyMdcApplied: Boolean;
+  // .md を設定アプリで選ぶ必要があるか。初期値は False
   MdNeedsSettings: Boolean;
+  // .mdc を設定アプリで選ぶ必要があるか。初期値は False
   MdcNeedsSettings: Boolean;
+  // 設定アプリに案内する拡張子の文。不要なときは空
   SettingsTargetText: String;
 begin
+  // インストール完了後だけ関連付けを書く。それ以前の段階では何もしない
   if CurStep = ssPostInstall then begin
+    // 関連付けタスクが一つも選ばれていないときは、レジストリを書かず通知だけする
     if IsAnyAssociationSelected then begin
       // Windows 8 以降は、利用者が選んだ既定を保護する。UserChoice が無いときだけ、従来の既定を書く
       MdNeedsSettings := False;
       MdcNeedsSettings := False;
+      // .md タスクが選ばれたときだけ従来の既定を試す
       if IsMdAssociationSelected then
         SetLegacyAssociationIfUnassigned('.md', 'TMS-MDEditor.md', LegacyMdApplied, MdNeedsSettings);
+      // .mdc タスクが選ばれたときだけ従来の既定を試す
       if IsMdcAssociationSelected then
         SetLegacyAssociationIfUnassigned('.mdc', 'TMS-MDEditor.mdc', LegacyMdcApplied, MdcNeedsSettings);
       SettingsTargetText := BuildAssociationTargetText(MdNeedsSettings, MdcNeedsSettings);
+      // 案内する拡張子があり、かつサイレントでないときだけ設定アプリを開く。一方だけでは開かない
       if (SettingsTargetText <> '') and (not WizardSilent) then begin
         MsgBox(
           '既に別のアプリが既定として選択されている可能性があります。' + #13#10 + #13#10 +
           '続けて表示される「既定のアプリ」画面で、' + SettingsTargetText + ' に TMS-MDEditor を選択してください。',
           mbInformation,
           MB_OK);
+        // 登録アプリへのディープリンクを開けないときだけ、既定のアプリの一覧を開く
         if not ShellExec(
           '',
           'ms-settings:defaultapps?registeredAppUser=TMS-MDEditor',

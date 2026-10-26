@@ -4,32 +4,26 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-	findShortcutConflicts,
-	isKnownWindowsReservedShortcut,
-	matchesShortcut,
-	normalizeShortcut,
-	shortcutFromKeyboardEvent,
-} from './keybindings';
+import { findShortcutConflicts, isKnownWindowsReservedShortcut, matchesShortcut, normalizeShortcut, shortcutFromKeyboardEvent } from './keybindings';
 
 /**
  * テスト用のキーボードイベントを、指定したキーと修飾だけ埋めて作る
  * @param partial - key は押した文字、ctrlKey / shiftKey / altKey は修飾、code は物理キー。省略した修飾は false、code は空
  * @returns ショートカット判定へ渡す最小のキーボードイベント
  */
-function createKeyEvent(partial: {
-	key: string;
-	ctrlKey?: boolean;
-	shiftKey?: boolean;
-	altKey?: boolean;
-	code?: string;
-}): KeyboardEvent {
+function createKeyEvent(partial: { key: string; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean; code?: string }): KeyboardEvent {
+	// 判定に使うキーと修飾だけを埋めたイベント。未指定の修飾は押していない
 	return {
-		key      : partial.key,
-		code     : partial.code ?? '',
-		ctrlKey  : partial.ctrlKey ?? false,
-		shiftKey : partial.shiftKey ?? false,
-		altKey   : partial.altKey ?? false,
+		// 押した文字。大文字小文字は呼び出し側の期待に合わせる
+		key: partial.key,
+		// 物理キー。省略時は空文字で、文字キー以外を見ない
+		code: partial.code ?? '',
+		// Ctrl。省略時は押していない
+		ctrlKey: partial.ctrlKey ?? false,
+		// Shift。省略時は押していない
+		shiftKey: partial.shiftKey ?? false,
+		// Alt。省略時は押していない
+		altKey: partial.altKey ?? false
 	} as KeyboardEvent;
 }
 
@@ -45,10 +39,7 @@ describe('keybindings', () => {
 	});
 
 	it('設定値の別ショートカットも判定できる', () => {
-		expect(matchesShortcut(
-			createKeyEvent({ key: 'm', ctrlKey: true, shiftKey: true }),
-			'Ctrl+Shift+M',
-		)).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: 'm', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+M')).toBe(true);
 	});
 
 	it('Ctrl+R を置換ショートカットとして判定できる', () => {
@@ -63,64 +54,64 @@ describe('keybindings', () => {
 	});
 
 	it('分割ビューの既定ショートカットを判定できる', () => {
-		expect(matchesShortcut(
-			createKeyEvent({ key: '_', code: 'Minus', ctrlKey: true, shiftKey: true }),
-			'Ctrl+Shift+-',
-		)).toBe(true);
-		expect(matchesShortcut(
-			createKeyEvent({ key: '=', code: 'Minus', ctrlKey: true, shiftKey: true }),
-			'Ctrl+Shift+-',
-		)).toBe(true);
-		expect(matchesShortcut(
-			createKeyEvent({ key: '|', ctrlKey: true, shiftKey: true }),
-			'Ctrl+Shift+\\',
-		)).toBe(true);
-		expect(matchesShortcut(
-			createKeyEvent({ key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true }),
-			'Ctrl+Shift+U',
-		)).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: '_', code: 'Minus', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+-')).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: '=', code: 'Minus', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+-')).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: '|', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+\\')).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+U')).toBe(true);
 	});
 
 	it('キー入力を設定保存形式へ変換できる', () => {
-		expect(shortcutFromKeyboardEvent(createKeyEvent({
-			key     : 'U',
-			code    : 'KeyU',
-			ctrlKey : true,
-			shiftKey: true,
-		}))).toBe('Ctrl+Shift+U');
-		expect(shortcutFromKeyboardEvent(createKeyEvent({
-			key     : '_',
-			code    : 'Minus',
-			ctrlKey : true,
-			shiftKey: true,
-		}))).toBe('Ctrl+Shift+-');
-		expect(shortcutFromKeyboardEvent(createKeyEvent({
-			key     : '+',
-			code    : 'Equal',
-			ctrlKey : true,
-			shiftKey: true,
-		}))).toBe('Ctrl+Shift+=');
+		expect(
+			shortcutFromKeyboardEvent(
+				createKeyEvent({
+					key: 'U',
+					code: 'KeyU',
+					ctrlKey: true,
+					shiftKey: true
+				})
+			)
+		).toBe('Ctrl+Shift+U');
+		expect(
+			shortcutFromKeyboardEvent(
+				createKeyEvent({
+					key: '_',
+					code: 'Minus',
+					ctrlKey: true,
+					shiftKey: true
+				})
+			)
+		).toBe('Ctrl+Shift+-');
+		expect(
+			shortcutFromKeyboardEvent(
+				createKeyEvent({
+					key: '+',
+					code: 'Equal',
+					ctrlKey: true,
+					shiftKey: true
+				})
+			)
+		).toBe('Ctrl+Shift+=');
 		expect(shortcutFromKeyboardEvent(createKeyEvent({ key: 'F3' }))).toBe('F3');
 		expect(shortcutFromKeyboardEvent(createKeyEvent({ key: 'a', code: 'KeyA' }))).toBeNull();
 	});
 
 	it('Equal と Space の物理キーを判定できる', () => {
-		expect(matchesShortcut(
-			createKeyEvent({ key: '+', code: 'Equal', ctrlKey: true, shiftKey: true }),
-			'Ctrl+Shift+=',
-		)).toBe(true);
-		expect(matchesShortcut(
-			createKeyEvent({ key: ' ', code: 'Space', ctrlKey: true }),
-			'Ctrl+Space',
-		)).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: '+', code: 'Equal', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+=')).toBe(true);
+		expect(matchesShortcut(createKeyEvent({ key: ' ', code: 'Space', ctrlKey: true }), 'Ctrl+Space')).toBe(true);
 	});
 
 	it('表記順にかかわらずショートカット競合を検出する', () => {
 		expect(normalizeShortcut('Shift+Ctrl+U')).toBe(normalizeShortcut('Ctrl+Shift+U'));
-		expect(findShortcutConflicts({
-			unsplit: 'Ctrl+Shift+U',
-			find   : 'Ctrl+F',
-		}, 'find', 'Shift+Ctrl+U')).toEqual(['unsplit']);
+		expect(
+			findShortcutConflicts(
+				{
+					unsplit: 'Ctrl+Shift+U',
+					find: 'Ctrl+F'
+				},
+				'find',
+				'Shift+Ctrl+U'
+			)
+		).toEqual(['unsplit']);
 	});
 
 	it('Windows予約キー Ctrl+Shift+0 を警告対象にする', () => {

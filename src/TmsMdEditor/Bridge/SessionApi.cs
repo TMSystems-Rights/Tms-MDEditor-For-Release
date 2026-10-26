@@ -47,7 +47,14 @@ internal sealed class SessionApi
 		// 副ウィンドウの部分的なタブ構成で、主ウィンドウの復元セッションを上書きしない
 		if (!_isSessionOwner)
 		{
-			return new SessionSaveResult { Success = false, Message = "副ウィンドウはセッションを保存しません。" };
+			// 保存しなかった結果。Web 層は失敗として扱い、ディスクのセッションは残る
+			return new SessionSaveResult
+			{
+				// false は未保存。副ウィンドウでは常に失敗にする
+				Success = false,
+				// 保存しなかった理由。空にはしない
+				Message = "副ウィンドウはセッションを保存しません。",
+			};
 		}
 
 		return _sessionStore.Save(paramsElement);

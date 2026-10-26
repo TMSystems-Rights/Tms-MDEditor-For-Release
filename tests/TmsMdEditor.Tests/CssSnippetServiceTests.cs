@@ -38,6 +38,7 @@ public class CssSnippetServiceTests : IDisposable
 		_tempRoot = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-snippets-test-{Guid.NewGuid():N}");
 		AppPaths.SetOverrideAppDataRoot(_tempRoot);
 
+		// 設定とスニペットサービスの両方へ渡すログ。ファイルへは書かない
 		var logger = new Logger();
 		_configStore = new ConfigStore(logger, new BootstrapConfigStore(logger));
 		_configStore.Load();
@@ -51,6 +52,7 @@ public class CssSnippetServiceTests : IDisposable
 	{
 		AppPaths.SetOverrideAppDataRoot(null);
 
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot))
 		{
 			Directory.Delete(_tempRoot, recursive: true);
@@ -63,16 +65,20 @@ public class CssSnippetServiceTests : IDisposable
 	[Fact]
 	public void List_reads_css_files_and_marks_enabled_entries()
 	{
+		// 一覧が返す snippets の実ディレクトリ。css と txt をここに置く
 		string snippetsDirectory = _service.GetDirectoryPath();
 		File.WriteAllText(Path.Combine(snippetsDirectory, "sample.css"), ":root { --sample: red; }");
 		File.WriteAllText(Path.Combine(snippetsDirectory, "other.txt"), "ignored");
 
+		// 有効リストへ sample.css だけを入れた保存結果。失敗すると Success が false
 		SaveConfigResult update = _configStore.UpdateSettings(
 			System.Text.Json.JsonDocument.Parse("""{"cssSnippets":{"enabled":["sample.css"]}}""").RootElement);
 		Assert.True(update.Success, update.Message);
 
+		// css だけを含む一覧。txt は載らない
 		CssSnippetsResponse response = _service.List();
 
+		// 一覧の唯一の要素。有効で、中身があり、Error は null
 		CssSnippetInfo snippet = Assert.Single(response.Snippets);
 		Assert.Equal("sample.css", snippet.Name);
 		Assert.True(snippet.Enabled);
@@ -86,10 +92,12 @@ public class CssSnippetServiceTests : IDisposable
 	[Fact]
 	public void List_orders_names_case_insensitively()
 	{
+		// 大文字小文字が混ざる css を置くディレクトリ
 		string snippetsDirectory = _service.GetDirectoryPath();
 		File.WriteAllText(Path.Combine(snippetsDirectory, "z.css"), "z {}");
 		File.WriteAllText(Path.Combine(snippetsDirectory, "A.css"), "a {}");
 
+		// 名前順を見る一覧。有効指定はしていない
 		CssSnippetsResponse response = _service.List();
 
 		Assert.Equal(["A.css", "z.css"], response.Snippets.Select(item => item.Name));
@@ -101,10 +109,12 @@ public class CssSnippetServiceTests : IDisposable
 	[Fact]
 	public void List_does_not_recreate_snippets_directory_when_custom_data_directory_was_renamed()
 	{
+		// 設定の保存先にする、まだ無い data ディレクトリ
 		string customDataDir = Path.Combine(_tempRoot, "custom-data");
 		Assert.True(_configStore.MigrateDataDir(customDataDir).Success);
 		Directory.Move(customDataDir, Path.Combine(_tempRoot, "custom-data-renamed"));
 
+		// 移動後に読む一覧。フォルダが無いので空で、Error に理由がある
 		CssSnippetsResponse response = _service.List();
 
 		Assert.Empty(response.Snippets);

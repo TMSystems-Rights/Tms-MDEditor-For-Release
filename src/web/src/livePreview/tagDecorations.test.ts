@@ -17,73 +17,56 @@ import { collectTagDecorationEntries } from './tagDecorations';
  * @returns 装飾範囲の文字列。該当が無ければ空
  */
 function collectDecoratedTags(doc: string, anchor = 0): string[] {
+	// カーソル行をソース表示にする状態。その行のタグは装飾しない
 	const state       = EditorState.create({
+		// タグを含む本文
 		doc,
-		selection : { anchor },
-		extensions: [createTmsMarkdownSupport()],
+		// ソース行になるカーソル。省略時は文書先頭
+		selection: { anchor },
+		// タグの構文木を作る Markdown サポート
+		extensions: [createTmsMarkdownSupport()]
 	});
+	// 装飾から外すソース行。カーソルがある行
 	const sourceLines = collectSourceLineNumbers(state);
 
-	return collectTagDecorationEntries(state, sourceLines).map((entry) => (
-		state.doc.sliceString(entry.from, entry.to)
-	));
+	return collectTagDecorationEntries(state, sourceLines).map((entry) => state.doc.sliceString(entry.from, entry.to));
 }
 
 describe('tagDecorations', () => {
 	it('日本語・Unicode句読点・末尾スラッシュを含む階層タグを装飾する', () => {
-		const doc = [
-			'active',
-			'#一般/TODO と #システム開発/030_開発環境構築/020_サーバ構築',
-			'#一般/スタディ/入門（初心者）',
-			'#一般/金融/',
-			'#一般/金融/クレジットカード/Amex/セゾンコバルト・ビジネス',
-		].join('\n');
+		// 先頭行はカーソルが無くても、装飾対象の階層タグを含む本文
+		const doc = ['active', '#一般/TODO と #システム開発/030_開発環境構築/020_サーバ構築', '#一般/スタディ/入門（初心者）', '#一般/金融/', '#一般/金融/クレジットカード/Amex/セゾンコバルト・ビジネス'].join('\n');
 
-		expect(collectDecoratedTags(doc)).toEqual([
-			'#一般/TODO',
-			'#システム開発/030_開発環境構築/020_サーバ構築',
-			'#一般/スタディ/入門（初心者）',
-			'#一般/金融/',
-			'#一般/金融/クレジットカード/Amex/セゾンコバルト・ビジネス',
-		]);
+		expect(collectDecoratedTags(doc)).toEqual(['#一般/TODO', '#システム開発/030_開発環境構築/020_サーバ構築', '#一般/スタディ/入門（初心者）', '#一般/金融/', '#一般/金融/クレジットカード/Amex/セゾンコバルト・ビジネス']);
 	});
 
 	it('英数字・区切り記号・Unicode記号を含むタグを装飾する', () => {
+		// 英数字と区切り、絵文字を含むタグ。先頭行はソース行にしない
 		const doc = 'active\n#camelCase #snake_case #kebab-case #inbox/to-read #todo✅';
 
-		expect(collectDecoratedTags(doc)).toEqual([
-			'#camelCase',
-			'#snake_case',
-			'#kebab-case',
-			'#inbox/to-read',
-			'#todo✅',
-		]);
+		expect(collectDecoratedTags(doc)).toEqual(['#camelCase', '#snake_case', '#kebab-case', '#inbox/to-read', '#todo✅']);
 	});
 
 	it('数字だけ・先頭スラッシュ・見出し・単語途中・エスケープ済み候補は装飾しない', () => {
+		// 数字だけ、先頭スラッシュ、見出し、単語途中、エスケープ。いずれもタグにしない
 		const doc = 'active\n#1984\n#/child\n# Heading\ntext#tag\n\\#escaped';
 
 		expect(collectDecoratedTags(doc)).toEqual([]);
 	});
 
 	it('インラインコード・フェンスコード・リンク先・YAML内は装飾しない', () => {
-		const doc    = [
-			'---',
-			'tags: #frontmatter',
-			'---',
-			'active',
-			'`#code` [label](#destination) #visible',
-			'```text',
-			'#fenced',
-			'```',
-		].join('\n');
+		// YAML、コード、リンク先を含む本文。visible だけが装飾対象
+		const doc    = ['---', 'tags: #frontmatter', '---', 'active', '`#code` [label](#destination) #visible', '```text', '#fenced', '```'].join('\n');
+		// active の位置。この行をソース行にして、前後の除外を見る
 		const anchor = doc.indexOf('active');
 
 		expect(collectDecoratedTags(doc, anchor)).toEqual(['#visible']);
 	});
 
 	it('カーソルのあるソース表示行は装飾しない', () => {
+		// 1 行目がソース、2 行目がプレビューになる本文
 		const doc    = '#source\n#preview';
+		// 1 行目のタグ上。この行だけ装飾から外れる
 		const anchor = doc.indexOf('#source');
 
 		expect(collectDecoratedTags(doc, anchor)).toEqual(['#preview']);

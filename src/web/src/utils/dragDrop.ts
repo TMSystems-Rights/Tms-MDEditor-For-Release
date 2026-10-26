@@ -11,6 +11,7 @@
  * @returns ファイルを含む場合 true
  */
 export function isFileDrag(dataTransfer: DataTransfer | null): boolean {
+	// 転送データが無いときは、ファイルを運んでいるか判断できない
 	if (!dataTransfer) {
 		return false;
 	}

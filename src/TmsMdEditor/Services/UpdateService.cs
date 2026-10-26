@@ -138,24 +138,37 @@ internal sealed class UpdateService : IDisposable
 	public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default, bool tagNameOnly = false)
 	{
 		// ポータブル版は自動適用しないため、資産を要求せずタグ比較だけ行う
+		// portable はタグだけ。installer は資産の有無まで見る
 		string mode = tagNameOnly ? "portable" : "installer";
 		try
 		{
+			// 最新 Release の API 要求。未送信
 			using HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
+			// 応答。失敗ステータスでも本文は失敗結果に変える
 			using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+			// 成功ステータス以外は Release を解析せず失敗にする
 			if (!response.IsSuccessStatusCode) return Failure($"更新情報の取得に失敗しました（HTTP {(int)response.StatusCode}）。", mode);
 
+			// Release JSON の本体
 			await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+			// 解析した文書。使い終わったら破棄する
 			using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+			// ポータブルは tag だけ。インストーラは setup.exe と SHA-256 まで読む
 			UpdateReleaseInfo release = tagNameOnly ? ParseReleaseTagOnly(document.RootElement) : ParseRelease(document.RootElement);
 			// SemVerのビルド・プレリリース部分を除いたVersionで、単純な大小比較へ揃える
+			// 最新か現行のどちらかが Version として読めなければ失敗。両方読めたときだけ比較へ進む
 			if (!TryParseVersion(release.Version, out Version? latestVersion) || !TryParseVersion(_currentVersion, out Version? currentVersion)) return Failure("Release のバージョン形式が不正です。", mode);
 
+			// 比較結果。通信失敗はこの形にしない
 			return new UpdateCheckResult
 			{
+				// 現行より新しければ available。同じか古ければ not-available
 				Status         = latestVersion > currentVersion ? "available" : "not-available",
+				// 比較に使った現行バージョン。先頭の v は除いてある
 				CurrentVersion = _currentVersion,
+				// 解析した Release。ポータブルは資産項目が空
 				Release        = release,
+				// 問い合わせ方。portable か installer
 				Mode           = mode,
 			};
 		}
@@ -179,6 +192,7 @@ internal sealed class UpdateService : IDisposable
 	/// <returns>検証済みインストーラのパス。失敗や取り消しは Success が false</returns>
 	public async Task<UpdateDownloadResult> DownloadAsync(UpdateReleaseInfo release, IProgress<UpdateDownloadProgress>? progress = null, CancellationToken cancellationToken = default)
 	{
+		// 資産名が空白、または ID も公開 URL も無いときはダウンロードしない。名前が空なら ID があっても入る
 		if (string.IsNullOrWhiteSpace(release.InstallerName)
 			|| (release.InstallerAssetId <= 0 && string.IsNullOrWhiteSpace(release.InstallerDownloadUrl)))
 		{
@@ -187,61 +201,108 @@ internal sealed class UpdateService : IDisposable
 
 		// 同時に複数の更新を走らせず、新しい要求が以前のダウンロードを引き継がないようにする
 		CancelDownload();
+		// この要求と、以前から続くダウンロードの両方で止まるトークン
 		using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 		_downloadCancellation = linkedCancellation;
+		// 検証後に置く確定パス。OS の一時ディレクトリ
 		string targetPath  = Path.Combine(Path.GetTempPath(), $"TmsMdEditor-{release.Version}-setup.exe");
+		// 受信中の不完全ファイル。失敗時は finally で消す
 		string partialPath = targetPath + ".part";
 
 		try
 		{
+			// 公開 URL か API の取得要求
 			using HttpRequestMessage request = CreateDownloadRequest(release);
+			// ヘッダだけ先に受け、本文はストリームで読む
 			using HttpResponseMessage response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedCancellation.Token).ConfigureAwait(false);
+			// 成功ステータス以外は .part を書かず失敗にする
 			if (!response.IsSuccessStatusCode) return new UpdateDownloadResult { Message = $"インストーラーのダウンロードに失敗しました（HTTP {(int)response.StatusCode}）。" };
 
 			// 全体をメモリへ載せず.partへ逐次保存し、受信バイト数から進捗を通知する
+			// 全体サイズ。単位はバイト。ヘッダが無ければ Release の size。どちらも無ければ 0 で百分率は出さない
 			long totalBytes = response.Content.Headers.ContentLength ?? release.InstallerSize;
+			// ここまで書いたバイト数。単位はバイト。開始時は 0
 			long downloadedBytes = 0;
 			{
+				// 応答本文。使い終わったら閉じる
 				await using Stream input = await response.Content.ReadAsStreamAsync(linkedCancellation.Token).ConfigureAwait(false);
+				// .part を新規作成。共有せず 81920 バイト単位で書く
 				await using FileStream output = new(partialPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+				// 1 回の読み取りバッファ。81920 バイト
 				byte[] buffer = new byte[81920];
+				// 今回読めたバイト数。0 で受信完了
 				int read;
 				while ((read = await input.ReadAsync(buffer, linkedCancellation.Token).ConfigureAwait(false)) > 0)
 				{
 					await output.WriteAsync(buffer.AsMemory(0, read), linkedCancellation.Token).ConfigureAwait(false);
 					downloadedBytes += read;
-					progress?.Report(new UpdateDownloadProgress { DownloadedBytes = downloadedBytes, TotalBytes = totalBytes, Percent = totalBytes > 0 ? (int)Math.Min(100, downloadedBytes * 100 / totalBytes) : 0 });
+					// 受信途中の進捗。全体サイズが 0 のとき百分率は 0 のまま
+					progress?.Report(new UpdateDownloadProgress
+					{
+						// ここまで書いたバイト数。単位はバイト
+						DownloadedBytes = downloadedBytes,
+						// 分かっている全体サイズ。単位はバイト。不明なら 0
+						TotalBytes = totalBytes,
+						// 0 から 100。全体が 0 のときは 0 のまま
+						Percent = totalBytes > 0 ? (int)Math.Min(100, downloadedBytes * 100 / totalBytes) : 0,
+					});
 				}
 
 				await output.FlushAsync(linkedCancellation.Token).ConfigureAwait(false);
 			}
 			// 完成ファイルへ昇格する前に、Releaseメタデータのサイズとハッシュを順に検証する
+			// Release がサイズを持ち、かつ受信バイト数が一致しないときだけ失敗。サイズ 0 では検証しない
 			if (release.InstallerSize > 0 && downloadedBytes != release.InstallerSize) return new UpdateDownloadResult { Message = "インストーラーのサイズ検証に失敗しました。" };
 
+			// ノートに SHA-256 があるときだけハッシュを比べる。空ならサイズ検証だけで進む
 			if (!string.IsNullOrWhiteSpace(release.Sha256))
 			{
+				// 書き終えた .part。ハッシュ計算用に読み直す
 				await using FileStream verificationStream = File.OpenRead(partialPath);
+				// 受信ファイルの SHA-256。16 進大文字
 				string actualHash = Convert.ToHexString(await SHA256.HashDataAsync(verificationStream, linkedCancellation.Token).ConfigureAwait(false));
+				// 大文字小文字を無視してノートの値と違うときは確定パスへ移さない
 				if (!string.Equals(actualHash, release.Sha256, StringComparison.OrdinalIgnoreCase)) return new UpdateDownloadResult { Message = "インストーラーの SHA-256 検証に失敗しました。" };
 			}
 
 			// 検証を通過した.partだけを、後で起動する確定パスへ置き換える
 			File.Move(partialPath, targetPath, overwrite: true);
-			return new UpdateDownloadResult { Success = true, InstallerPath = targetPath };
+			// 検証を通過したインストーラ
+			return new UpdateDownloadResult
+			{
+				// サイズとハッシュを通過した
+				Success = true,
+				// 起動に使う確定パス
+				InstallerPath = targetPath,
+			};
 		}
 		catch (OperationCanceledException) when (linkedCancellation.IsCancellationRequested)
 		{
-			return new UpdateDownloadResult { Cancelled = true, Message = "更新のダウンロードをキャンセルしました。" };
+			// 取り消し。不完全な .part は finally で消す
+			return new UpdateDownloadResult
+			{
+				// 失敗ではなくキャンセル
+				Cancelled = true,
+				// 利用者向け
+				Message = "更新のダウンロードをキャンセルしました。",
+			};
 		}
 		catch (Exception ex)
 		{
 			_logger.Warn(LogCategory.Update, "インストーラーのダウンロードに失敗しました", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
-			return new UpdateDownloadResult { Message = "インストーラーのダウンロードに失敗しました。" };
+			// 通信やディスクの失敗。Success は既定の false
+			return new UpdateDownloadResult
+			{
+				// 利用者向け。詳細はログ
+				Message = "インストーラーのダウンロードに失敗しました。",
+			};
 		}
 		finally
 		{
 			// 失敗・キャンセル時の不完全ファイルと、現在要求だけが所有するCTSを片付ける
+			// 失敗やキャンセルで残った不完全ファイルだけ消す。昇格済みなら無い
 			if (File.Exists(partialPath)) File.Delete(partialPath);
+			// この要求がまだ進行中の印を持っているときだけ外す。次の要求が差し替えていれば入らない
 			if (ReferenceEquals(_downloadCancellation, linkedCancellation)) _downloadCancellation = null;
 		}
 	}
@@ -258,6 +319,7 @@ internal sealed class UpdateService : IDisposable
 	/// <exception cref="FileNotFoundException"><paramref name="installerPath"/> のファイルが存在しない</exception>
 	public void LaunchInstaller(string installerPath)
 	{
+		// 検証後に消えた、またはパスが違うときは起動しない
 		if (!File.Exists(installerPath)) throw new FileNotFoundException("インストーラーが見つかりません。", installerPath);
 		Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
 	}
@@ -269,6 +331,7 @@ internal sealed class UpdateService : IDisposable
 	{
 		CancelDownload();
 		_downloadCancellation?.Dispose();
+		// このサービスが生成したクライアントだけ破棄する。テストが渡したものは触らない
 		if (_ownsHttpClient) _httpClient.Dispose();
 	}
 
@@ -306,7 +369,19 @@ internal sealed class UpdateService : IDisposable
 	/// <param name="message">利用者向けの失敗理由</param>
 	/// <param name="mode">portable または installer。省略時は installer</param>
 	/// <returns>status が error の確認結果。現行バージョンは保持する</returns>
-	private UpdateCheckResult Failure(string message, string mode = "installer") => new() { Status = "error", CurrentVersion = _currentVersion, Message = message, Mode = mode };
+	private UpdateCheckResult Failure(string message, string mode = "installer") =>
+		// 例外にしない失敗結果。現行バージョンは残す
+		new()
+	{
+		// 通信や形式の失敗を表す status
+		Status = "error",
+		// 比較に使う現行バージョン。取得失敗でも残す
+		CurrentVersion = _currentVersion,
+		// 利用者向けの失敗理由
+		Message = message,
+		// portable または installer。省略時は installer
+		Mode = mode,
+	};
 
 	/// <summary>
 	/// GitHub API 向けの要求を作る。User-Agent と API バージョンを付ける
@@ -316,6 +391,7 @@ internal sealed class UpdateService : IDisposable
 	/// <returns>未送信の要求。呼び出し元が破棄する</returns>
 	private static HttpRequestMessage CreateApiRequest(HttpMethod method, string relativePath)
 	{
+		// API 起点へメソッドと相対パスを付けた未送信の要求
 		var request = new HttpRequestMessage(method, GitHubApiBase + relativePath);
 		request.Headers.UserAgent.Add(new ProductInfoHeaderValue("TMS-MDEditor", "1.0"));
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -330,15 +406,18 @@ internal sealed class UpdateService : IDisposable
 	/// <returns>未送信の要求。公開 URL が無ければ API の asset エンドポイント</returns>
 	private static HttpRequestMessage CreateDownloadRequest(UpdateReleaseInfo release)
 	{
+		// 公開 URL があるときは API ではなくその URL を開く
 		if (!string.IsNullOrWhiteSpace(release.InstallerDownloadUrl))
 		{
 			// 公開asset URLは認証不要なので、資格情報を別ホストへのリダイレクトへ持ち出さない
+			// 資格情報を付けない GET
 			var publicRequest = new HttpRequestMessage(HttpMethod.Get, release.InstallerDownloadUrl);
 			publicRequest.Headers.UserAgent.Add(new ProductInfoHeaderValue("TMS-MDEditor", "1.0"));
 			return publicRequest;
 		}
 
 		// 公開URLがない場合も、公開リポジトリのAPI assetエンドポイントから取得する
+		// API の asset エンドポイント。Accept は直後でバイナリへ変える
 		HttpRequestMessage request = CreateApiRequest(HttpMethod.Get, $"/repos/{RepositoryOwner}/{RepositoryName}/releases/assets/{release.InstallerAssetId}");
 		request.Headers.Accept.Clear();
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
@@ -353,25 +432,40 @@ internal sealed class UpdateService : IDisposable
 	/// <exception cref="InvalidDataException">setup.exe の資産が無い</exception>
 	private static UpdateReleaseInfo ParseRelease(JsonElement root)
 	{
+		// タグ名。null は空文字。比較前に v を除く
 		string tagName    = root.GetProperty(ReleaseTagNameProperty).GetString() ?? string.Empty;
+		// Release ページ。プロパティが無ければ空文字
 		string releaseUrl = root.TryGetProperty(ReleaseHtmlUrlProperty, out JsonElement urlElement) ? urlElement.GetString() ?? string.Empty : string.Empty;
+		// ノート本文。SHA-256 を探す。無ければ空文字
 		string body       = root.TryGetProperty(ReleaseBodyProperty, out JsonElement bodyElement) ? bodyElement.GetString() ?? string.Empty : string.Empty;
 		// 配布対象をsetup.exeへ限定し、portable ZIPなどを自動適用しない
+		// setup.exe で終わる資産。配列が無ければ default で未定義
 		JsonElement asset = root.TryGetProperty(ReleaseAssetsProperty, out JsonElement assetsElement) && assetsElement.ValueKind == JsonValueKind.Array
 			? assetsElement.EnumerateArray().FirstOrDefault(item => item.TryGetProperty(AssetNameProperty, out JsonElement nameElement) && (nameElement.GetString() ?? string.Empty).EndsWith("-setup.exe", StringComparison.OrdinalIgnoreCase))
 			: default;
+		// インストーラ資産が無い Release はダウンロード対象にしない
 		if (asset.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("Release にインストーラー資産がありません。");
 
+		// ノートから取った 64 桁。見つからなければ Success は false で Sha256 は null
 		Match hashMatch = Sha256Pattern.Match(body);
+		// 比較とダウンロードに使う Release
 		return new UpdateReleaseInfo
 		{
+			// 先頭の v と、+ または - 以降を除いた比較用バージョン
 			Version          = NormalizeVersion(tagName),
+			// 表示用のタグ。正規化前
 			TagName          = tagName,
+			// Release ページ。空ならリンクを出せない
 			ReleaseUrl       = releaseUrl,
+			// setup.exe のファイル名。null は空文字
 			InstallerName        = asset.GetProperty(AssetNameProperty).GetString() ?? string.Empty,
+			// API 取得に使う資産 ID
 			InstallerAssetId     = asset.GetProperty(AssetIdProperty).GetInt64(),
+			// 公開 URL。無ければ空で API 取得へ落ちる
 			InstallerDownloadUrl = asset.TryGetProperty(AssetBrowserDownloadProperty, out JsonElement downloadUrlElement) ? downloadUrlElement.GetString() ?? string.Empty : string.Empty,
+			// 資産サイズ。単位はバイト。無ければ 0 でサイズ検証をしない
 			InstallerSize        = asset.TryGetProperty(AssetSizeProperty, out JsonElement sizeElement) ? sizeElement.GetInt64() : 0,
+			// ノートの SHA-256。見つからなければ null でハッシュ検証をしない
 			Sha256           = hashMatch.Success ? hashMatch.Groups[1].Value : null,
 		};
 	}
@@ -383,12 +477,18 @@ internal sealed class UpdateService : IDisposable
 	/// <returns>比較用バージョンとページ URL。資産項目は空のまま</returns>
 	private static UpdateReleaseInfo ParseReleaseTagOnly(JsonElement root)
 	{
+		// タグ名。null は空文字
 		string tagName    = root.GetProperty(ReleaseTagNameProperty).GetString() ?? string.Empty;
+		// Release ページ。無ければ空文字。資産は読まない
 		string releaseUrl = root.TryGetProperty(ReleaseHtmlUrlProperty, out JsonElement urlElement) ? urlElement.GetString() ?? string.Empty : string.Empty;
+		// タグ比較だけの Release。資産項目は空のまま
 		return new UpdateReleaseInfo
 		{
+			// 比較用に v とビルド番号を除いた版
 			Version    = NormalizeVersion(tagName),
+			// 表示用のタグ
 			TagName    = tagName,
+			// Release ページ
 			ReleaseUrl = releaseUrl,
 		};
 	}

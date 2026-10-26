@@ -28,23 +28,31 @@ param(
 	[switch]$Build
 )
 
+# コマンドレットの失敗を停止例外にする。ビルド失敗のあと起動へ進まない
 $ErrorActionPreference = 'Stop'
+# このスクリプトの親。csproj と exe の基準ディレクトリ
 $repoRoot = Resolve-Path "$PSScriptRoot\.."
+# Debug ビルドの対象。Release の発行物は起動しない
 $project = Join-Path $repoRoot 'src\TmsMdEditor\TmsMdEditor.csproj'
+# 起動する Debug の exe。ビルド前は未生成のことがある
 $exe = Join-Path $repoRoot 'src\TmsMdEditor\bin\Debug\net8.0-windows\TmsMdEditor.exe'
 
 Push-Location $repoRoot
 try {
+	# Web も含めてビルドする指定のときだけ build-all を使う。通常は本体の Debug だけ
 	if ($Build) {
 		& "$PSScriptRoot\build-all.ps1"
+		# Web または本体の失敗なら起動しない
 		if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 	} else {
 		# 別コンソールの `dotnet run` だとビルド失敗が一瞬で消えるため、ここへ出す
 		Write-Host '==> dotnet build (Debug)'
 		& dotnet build $project -c Debug
+		# 本体の Debug ビルドに失敗したら起動しない
 		if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 	}
 
+	# ビルド後も exe が無いときは起動せず止める。パス違いを起動失敗にしない
 	if (-not (Test-Path -LiteralPath $exe)) {
 		throw "起動用 exe が見つかりません: $exe"
 	}

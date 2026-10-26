@@ -96,11 +96,13 @@ internal static class AppPaths
 	{
 		get
 		{
+			// テストが差し替えたルートがあるときは実環境もポータブルも見ない
 			if (_overrideAppDataRoot is not null)
 			{
 				return _overrideAppDataRoot;
 			}
 
+			// ポータブル切替済みで、exe ディレクトリが空白でないときだけ data を返す。どちらかが欠けても入らない
 			if (_portableActive && !string.IsNullOrWhiteSpace(_portableExeDir))
 			{
 				return Path.Combine(_portableExeDir, DataDirName);

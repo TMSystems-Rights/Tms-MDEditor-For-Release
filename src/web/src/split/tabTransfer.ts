@@ -23,6 +23,7 @@ export type TabDropRect = {
  * @returns 0 以上の挿入インデックス。タブが無いときは 0
  */
 export function calculateTabDropIndex(tabRects: TabDropRect[], clientX: number): number {
+	// 中央より左にある最初のタブ。見つからなければ -1 で末尾へ挿入する
 	const index = tabRects.findIndex((rect) => clientX < (rect.left + rect.right) / 2);
 	return index >= 0 ? index : tabRects.length;
 }
@@ -35,10 +36,6 @@ export function calculateTabDropIndex(tabRects: TabDropRect[], clientX: number):
  * @param transferred - 最後のタブを別ウィンドウへ転送して空になったか
  * @returns ウィンドウを閉じる場合 true
  */
-export function shouldCloseWindowAfterTabRemoval(
-	remainingTabCount: number,
-	closeAppWhenLastTabClosed: boolean,
-	transferred: boolean,
-): boolean {
+export function shouldCloseWindowAfterTabRemoval(remainingTabCount: number, closeAppWhenLastTabClosed: boolean, transferred: boolean): boolean {
 	return remainingTabCount === 0 && (closeAppWhenLastTabClosed || transferred);
 }

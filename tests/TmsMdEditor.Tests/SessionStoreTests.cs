@@ -37,7 +37,9 @@ public class SessionStoreTests : IDisposable
 	{
 		_tempRoot = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-session-test-{Guid.NewGuid():N}");
 		AppPaths.SetOverrideAppDataRoot(_tempRoot);
+		// 設定とセッションの両方へ渡すログ。ファイルへは書かない
 		var logger = new Logger();
+		// データディレクトリのポインタ。このテストでは既定の data を指す
 		var bootstrapConfigStore = new BootstrapConfigStore(logger);
 		_configStore  = new ConfigStore(logger, bootstrapConfigStore);
 		_sessionStore = new SessionStore(logger, _configStore);
@@ -50,6 +52,7 @@ public class SessionStoreTests : IDisposable
 	public void Dispose()
 	{
 		AppPaths.SetOverrideAppDataRoot(null);
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot)) Directory.Delete(_tempRoot, recursive: true);
 	}
 
@@ -59,9 +62,12 @@ public class SessionStoreTests : IDisposable
 	[Fact]
 	public void Save_and_load_round_trips_session_in_data_dir()
 	{
+		// schemaVersion 1 のタブ1件。ファイルパスは実在しなくてよい
 		using JsonDocument document = JsonDocument.Parse("""{"schemaVersion":1,"tabs":[{"tabId":"tab-1","filePath":"C:\\docs\\one.md"}]}""");
 
+		// 保存の成否。失敗時は Success が false で Message に理由がある
 		SessionSaveResult save = _sessionStore.Save(document.RootElement);
+		// data ディレクトリから読み戻したセッション。失敗時は Success が false で Session は null
 		SessionLoadResult load = _sessionStore.Load();
 
 		Assert.True(save.Success, save.Message);
@@ -76,8 +82,10 @@ public class SessionStoreTests : IDisposable
 	[Fact]
 	public void Save_rejects_unknown_schema_version()
 	{
+		// 未対応の schemaVersion 99。保存してはいけない
 		using JsonDocument document = JsonDocument.Parse("""{"schemaVersion":99}""");
 
+		// 拒否された保存結果。Success は false で、ファイルは作らない
 		SessionSaveResult result = _sessionStore.Save(document.RootElement);
 
 		Assert.False(result.Success);
@@ -90,9 +98,11 @@ public class SessionStoreTests : IDisposable
 	[Fact]
 	public void Load_ignores_corrupt_session_without_replacing_it()
 	{
+		// 壊れた JSON を置くセッションファイル。Load 後もこの中身のまま残る
 		string sessionPath = AppPaths.GetSessionPath(AppPaths.DefaultDataDir);
 		File.WriteAllText(sessionPath, "{broken");
 
+		// 壊れたファイルの読込結果。Success は false で Session は null
 		SessionLoadResult result = _sessionStore.Load();
 
 		Assert.False(result.Success);

@@ -41,10 +41,11 @@ public sealed class LaunchArgumentsTests : IDisposable
 	[Fact]
 	public void Portable_stub_version_resource_uses_portable_display_name()
 	{
-		// テストの出力先へコピーされた起動用 exe のバージョン情報を読む
+		// 出力ディレクトリへコピーされたポータブル起動 exe。無いときは直後の存在確認が失敗する
 		string exePath = Path.Combine(System.AppContext.BaseDirectory, "TmsMdEditor.Portable.exe");
 		Assert.True(File.Exists(exePath), $"起動用 exe が見つかりません: {exePath}");
 
+		// その exe のファイル説明と製品名。未設定なら表示名と一致しない
 		FileVersionInfo info = FileVersionInfo.GetVersionInfo(exePath);
 		Assert.Equal(LaunchArguments.DisplayName, info.FileDescription);
 		Assert.Equal(LaunchArguments.DisplayName, info.ProductName);
@@ -56,10 +57,11 @@ public sealed class LaunchArgumentsTests : IDisposable
 	[Fact]
 	public void Main_app_version_resource_uses_installer_display_name()
 	{
-		// テストの出力先へコピーされた本体 exe のバージョン情報を読む
+		// 出力ディレクトリへコピーされた本体 exe。無いときは直後の存在確認が失敗する
 		string exePath = Path.Combine(System.AppContext.BaseDirectory, "TmsMdEditor.exe");
 		Assert.True(File.Exists(exePath), $"本体 exe が見つかりません: {exePath}");
 
+		// その exe のファイル説明と製品名。未設定なら TMS-MDEditor と一致しない
 		FileVersionInfo info = FileVersionInfo.GetVersionInfo(exePath);
 		Assert.Equal("TMS-MDEditor", info.FileDescription);
 		Assert.Equal("TMS-MDEditor", info.ProductName);
@@ -71,9 +73,11 @@ public sealed class LaunchArgumentsTests : IDisposable
 	[Fact]
 	public void Normalize_converts_existing_file_to_full_path()
 	{
+		// 正規化に渡す実在ファイル。中身は読まず、存在だけを使う
 		string markdownPath = Path.Combine(_directory, "開く対象.md");
 		File.WriteAllText(markdownPath, "本文");
 
+		// 実在ファイルを絶対パスにし、オプションを残した転送引数。空にはならない
 		IReadOnlyList<string> forwarded = LaunchArguments.Normalize([markdownPath, "--force-new-window"]);
 
 		Assert.Equal([Path.GetFullPath(markdownPath), "--force-new-window"], forwarded);
@@ -85,9 +89,11 @@ public sealed class LaunchArgumentsTests : IDisposable
 	[Fact]
 	public void Normalize_keeps_missing_path_and_strips_quotes_on_existing_file()
 	{
+		// 引用符を外して絶対パスにする実在ファイル
 		string markdownPath = Path.Combine(_directory, "quoted.md");
 		File.WriteAllText(markdownPath, "本文");
 
+		// 実在側は絶対パス、無い側は引用符を外した相対のまま残る転送引数
 		IReadOnlyList<string> forwarded = LaunchArguments.Normalize(["\"" + markdownPath + "\"", "missing-file.md"]);
 
 		Assert.Equal([Path.GetFullPath(markdownPath), "missing-file.md"], forwarded);
@@ -107,6 +113,7 @@ public sealed class LaunchArgumentsTests : IDisposable
 	/// </summary>
 	public void Dispose()
 	{
+		// 一時ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 		if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
 	}
 }

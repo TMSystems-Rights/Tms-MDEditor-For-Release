@@ -16,6 +16,7 @@
 	*,
 	*::before,
 	*::after {
+		/* 0 だと動きが残る環境がある。極端に短くし、ページ側の時間指定より優先する */
 		animation-duration: 0.01ms !important;
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
@@ -34,7 +35,7 @@
 	}
 
 	body.tms-mde-theme-dark,
-	html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) {
+	html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
 		--tms-mde-color-border: #8a8a8a;
 		--tms-mde-color-text-muted: #e0e0e0;
 	}

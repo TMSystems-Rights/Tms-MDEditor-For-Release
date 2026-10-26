@@ -47,36 +47,45 @@ type HeadingFoldExtensionOptions = {
  * @returns 文書順の折りたたみ範囲。見出しが無いときは空配列
  */
 export function collectHeadingFoldRanges(state: EditorState): HeadingFoldRange[] {
+	// 文書順の見出し。本文が空でも一旦集め、範囲を作る段で落とす
 	const headings: Array<{ headingFrom: number; headingTo: number; level: number }> = [];
 	// 折りたたみ後は表示範囲外の構文解析が省略されるため、保存・復元でも文書全体を明示的に解析する
 	const tree                                                                       = ensureSyntaxTree(state, state.doc.length, FULL_PARSE_TIMEOUT_MS) ?? syntaxTree(state);
+	// 構文木の走査位置。見出し名のノードだけを集める
 	const cursor                                                                     = tree.cursor();
 	do {
+		// 見出しノード名に一致したレベル。ATX でも Setext でも、名前が違えば null
 		const match = HEADING_NODE_PATTERN.exec(cursor.name);
+		// 見出しでないノードは範囲の材料にしない
 		if (!match) continue;
+		// 見出しの位置とレベル。本文の終わりは後段で決める
 		headings.push({
+			// 見出しノード先頭（文書オフセット）。折りたたみ状態のキー
 			headingFrom: cursor.from,
-			headingTo  : cursor.to,
-			level      : Number(match[1]),
+			// 見出しノード末尾（文書オフセット、含まない）
+			headingTo: cursor.to,
+			// 見出しレベル。1 から 6。キャプチャの数字
+			level: Number(match[1])
 		});
 	} while (cursor.next());
 
 	return headings.flatMap((heading, index) => {
+		// 本文の終わり（文字）。同レベル以上の次の見出しが無ければ文書末尾
 		let nextBoundary = state.doc.length;
 		for (let nextIndex = index + 1; nextIndex < headings.length; nextIndex += 1) {
+			// 同レベルか、より上位の見出しが次の境界。より深い見出しは本文に含めるので境界にしない
 			if (headings[nextIndex].level <= heading.level) {
+				// 次の境界は、その見出しの先頭。本文はその手前まで
 				nextBoundary = headings[nextIndex].headingFrom;
 				break;
 			}
 		}
 
+		// 折りたたむ本文の先頭（文字、含む）。見出しノードの直後で、見出し行自体は含めない
 		const from = heading.headingTo;
-		const to   = nextBoundary < state.doc.length
-			? Math.max(from, nextBoundary - state.lineBreak.length)
-			: state.doc.length;
-		return from < to
-			? [{ headingFrom: heading.headingFrom, level: heading.level, from, to }]
-			: [];
+		// 本文の末尾（文字、含まない）。文書末尾以外は、次の見出し直前の改行を含めない
+		const to   = nextBoundary < state.doc.length ? Math.max(from, nextBoundary - state.lineBreak.length) : state.doc.length;
+		return from < to ? [{ headingFrom: heading.headingFrom, level: heading.level, from, to }] : [];
 	});
 }
 
@@ -87,9 +96,7 @@ export function collectHeadingFoldRanges(state: EditorState): HeadingFoldRange[]
  */
 export function getCollapsedHeadingFroms(state: EditorState): number[] {
 	const ranges = collectHeadingFoldRanges(state);
-	return ranges
-		.filter((range) => isFoldedRange(state, range))
-		.map((range) => range.headingFrom);
+	return ranges.filter((range) => isFoldedRange(state, range)).map((range) => range.headingFrom);
 }
 
 // ==============================================
@@ -104,14 +111,28 @@ export function getCollapsedHeadingFroms(state: EditorState): number[] {
  * @returns 折りたたみを適用した状態。適用するものが無ければ state と同じ
  */
 export function restoreCollapsedHeadings(state: EditorState, headingFroms: readonly number[]): EditorState {
+	// 折りたたむ見出し先頭。整数でない値と負の値は捨てる。残らなければ空集合
 	const requested = new Set(headingFroms.filter((value) => Number.isInteger(value) && value >= 0));
+	// 有効な位置が 1 つも無ければ、状態を変えない
 	if (requested.size === 0) return state;
 
+	// 主選択の head（文字）。この位置を隠す範囲は折りたたまない
 	const selectionHead = state.selection.main.head;
+	// 保存位置に一致し、選択を隠さない折りたたみ Effect。一致が無ければ空
 	const effects       = collectHeadingFoldRanges(state)
 		.filter((range) => requested.has(range.headingFrom))
 		.filter((range) => !(range.from < selectionHead && selectionHead <= range.to))
-		.map((range) => foldEffect.of({ from: range.from, to: range.to }));
+		.map((range) =>
+			foldEffect.of(
+				// この見出しの本文を折りたたむ範囲。見出し行自体は含めない
+				{
+					// 本文の開始（文字、含む）。見出しノードの直後
+					from: range.from,
+					// 本文の終端（文字、含まない）。次の同レベル以上の見出しの手前
+					to: range.to
+				}
+			)
+		);
 	return effects.length > 0 ? state.update({ effects }).state : state;
 }
 
@@ -143,9 +164,17 @@ export function revealHeadingInCollapsedHeadings(state: EditorState, headingFrom
  * @returns 1 件以上展開したとき true。対象が無ければ false
  */
 export function expandHeadingAt(view: EditorView, headingFrom: number): boolean {
+	// 指定見出しと、それを隠している親の展開 Effect。折りたたみ中でなければ空
 	const effects = unfoldEffectsForHeading(view.state, headingFrom);
+	// 展開するものが無ければ dispatch しない
 	if (effects.length === 0) return false;
-	view.dispatch({ effects, userEvent: 'unfold.heading.outline' });
+	// アウトラインからの展開。選択は動かさない
+	view.dispatch({
+		// 展開する範囲の Effect
+		effects,
+		// アウトライン操作。他の折りたたみ更新と区別する
+		userEvent: 'unfold.heading.outline'
+	});
 	return true;
 }
 
@@ -156,15 +185,33 @@ export function expandHeadingAt(view: EditorView, headingFrom: number): boolean 
  * @returns 1 件以上折りたたんだとき true。対象が無ければ false
  */
 export function collapseAllHeadings(view: EditorView): boolean {
+	// まだ折りたたまれていない見出し。本文が空の見出しは collect に含まれない
 	const ranges = collectHeadingFoldRanges(view.state).filter((range) => !isFoldedRange(view.state, range));
+	// 折りたたむものが無ければ dispatch しない
 	if (ranges.length === 0) return false;
 
+	// 主選択の head（文字）。本文の中にある見出しへキャレットを移す判定に使う
 	const selectionHead = view.state.selection.main.head;
+	// 選択を本文に含む見出し。無ければ undefined で、選択は動かさない
 	const containing    = ranges.find((range) => range.from < selectionHead && selectionHead <= range.to);
+	// 未折りの見出しをすべて畳む。選択が本文の中なら、その見出しの先頭へキャレットを移す
 	view.dispatch({
-		effects: ranges.map((range) => foldEffect.of({ from: range.from, to: range.to })),
+		// 折りたたむ範囲の Effect。本文が空の見出しは ranges に含まれない
+		effects: ranges.map((range) =>
+			foldEffect.of(
+				// この見出しの本文を折りたたむ範囲。見出し行自体は含めない
+				{
+					// 本文の開始（文字、含む）。見出しノードの直後
+					from: range.from,
+					// 本文の終端（文字、含まない）。次の同レベル以上の見出しの手前
+					to: range.to
+				}
+			)
+		),
+		// 選択が本文の中にあるときだけ、その見出しの先頭へ移す。無ければ undefined で選択は動かさない
 		selection: containing ? EditorSelection.cursor(containing.headingFrom, 1) : undefined,
-		userEvent: 'fold.heading.all',
+		// 全文折りたたみ。個別のガター操作と区別する
+		userEvent: 'fold.heading.all'
 	});
 	return true;
 }
@@ -177,12 +224,30 @@ export function collapseAllHeadings(view: EditorView): boolean {
 export function expandAllHeadings(view: EditorView): boolean {
 	const effects: StateEffect<unknown>[] = [];
 	for (const range of collectHeadingFoldRanges(view.state)) {
+		// 折りたたみ中の見出しだけ展開する。展開済みは Effect に入れない
 		if (isFoldedRange(view.state, range)) {
-			effects.push(unfoldEffect.of({ from: range.from, to: range.to }));
+			effects.push(
+				unfoldEffect.of(
+					// 展開する本文の範囲。見出し行自体は折りたたみに含まれていない
+					{
+						// 本文の開始（文字、含む）
+						from: range.from,
+						// 本文の終端（文字、含まない）
+						to: range.to
+					}
+				)
+			);
 		}
 	}
+	// 展開するものが無ければ dispatch しない
 	if (effects.length === 0) return false;
-	view.dispatch({ effects, userEvent: 'fold.heading.all' });
+	// 折りたたみ中の見出しをすべて開く。選択は動かさない
+	view.dispatch({
+		// 展開する範囲の Effect
+		effects,
+		// 全文展開。個別のガター操作と区別する
+		userEvent: 'fold.heading.all'
+	});
 	return true;
 }
 
@@ -215,32 +280,32 @@ export function hasCollapsedHeadings(state: EditorState): boolean {
  * @returns 折りたたみ、マーカー、ガター、変化通知、ガター用テーマ
  */
 export function createHeadingFoldExtensions(options: HeadingFoldExtensionOptions = {}): Extension[] {
-	const markers = ViewPlugin.fromClass(/** 表示範囲の見出しマーカーを保持する。文書、表示範囲、構文木、折りたたみ状態が変わったときだけ作り直す */ class {
-		/** 表示範囲の見出しマーカー。該当が無いときは空集合 */
-		public markers = RangeSet.empty as RangeSet<GutterMarker>;
+	const markers = ViewPlugin.fromClass(
+		/** 表示範囲の見出しマーカーを保持する。文書、表示範囲、構文木、折りたたみ状態が変わったときだけ作り直す */ class {
+			/** 表示範囲の見出しマーカー。該当が無いときは空集合 */
+			public markers = RangeSet.empty as RangeSet<GutterMarker>;
 
-		/**
-		 * 開いた直後の表示範囲から見出しマーカーを作る
-		 * @param view - 初期マーカーを作るエディタ
-		 */
-		constructor(view: EditorView) {
-			this.markers = buildHeadingFoldMarkers(view);
-		}
+			/**
+			 * 開いた直後の表示範囲から見出しマーカーを作る
+			 * @param view - 初期マーカーを作るエディタ
+			 */
+			constructor(view: EditorView) {
+				this.markers = buildHeadingFoldMarkers(view);
+			}
 
-		/**
-		 * 文書、表示範囲、構文木、折りたたみ状態の変化をガターへ反映する
-		 * それらが変わっていなければマーカーは維持する
-		 * @param update - 今回のビュー更新
-		 */
-		update(update: ViewUpdate): void {
-			if (update.docChanged
-				|| update.viewportChanged
-				|| syntaxTree(update.startState) !== syntaxTree(update.state)
-				|| update.startState.field(foldState, false) !== update.state.field(foldState, false)) {
-				this.markers = buildHeadingFoldMarkers(update.view);
+			/**
+			 * 文書、表示範囲、構文木、折りたたみ状態の変化をガターへ反映する
+			 * それらが変わっていなければマーカーは維持する
+			 * @param update - 今回のビュー更新
+			 */
+			update(update: ViewUpdate): void {
+				// 文書、表示範囲、構文木、折りたたみ状態のどれかが変わったときだけマーカーを作り直す。四つとも同じ更新では維持する
+				if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state) || update.startState.field(foldState, false) !== update.state.field(foldState, false)) {
+					this.markers = buildHeadingFoldMarkers(update.view);
+				}
 			}
 		}
-	});
+	);
 
 	return [
 		codeFolding({ placeholderText: '…' }),
@@ -273,64 +338,99 @@ export function createHeadingFoldExtensions(options: HeadingFoldExtensionOptions
 				 * @returns 見出しを切り替えたとき true。見出し行でなければ false
 				 */
 				click(view, line, event) {
-					const range = collectHeadingFoldRanges(view.state).find((entry) => (
-						view.state.doc.lineAt(entry.headingFrom).from === line.from
-					));
+					const range = collectHeadingFoldRanges(view.state).find((entry) => view.state.doc.lineAt(entry.headingFrom).from === line.from);
+					// クリック行が見出しでなければ、ガターの既定動作に任せる
 					if (!range) return false;
 					event.preventDefault();
+					// 折りたたみ中なら展開する。展開中はこの分岐に入らず、折りたたみへ進む
 					if (isFoldedRange(view.state, range)) {
-						view.dispatch({ effects: unfoldEffect.of({ from: range.from, to: range.to }), userEvent: 'fold.heading' });
+						// 折りたたみ中の見出しを開く。選択は動かさない
+						view.dispatch({
+							// この見出しの本文を展開する
+							effects: unfoldEffect.of(
+								// 展開する本文の範囲。見出し行自体は折りたたみに含まれていない
+								{
+									// 本文の開始（文字、含む）
+									from: range.from,
+									// 本文の終端（文字、含まない）
+									to: range.to
+								}
+							),
+							// ガターのクリック。全文折りたたみと区別する
+							userEvent: 'fold.heading'
+						});
 						return true;
 					}
 
+					// 主選択の head（文字）。本文の中なら、折りたたむ前に見出し先頭へ移す
 					const selectionHead = view.state.selection.main.head;
+					// 展開中の見出しを畳む。選択が本文の中なら見出し先頭へ移す
 					view.dispatch({
-						effects: foldEffect.of({ from: range.from, to: range.to }),
-						selection: range.from < selectionHead && selectionHead <= range.to
-							? EditorSelection.cursor(range.headingFrom, 1)
-							: undefined,
-						userEvent: 'fold.heading',
+						// この見出しの本文を折りたたむ
+						effects: foldEffect.of(
+							// 折りたたむ本文の範囲。見出し行自体は含めない
+							{
+								// 本文の開始（文字、含む）
+								from: range.from,
+								// 本文の終端（文字、含まない）
+								to: range.to
+							}
+						),
+						// 選択が本文の中にあるときだけ見出し先頭へ移す。外れていれば undefined で選択は動かさない
+						selection: range.from < selectionHead && selectionHead <= range.to ? EditorSelection.cursor(range.headingFrom, 1) : undefined,
+						// ガターのクリック。全文折りたたみと区別する
+						userEvent: 'fold.heading'
 					});
 					return true;
-				},
-			},
+				}
+			}
 		}),
 		EditorView.updateListener.of((update) => {
+			// 選択が変わったとき、選択を隠している見出しを展開する。選択が動いていない更新では見ない
 			if (update.selectionSet) {
+				// 選択の anchor または head を隠している展開 Effect。隠していなければ空
 				const effects = unfoldEffectsContainingSelection(update.state);
+				// 隠している範囲があるときだけ展開を送る。無ければ折りたたみ通知の判定へ進む
 				if (effects.length > 0) {
-					update.view.dispatch({ effects, userEvent: 'unfold.heading.reveal' });
+					// 選択を隠している見出しを開く。選択位置は維持する
+					update.view.dispatch({
+						// 選択の anchor または head を隠している範囲の展開 Effect
+						effects,
+						// 選択移動に伴う展開。ガター操作と区別する
+						userEvent: 'unfold.heading.reveal'
+					});
 					return;
 				}
 			}
+			// 折りたたみ状態が変わったときだけ通知する。選択だけの更新では呼ばない
 			if (update.startState.field(foldState, false) !== update.state.field(foldState, false)) {
 				options.onFoldChange?.(update.view);
 			}
 		}),
 		EditorView.baseTheme({
 			'.cm-headingFoldGutter': {
-				width: '16px',
+				width: '16px'
 			},
 			'.cm-headingFoldGutter .cm-gutterElement': {
 				padding: '0',
-				cursor : 'pointer',
+				cursor: 'pointer'
 			},
 			'.cm-headingFoldMarker': {
-				display   : 'inline-flex',
-				width     : '16px',
-				height    : '100%',
-				alignItems : 'center',
+				display: 'inline-flex',
+				width: '16px',
+				height: '100%',
+				alignItems: 'center',
 				justifyContent: 'center',
-				color     : 'var(--tms-mde-color-text-muted)',
-				fontSize  : '11px',
-				userSelect: 'none',
+				color: 'var(--tms-mde-color-text-muted)',
+				fontSize: '11px',
+				userSelect: 'none'
 			},
 			'.cm-foldPlaceholder': {
-				border         : '0',
+				border: '0',
 				backgroundColor: 'transparent',
-				color          : 'var(--tms-mde-color-text-muted)',
-			},
-		}),
+				color: 'var(--tms-mde-color-text-muted)'
+			}
+		})
 	];
 }
 
@@ -362,10 +462,15 @@ class HeadingFoldMarker extends GutterMarker {
 	 * @returns 見出しマーカーの span
 	 */
 	toDOM(): Node {
+		// ガターへ出す span。折りたたみ中かで中身を変える
 		const marker       = document.createElement('span');
+		// テーマが幅と色を当てるクラス。折りたたみ状態では変えない
 		marker.className   = 'cm-headingFoldMarker';
+		// 折りたたみ中は ▶、展開中は ▼
 		marker.textContent = this.collapsed ? '▶' : '▼';
+		// ホバーで示す操作。折りたたみ中は展開、展開中は折りたたみ
 		marker.title       = this.collapsed ? '見出しを展開' : '見出しを折りたたむ';
+		// 読み上げ対象にしない。操作の説明は title が持つ
 		marker.setAttribute('aria-hidden', 'true');
 		return marker;
 	}
@@ -380,6 +485,7 @@ function buildHeadingFoldMarkers(view: EditorView): RangeSet<GutterMarker> {
 	const builder = new RangeSetBuilder<GutterMarker>();
 	for (const range of collectHeadingFoldRanges(view.state)) {
 		const line = view.state.doc.lineAt(range.headingFrom);
+		// 行が表示範囲より上で終わる、または表示範囲より下で始まるときはマーカーを作らない。どちらか一方でも範囲外
 		if (line.to < view.viewport.from || line.from > view.viewport.to) continue;
 		builder.add(line.from, line.from, new HeadingFoldMarker(isFoldedRange(view.state, range)));
 	}
@@ -394,8 +500,10 @@ function buildHeadingFoldMarkers(view: EditorView): RangeSet<GutterMarker> {
  * @returns 同じ from と to の折りたたみがあるとき true
  */
 function isFoldedRange(state: EditorState, range: HeadingFoldRange): boolean {
+	// 同じ from と to の折りたたみが見つかったか。無ければ false のまま
 	let found = false;
 	foldedRanges(state).between(range.from, range.from, (from, to) => {
+		// 開始と終了が両方一致する折りたたみだけ、その見出しとみなす。どちらか一方が違う範囲は別の折りたたみ
 		if (from === range.from && to === range.to) found = true;
 	});
 	return found;
@@ -409,11 +517,18 @@ function isFoldedRange(state: EditorState, range: HeadingFoldRange): boolean {
 function unfoldEffectsContainingSelection(state: EditorState): StateEffect<unknown>[] {
 	return collectHeadingFoldRanges(state)
 		.filter((range) => isFoldedRange(state, range))
-		.filter((range) => state.selection.ranges.some((selection) => (
-			(range.from < selection.anchor && selection.anchor <= range.to)
-			|| (range.from < selection.head && selection.head <= range.to)
-		)))
-		.map((range) => unfoldEffect.of({ from: range.from, to: range.to }));
+		.filter((range) => state.selection.ranges.some((selection) => (range.from < selection.anchor && selection.anchor <= range.to) || (range.from < selection.head && selection.head <= range.to)))
+		.map((range) =>
+			unfoldEffect.of(
+				// 選択を隠している本文を展開する範囲
+				{
+					// 本文の開始（文字、含む）
+					from: range.from,
+					// 本文の終端（文字、含まない）
+					to: range.to
+				}
+			)
+		);
 }
 
 /**
@@ -426,5 +541,15 @@ function unfoldEffectsForHeading(state: EditorState, headingFrom: number): State
 	return collectHeadingFoldRanges(state)
 		.filter((range) => isFoldedRange(state, range))
 		.filter((range) => range.headingFrom === headingFrom || (range.from < headingFrom && headingFrom <= range.to))
-		.map((range) => unfoldEffect.of({ from: range.from, to: range.to }));
+		.map((range) =>
+			unfoldEffect.of(
+				// 指定見出し、またはそれを隠している親の本文を展開する範囲
+				{
+					// 本文の開始（文字、含む）
+					from: range.from,
+					// 本文の終端（文字、含まない）
+					to: range.to
+				}
+			)
+		);
 }

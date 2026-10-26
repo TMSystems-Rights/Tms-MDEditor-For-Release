@@ -28,11 +28,16 @@ internal static class JsonFileHelper
 	/// 読み書きで共有する JSON 設定。camelCase、大文字小文字を無視、インデント、null は書かない
 	/// プロセス起動後は変えない
 	/// </summary>
+	// 全ストアが同じ形で書くための設定。個別の呼び出しでは上書きしない
 	private static readonly JsonSerializerOptions WriteOptions = new()
 	{
+		// ディスク上の名前は camelCase。C# のプロパティ名とは別に揃える
 		PropertyNamingPolicy   = JsonNamingPolicy.CamelCase,
+		// 読み込み時は大文字小文字の違いを同じ項目として受ける
 		PropertyNameCaseInsensitive = true,
+		// 人が差分を見られるよう折り返す
 		WriteIndented        = true,
+		// null の項目は書かない。欠ける項目は読み込み側の既定になる
 		DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
 	};
 
@@ -44,16 +49,20 @@ internal static class JsonFileHelper
 	/// <exception cref="InvalidOperationException"><paramref name="filePath"/> にディレクトリ部分が無い</exception>
 	public static void WriteAtomic<T>(string filePath, T data)
 	{
+		// 出力先のディレクトリ。パスにディレクトリが無ければ例外で、一時ファイルは作らない
 		string directory = Path.GetDirectoryName(filePath)
 			?? throw new InvalidOperationException($"Invalid file path: {filePath}");
 
 		Directory.CreateDirectory(directory);
 
+		// 同じディレクトリの一時ファイル。プロセス ID を含め、置換前の本体とは別名
 		string tempPath = Path.Combine(directory, $".{Path.GetFileName(filePath)}.{Environment.ProcessId}.tmp");
+		// 末尾改行付きの JSON。null プロパティは書かない
 		string json     = JsonSerializer.Serialize(data, WriteOptions) + Environment.NewLine;
 
 		File.WriteAllText(tempPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
+		// 既存があるときだけ消してから移動する。初回の未作成では入らない
 		if (File.Exists(filePath))
 		{
 			File.Delete(filePath);
@@ -70,6 +79,7 @@ internal static class JsonFileHelper
 	/// <exception cref="InvalidOperationException">JSON が null に逆直列化された</exception>
 	public static T Read<T>(string filePath)
 	{
+		// BOM の有無は Encoding.UTF8 に任せる本文。空ファイルは空文字
 		string json = File.ReadAllText(filePath, Encoding.UTF8);
 		return JsonSerializer.Deserialize<T>(json, WriteOptions)
 			?? throw new InvalidOperationException($"Failed to deserialize JSON: {filePath}");
@@ -87,6 +97,7 @@ internal static class JsonFileHelper
 	/// <param name="backupPrefix">ファイル名の接頭辞。時刻と .json を後ろへ付ける</param>
 	public static void CreateBackup(string sourcePath, string backupDirectory, string backupPrefix)
 	{
+		// 元が無い上書き前は退避しない
 		if (!File.Exists(sourcePath))
 		{
 			return;
@@ -94,7 +105,9 @@ internal static class JsonFileHelper
 
 		Directory.CreateDirectory(backupDirectory);
 
+		// ファイル名に入れるローカル時刻。ミリ秒まで。書式は yyyyMMdd-HHmmss-fff
 		string stamp       = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+		// 接頭辞、時刻、.json を付けたコピー先。同名は上書きしない
 		string backupPath  = Path.Combine(backupDirectory, $"{backupPrefix}.{stamp}.json");
 		File.Copy(sourcePath, backupPath, overwrite: false);
 		File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow);
@@ -108,11 +121,13 @@ internal static class JsonFileHelper
 	/// <param name="backupPrefix">残すファイル名の接頭辞</param>
 	public static void PurgeOldBackups(string backupDirectory, string backupPrefix)
 	{
+		// ディレクトリが無いときは削除対象も無い
 		if (!Directory.Exists(backupDirectory))
 		{
 			return;
 		}
 
+		// 新しい順で上限 10 件を超えたファイル。0 件なら何も消さない
 		var files = Directory.EnumerateFiles(backupDirectory, $"{backupPrefix}.*.json")
 			.Select(path => new FileInfo(path))
 			.OrderByDescending(file => file.LastWriteTimeUtc)
@@ -134,6 +149,7 @@ internal static class JsonFileHelper
 	/// <returns>検証を通過した値。ディレクトリが無い、または全部失敗なら default</returns>
 	public static T? TryRestoreLatestBackup<T>(string backupDirectory, string backupPrefix, Func<T, bool> validator)
 	{
+		// バックアップ先が無いときは default。呼び出し元は復旧失敗として扱う
 		if (!Directory.Exists(backupDirectory))
 		{
 			return default;
@@ -144,7 +160,9 @@ internal static class JsonFileHelper
 		{
 			try
 			{
+				// このファイルを直列化した値。壊れていれば catch で次へ進む
 				T restored = Read<T>(path);
+				// 検証を通過した最初の値だけ返す。false のファイルは飛ばす
 				if (validator(restored))
 				{
 					return restored;
@@ -167,6 +185,7 @@ internal static class JsonFileHelper
 	{
 		Directory.CreateDirectory(directoryPath);
 
+		// 作成と削除で書き込みを確認する探針ファイル。プロセス ID で他プロセスと分ける
 		string testPath = Path.Combine(directoryPath, $".write-test-{Environment.ProcessId}");
 		File.WriteAllText(testPath, "ok", Encoding.UTF8);
 		File.Delete(testPath);

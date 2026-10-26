@@ -5,13 +5,7 @@
  * @file
  */
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
-import {
-	type EditorState,
-	type Extension,
-	RangeSetBuilder,
-	StateEffect,
-	StateField,
-} from '@codemirror/state';
+import { type EditorState, type Extension, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import type { EolKind } from '../types/app';
 
 // ==============================================
@@ -46,13 +40,14 @@ export const lineEolsField = StateField.define<Array<EolKind | null>>({
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
+			// 行単位の EOL を差し替える Effect のとき、その配列でマップを置き換える。null の行は改行が無い
 			if (effect.is(setLineEolsEffect)) {
 				return effect.value;
 			}
 		}
 
 		return value;
-	},
+	}
 });
 
 // ==============================================
@@ -75,22 +70,24 @@ function eolToMarkerClass(eol: EolKind): string {
  * @returns 改行がある行だけの行装飾。改行が無い文書は空
  */
 function buildEolDecorations(state: EditorState): DecorationSet {
+	// 行番号順の改行種別。フィールドが無いときは空配列で、どの行にもマーカーを付けない
 	const lineEols  = state.field(lineEolsField, false) ?? [];
+	// 行装飾の蓄積。改行が無い行は加えず、空のまま finish すると空集合
 	const builder   = new RangeSetBuilder<Decoration>();
+	// 文書の行数。マップが短くても、この行数まで見る
 	const lineCount = state.doc.lines;
 
 	for (let lineNumber = 1; lineNumber <= lineCount; lineNumber += 1) {
+		// その行の改行種別。マップが短い、または要素が null の行は改行が無い
 		const eol = lineEols[lineNumber - 1] ?? null;
+		// 改行が無い行は疑似要素を出さない
 		if (!eol) {
 			continue;
 		}
 
+		// 装飾を付ける論理行。範囲は行頭の点で、本文の文字は覆わない
 		const line = state.doc.line(lineNumber);
-		builder.add(
-			line.from,
-			line.from,
-			Decoration.line({ class: eolToMarkerClass(eol) }),
-		);
+		builder.add(line.from, line.from, Decoration.line({ class: eolToMarkerClass(eol) }));
 	}
 
 	return builder.finish();
@@ -117,7 +114,9 @@ export const eolMarkersField = StateField.define<DecorationSet>({
 	 * @returns 作り直した装飾、または差分へ追従させた既存の装飾
 	 */
 	update(value, transaction) {
+		// このトランザクションが EOL マップの差し替えを含むか。含むときだけ装飾を最初から作り直す
 		const lineEolsChanged = transaction.effects.some((effect) => effect.is(setLineEolsEffect));
+		// マップが変わったときは class の付け替えが必要なので作り直す。通常の編集では差分追従に留める
 		if (lineEolsChanged) {
 			return buildEolDecorations(transaction.state);
 		}
@@ -129,7 +128,7 @@ export const eolMarkersField = StateField.define<DecorationSet>({
 	 * @param field - 装飾を保持する StateField
 	 * @returns EditorView.decorations へ渡す Extension
 	 */
-	provide: (field) => EditorView.decorations.from(field),
+	provide: (field) => EditorView.decorations.from(field)
 });
 
 // ==============================================
@@ -142,8 +141,5 @@ export const eolMarkersField = StateField.define<DecorationSet>({
  * @returns マップの初期化と行装飾を含む Extension の配列
  */
 export function createEolMarkerExtensions(initialLineEols: Array<EolKind | null>): Extension[] {
-	return [
-		lineEolsField.init(() => [...initialLineEols]),
-		eolMarkersField,
-	];
+	return [lineEolsField.init(() => [...initialLineEols]), eolMarkersField];
 }

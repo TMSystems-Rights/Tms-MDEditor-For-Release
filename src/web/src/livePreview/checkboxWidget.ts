@@ -38,6 +38,7 @@ class CheckboxWidget extends WidgetType {
 	 * @returns チェック状態を反映した input 要素
 	 */
 	toDOM(): HTMLElement {
+		// チェック状態を表示する input。フォーカスは受け取らず、読み上げ名は「タスク」
 		const input     = document.createElement('input');
 		input.type      = 'checkbox';
 		input.className = 'cm-md-checkbox';
@@ -65,21 +66,21 @@ class CheckboxWidget extends WidgetType {
  * @param to - 置き換える記法の終端。from 以上なら追加しない
  * @param checked - チェック済みなら true。ウィジェットの表示と一致させる
  */
-export function pushCheckboxReplace(
-	entries: DecorationEntry[],
-	from: number,
-	to: number,
-	checked: boolean,
-): void {
+export function pushCheckboxReplace(entries: DecorationEntry[], from: number, to: number, checked: boolean): void {
+	// 開始が終端以上なら置き換える記法が無い。空範囲の装飾は足さない
 	if (from >= to) {
 		return;
 	}
 
+	// タスク記法を、この時点のチェック状態を持つチェックボックスへ置き換える
 	entries.push({
+		// 置き換える記法の開始。ドキュメント先頭からの文字位置
 		from,
+		// 置き換える記法の終端。from より大きい
 		to,
+		// チェック状態を固定したウィジェットへの replace。記法の文字は残さない
 		decoration: Decoration.replace({
-			widget: new CheckboxWidget(checked),
-		}),
+			widget: new CheckboxWidget(checked)
+		})
 	});
 }

@@ -14,8 +14,11 @@ export const CARET_REDRAW_USER_EVENT = 'select.caret';
  * @returns 同じ選択と再計測用 userEvent を持つスペック
  */
 export function createCaretRedrawSpec(selection: EditorSelection): TransactionSpec {
+	// 選択は動かさず、描画キャレットの座標だけを取り直す指示
 	return {
+		// 維持する選択。anchor と head はこのスペックでは変えない
 		selection,
-		userEvent: CARET_REDRAW_USER_EVENT,
+		// 再計測用のイベント名。選択変更のリスナーには、内容が変わった操作として扱わせない
+		userEvent: CARET_REDRAW_USER_EVENT
 	};
 }

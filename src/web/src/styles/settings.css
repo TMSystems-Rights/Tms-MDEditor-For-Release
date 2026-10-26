@@ -144,7 +144,7 @@
 	font-weight: 500;
 }
 
-.tms-mde-settings-row input:not([type="checkbox"]):not([type="color"]),
+.tms-mde-settings-row input:not([type='checkbox']):not([type='color']),
 .tms-mde-settings-row select {
 	width: 100%;
 	min-width: 0;
@@ -163,7 +163,7 @@
 	box-shadow: 0 0 0 1px var(--tms-mde-color-focus-ring);
 }
 
-.tms-mde-settings-row input[type="checkbox"] {
+.tms-mde-settings-row input[type='checkbox'] {
 	justify-self: start;
 	width: 18px;
 	height: 18px;
@@ -171,6 +171,7 @@
 }
 
 .tms-mde-settings-reset {
+	/* 欄のボタンより小さくする。共通の文字サイズ指定に負けないよう優先する */
 	font-size: 12px !important;
 }
 
@@ -195,7 +196,7 @@
 	min-width: 0;
 }
 
-.tms-mde-settings-row input[type="color"] {
+.tms-mde-settings-row input[type='color'] {
 	flex: 0 0 auto;
 	width: 40px;
 	height: 32px;
@@ -311,12 +312,13 @@
 	box-shadow: 0 0 0 1px var(--tms-mde-color-focus-ring);
 }
 
-.tms-mde-settings-decoration-field input[aria-invalid="true"] {
+.tms-mde-settings-decoration-field input[aria-invalid='true'] {
 	border-color: var(--tms-mde-color-error);
 	box-shadow: 0 0 0 1px var(--tms-mde-color-error);
 }
 
 .tms-mde-settings-decoration-code {
+	/* 入力欄の font: inherit より等幅を優先する */
 	font-family: var(--tms-mde-font-mono) !important;
 }
 
@@ -325,6 +327,7 @@
 }
 
 .tms-mde-shortcut-input {
+	/* 入力欄の font: inherit より等幅を優先する */
 	font-family: var(--tms-mde-font-mono) !important;
 	cursor: pointer;
 }
@@ -397,11 +400,12 @@
 
 .tms-mde-settings-status.is-error,
 .tms-mde-settings-danger {
+	/* 通常状態の文字色やスニペットより、エラー色を残す */
 	color: var(--tms-mde-color-error) !important;
 }
 
+/* ----- 狭い幅では案内を横並びにし、欄を縦に積む ----- */
 @media (width <=720px) {
-
 	.tms-mde-settings-backdrop {
 		padding: 8px;
 	}
@@ -432,7 +436,7 @@
 		grid-template-columns: minmax(0, 1fr) auto;
 	}
 
-	.tms-mde-settings-row>input:not([type="checkbox"]),
+	.tms-mde-settings-row>input:not([type='checkbox']),
 	.tms-mde-settings-row>select,
 	.tms-mde-settings-row>.tms-mde-settings-row-actions,
 	.tms-mde-settings-row>.tms-mde-settings-color {

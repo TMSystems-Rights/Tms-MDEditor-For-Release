@@ -36,8 +36,10 @@ describe('format utils', () => {
 
 	it('detects mixed eol', () => {
 		expect(analyzeEol('a\r\nb\nc')).toEqual({
+			// 先に現れた改行。CRLF が主
 			primary: 'crlf',
-			mixed  : true,
+			// LF も混ざる。主だけでは表せない
+			mixed: true
 		});
 	});
 });

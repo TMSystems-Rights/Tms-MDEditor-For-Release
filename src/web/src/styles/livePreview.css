@@ -57,6 +57,7 @@
 .tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover .cm-content,
 .tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover .cm-line,
 .tms-mde-editor-host .cm-editor.tms-mde-cm-link-hover .cm-md-link {
+	/* 本文のカーソル指定より、リンク上では指カーソルを優先する */
 	cursor: pointer !important;
 }
 
@@ -122,27 +123,27 @@
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h1::before {
-	content: "h1";
+	content: 'h1';
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h2::before {
-	content: "h2";
+	content: 'h2';
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h3::before {
-	content: "h3";
+	content: 'h3';
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h4::before {
-	content: "h4";
+	content: 'h4';
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h5::before {
-	content: "h5";
+	content: 'h5';
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h6::before {
-	content: "h6";
+	content: 'h6';
 }
 
 .tms-mde-editor-host .cm-line.cm-md-h1 {
@@ -201,7 +202,7 @@
 }
 
 .tms-mde-editor-host .cm-line.cm-md-hr::after {
-	content: "";
+	content: '';
 	position: absolute;
 	left: 0;
 	right: 0;
@@ -266,6 +267,7 @@
 	/* Obsidian 準拠: --callout-color は R, G, B トリプレット */
 	--tms-mde-callout-rgb: 8, 109, 221;
 	--tms-mde-callout-accent: rgb(var(--tms-mde-callout-rgb));
+	/* アクセントの 15%。タイトル帯が本文より濃くなりすぎない */
 	--tms-mde-callout-bg: rgba(var(--tms-mde-callout-rgb), 0.15);
 	padding: 0.15em 0.6em 0.15em 0.75em;
 	border-left: 4px solid var(--tms-mde-callout-accent);
@@ -279,6 +281,7 @@
 }
 
 .tms-mde-editor-host .cm-line.cm-md-callout-body {
+	/* タイトル帯（15%）より薄い本文の地 */
 	background: rgba(var(--tms-mde-callout-rgb), 0.08);
 }
 
@@ -415,6 +418,7 @@
 	overflow-x: auto;
 }
 
+/* 選択帯は 24px。上下左右の 26px は帯と枠線の分 */
 .tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-structure-controls-visible {
 	box-sizing: content-box;
 	max-width: max(0px, calc(var(--tms-mde-table-max-width, 100%) - 26px));
@@ -425,6 +429,7 @@
 .tms-mde-editor-host .cm-md-table-structure-controls {
 	position: absolute;
 	inset: 0 auto auto 0;
+	/* リサイズ表示（3）より手前。セル選択（1）にも隠れない */
 	z-index: 4;
 	pointer-events: none;
 }
@@ -486,6 +491,7 @@
 }
 
 .tms-mde-editor-host .cm-md-table {
+	/* 選択枠の太さ。0 は辺を描かない。n 上、s 下、e 右、w 左 */
 	--tms-mde-table-sel-n: 0px;
 	--tms-mde-table-sel-s: 0px;
 	--tms-mde-table-sel-e: 0px;
@@ -504,6 +510,7 @@
 .tms-mde-editor-host .cm-md-table-resize-overlay {
 	position: absolute;
 	pointer-events: none;
+	/* セルより手前、構造選択（4）より奥 */
 	z-index: 3;
 }
 
@@ -575,8 +582,8 @@
 	vertical-align: bottom;
 }
 
-.tms-mde-editor-host .cm-md-table th[contenteditable="plaintext-only"],
-.tms-mde-editor-host .cm-md-table td[contenteditable="plaintext-only"] {
+.tms-mde-editor-host .cm-md-table th[contenteditable='plaintext-only'],
+.tms-mde-editor-host .cm-md-table td[contenteditable='plaintext-only'] {
 	cursor: text;
 }
 
@@ -664,6 +671,7 @@
 	opacity: 1;
 }
 
+/* 選択範囲の外辺だけ太くする。内側の辺は 0 のまま */
 .tms-mde-editor-host .cm-md-table .cm-md-table-sel-n {
 	--tms-mde-table-sel-n: 3px;
 }
@@ -718,6 +726,7 @@
 .tms-mde-editor-host .cm-md-image {
 	display: block;
 	box-sizing: border-box;
+	/* サイズ未指定の画像が編集領域を埋めないための上限 */
 	max-width: min(100%, 720px);
 	max-height: 480px;
 	height: auto;
@@ -731,6 +740,7 @@
 	border-color: var(--tms-mde-image-border-hover-color, var(--tms-mde-color-primary));
 }
 
+/* 明示サイズのときは既定の上限（幅 720px、高さ 480px）を外す */
 .tms-mde-editor-host .cm-md-image.is-sized {
 	max-width: 100%;
 	max-height: none;
@@ -820,7 +830,7 @@
 	overflow-x: auto;
 	/* エディタ字体を継承しない（HTML ラベル計測と描画の不一致＝見切れ防止） */
 	color: #222;
-	font-family: "trebuchet ms", verdana, arial, "Segoe UI", Meiryo, sans-serif;
+	font-family: 'trebuchet ms', verdana, arial, 'Segoe UI', Meiryo, sans-serif;
 	font-size: 16px;
 	line-height: 1.25;
 	background: #f7f7f7;
@@ -868,18 +878,18 @@
 
 /* Obsidian 同様: 既定テーマのまま SVG を反転してダーク外観にする（classDef 色を維持） */
 body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-wrap,
-html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap {
+html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap {
 	color: var(--tms-mde-color-text);
 	background: transparent;
 	border-color: var(--tms-mde-color-border);
 }
 
 body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg,
-html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg {
+html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg {
 	filter: invert(100%) hue-rotate(180deg) saturate(1.25);
 }
 
 body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-status,
-html[data-os-theme="dark"] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-status {
+html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-status {
 	color: var(--tms-mde-color-text-muted);
 }

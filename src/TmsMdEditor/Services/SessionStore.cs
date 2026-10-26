@@ -47,24 +47,36 @@ internal sealed class SessionStore
 	/// <returns>成否と、Web 層へ渡せるセッション JSON。ファイルが無いときは Session は null</returns>
 	public SessionLoadResult Load()
 	{
+		// session.json の絶対パス。有無は次の判定で見る
 		string sessionPath = GetSessionPath();
 		// 保存履歴がない初回起動は、復元対象なしの正常状態として扱う
 		if (!File.Exists(sessionPath)) return new SessionLoadResult { Success = true };
 
 		try
 		{
+			// 読み終えたら破棄する文書。中身は Clone してから返す
 			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(sessionPath));
+			// ルート要素。オブジェクトでなければ Validate が失敗にする
 			JsonElement session = document.RootElement;
 			Validate(session);
 			// JsonDocument破棄後もWeb層へ渡せるよう、所有権を持つ要素へ複製する
-			return new SessionLoadResult { Success = true, Session = session.Clone() };
+			return new SessionLoadResult
+			{
+				// 現行スキーマで読めた
+				Success = true,
+				// 破棄後も Web 層へ渡せる複製。ファイルが無いときはこの戻りに来ない
+				Session = session.Clone(),
+			};
 		}
 		catch (Exception ex)
 		{
 			_logger.Warn(LogCategory.Session, "セッションを読み込めませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
+			// 壊れていても起動は続け、新しいタブで始める失敗
 			return new SessionLoadResult
 			{
+				// 復元しない
 				Success = false,
+				// 利用者向け。Session は null のまま
 				Message = "前回のセッションを読み込めなかったため、新しいタブで起動します。",
 			};
 		}
@@ -87,7 +99,14 @@ internal sealed class SessionStore
 		catch (Exception ex)
 		{
 			_logger.Error(LogCategory.Session, "セッションを保存できませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
-			return new SessionSaveResult { Success = false, Message = "セッションを保存できませんでした。" };
+			// 検証失敗や書き込み失敗。既存ファイルは Validate の前なら残る
+			return new SessionSaveResult
+			{
+				// 書けていない
+				Success = false,
+				// 利用者向け。例外の詳細はログ側
+				Message = "セッションを保存できませんでした。",
+			};
 		}
 	}
 
@@ -97,6 +116,7 @@ internal sealed class SessionStore
 	/// <returns>session.json の絶対パス</returns>
 	private string GetSessionPath()
 	{
+		// キャッシュが null のときはブートストラップを読み直す。未ロードでもパスは決まる
 		string dataDir = _configStore.CachedDataDir ?? _configStore.GetDataDirInfo().DataDir;
 		return AppPaths.GetSessionPath(dataDir);
 	}
@@ -108,6 +128,7 @@ internal sealed class SessionStore
 	/// <exception cref="InvalidDataException">オブジェクトでない、または schemaVersion が現行と違う</exception>
 	private static void Validate(JsonElement session)
 	{
+		// オブジェクトであり、数値の schemaVersion が現行と一致するときだけ通過する。どれか一つが欠けても失敗にする
 		if (session.ValueKind != JsonValueKind.Object
 			|| !session.TryGetProperty(StoredJsonProperty.SchemaVersion, out JsonElement schemaVersion)
 			|| schemaVersion.ValueKind != JsonValueKind.Number

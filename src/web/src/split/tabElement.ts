@@ -11,10 +11,8 @@
  * @param active - そのタブが選択中か。`aria-selected` の値になる
  * @returns `role="tab"` の div。`tabIndex` は -1、`draggable` は true
  */
-export function createDraggableTabElement(
-	documentRef: Pick<Document, 'createElement'>,
-	active: boolean,
-): HTMLDivElement {
+export function createDraggableTabElement(documentRef: Pick<Document, 'createElement'>, active: boolean): HTMLDivElement {
+	// クリックしてもエディタからフォーカスを奪わない要素。ドラッグは draggable で有効にする
 	const element     = documentRef.createElement('div');
 	element.tabIndex  = -1;
 	element.draggable = true;

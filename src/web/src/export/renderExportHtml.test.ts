@@ -12,7 +12,13 @@ import { compileCustomDecorationRules } from '../livePreview/customDecorations';
  * @returns 描画できた SVG
  */
 async function mermaidOk(): Promise<ExportMermaidResult> {
-	return { ok: true, svg: '<svg><g>ok</g></svg>' };
+	// 描画できた Mermaid。失敗理由は持たない
+	return {
+		// 成功
+		ok: true,
+		// 書き出す SVG。中身は固定
+		svg: '<svg><g>ok</g></svg>'
+	};
 }
 
 /**
@@ -20,7 +26,13 @@ async function mermaidOk(): Promise<ExportMermaidResult> {
  * @returns 構文エラーの失敗
  */
 async function mermaidError(): Promise<ExportMermaidResult> {
-	return { ok: false, error: '構文エラー' };
+	// 描画できなかった Mermaid。SVG は持たない
+	return {
+		// 失敗
+		ok: false,
+		// 失敗理由。固定の構文エラー
+		error: '構文エラー'
+	};
 }
 
 /**
@@ -41,11 +53,16 @@ async function resolvedPng(): Promise<string> {
 
 /** 区切り文字を隠して下線クラスを付ける、テスト用の装飾ルール */
 const underlineRule = {
-	name           : '下線',
-	enabled        : true,
-	pattern        : '_v(.+?)_v',
-	hideDelimiters : true,
-	cssClass       : 'tms-underline',
+	// ルール名。採番には使わない
+	name: '下線',
+	// 有効。無効だと書き出しに出ない
+	enabled: true,
+	// 区切り付きの本文を取る正規表現
+	pattern: '_v(.+?)_v',
+	// 区切りの _v は出さない
+	hideDelimiters: true,
+	// 下線用のクラス。本番の採番クラスではない
+	cssClass: 'tms-underline'
 };
 
 /**
@@ -54,20 +71,23 @@ const underlineRule = {
  * @param extra - 上書きするオプション。省略時はライトテーマだけを足す
  * @returns 生成した HTML 文書
  */
-async function render(
-	markdown: string,
-	extra: Partial<import('./renderExportHtml').RenderExportHtmlOptions> = {},
-): Promise<string> {
+async function render(markdown: string, extra: Partial<import('./renderExportHtml').RenderExportHtmlOptions> = {}): Promise<string> {
+	// 共通項目に extra を重ねた書き出し。extra が同じキーを上書きする
 	return renderExportHtml({
+		// 変換する本文
 		markdown,
-		title : 'テスト',
-		theme : 'light',
-		...extra,
+		// 文書タイトル。固定
+		title: 'テスト',
+		// 既定はライト。extra でダークへ変えられる
+		theme: 'light',
+		// ケースごとの上書き。未指定の項目は上の固定値
+		...extra
 	});
 }
 
 describe('renderExportHtml', () => {
 	it('見出し・強調・リストをセマンティック HTML にする', async () => {
+		// 見出し、強調、リスト。アウトライン用のスクリプトも含む
 		const html = await render('# 見出し1\n\nこれは **太字** と *斜体* です。\n\n- 一つ\n- 二つ\n');
 		expect(html).toContain('<h1 class="cm-line cm-md-h1" id="tms-mde-h-0">見出し1</h1>');
 		expect(html).toContain('tms-mde-export-outline');
@@ -89,6 +109,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('テーブルを table にする', async () => {
+		// 見出し行とデータ行がある表
 		const html = await render('| A | B |\n| --- | --- |\n| 1 | 2 |\n');
 		expect(html).toContain('<table class="cm-md-table">');
 		expect(html).toContain('<th>');
@@ -98,6 +119,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('GFM 表の colspan を出す', async () => {
+		// 3 列をまたぐセル。記法は colspan 属性になる
 		const html = await render('|   |   |   |\n| --- | --- | --- |\n| 新キャラ{colspan=3} |  |  |\n| A | B | C |\n');
 		expect(html).toContain('colspan="3"');
 		expect(html).toContain('新キャラ');
@@ -105,6 +127,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('GFM 表の align / valign を class にする', async () => {
+		// 右寄せと上下中央。記法は class になる
 		const html = await render('|   |   |\n| --- | --- |\n| 100{align=right valign=middle} | 左 |\n');
 		expect(html).toContain('class="cm-md-table-align-right cm-md-table-valign-middle"');
 		expect(html).toContain('100');
@@ -112,9 +135,8 @@ describe('renderExportHtml', () => {
 	});
 
 	it('GFM 表の colwidths / rowheights を出す', async () => {
-		const html = await render(
-			'| {colwidths=120,80 rowheights=32,48} |   |\n| --- | --- |\n| A | B |\n',
-		);
+		// 列幅と行高。col と tr の style になる
+		const html = await render('| {colwidths=120,80 rowheights=32,48} |   |\n| --- | --- |\n| A | B |\n');
 		expect(html).toContain('class="cm-md-table is-resized"');
 		expect(html).toContain('<col style="width:120px">');
 		expect(html).toContain('<col style="width:80px">');
@@ -124,6 +146,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('フェンス無し HTML 表を出す', async () => {
+		// フェンスの外の HTML 表。colspan ごと残す
 		const html = await render('<table>\n<tr><th colspan="2">見出し</th></tr>\n<tr><td>A</td><td>B</td></tr>\n</table>\n');
 		expect(html).toContain('<table');
 		expect(html).toContain('colspan="2"');
@@ -132,6 +155,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('コールアウトを展開して出す', async () => {
+		// タイトルと本体が分かれる warning
 		const html = await render('> [!warning] 注意\n> 本体です\n');
 		expect(html).toContain('cm-md-callout-warning');
 		expect(html).toContain('cm-md-callout-title');
@@ -142,24 +166,28 @@ describe('renderExportHtml', () => {
 	});
 
 	it('ハイライトと Wiki リンクを出す', async () => {
+		// ハイライトと内部リンク
 		const html = await render('==重要== と [[内部]] です。\n');
 		expect(html).toContain('<mark class="cm-md-highlight">重要</mark>');
 		expect(html).toContain('<span class="cm-md-wikilink">内部</span>');
 	});
 
 	it('本文の Wiki リンクは | 右側のラベルだけ出す', async () => {
+		// パスとラベル。出すのはラベルだけ
 		const html = await render('see [[docs/要望_009|要望_009]]\n');
 		expect(html).toContain('<span class="cm-md-wikilink">要望_009</span>');
 		expect(html).not.toContain('docs/要望_009');
 	});
 
 	it('表セルの Wiki リンクは \\| 右側のラベルだけ出す', async () => {
+		// 表セルのエスケープした区切り。ラベルだけ出す
 		const html = await render('| [[docs/要望_009\\|要望_009]] |\n| --- |\n');
 		expect(html).toContain('<span class="cm-md-wikilink">要望_009</span>');
 		expect(html).not.toContain('docs/要望_009');
 	});
 
 	it('許可インライン HTML を残し script は出さない', async () => {
+		// 許可する mark と、出さない script
 		const html = await render('ここは <mark>印</mark> です。\n\n<script>alert(1)</script>\n');
 		expect(html).toContain('<mark');
 		expect(html).toContain('印');
@@ -168,12 +196,14 @@ describe('renderExportHtml', () => {
 	});
 
 	it('カスタム装飾の区切りを隠しクラスを付ける', async () => {
+		// 下線ルール。区切りは隠し、中だけにクラスを付ける
 		const html = await render('これは _v下線_v です。\n', { customDecorations: [underlineRule] });
 		expect(html).toContain('<span class="tms-underline">下線</span>');
 		expect(html).not.toContain('_v下線_v');
 	});
 
 	it('YAML フロントマターを出力しない', async () => {
+		// フロントマターと見出し。title は出さない
 		const html = await render('---\ntitle: secret\n---\n\n# 本文見出し\n');
 		expect(html).toContain('<h1 class="cm-line cm-md-h1" id="tms-mde-h-0">本文見出し</h1>');
 		expect(html).not.toContain('secret');
@@ -181,6 +211,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('チェックボックスは disabled で出す', async () => {
+		// 完了と未完了。checkbox は disabled
 		const html = await render('- [x] 完了\n- [ ] 未完了\n');
 		expect(html).toContain('type="checkbox"');
 		expect(html).toContain('disabled');
@@ -190,15 +221,17 @@ describe('renderExportHtml', () => {
 	});
 
 	it('Mermaid 成功時は SVG をインライン化する', async () => {
+		// 成功する描画を渡した mermaid。SVG をインライン化する
 		const html = await render('```mermaid\ngraph TD; A-->B\n```\n', {
-			renderMermaid: mermaidOk,
+			renderMermaid: mermaidOk
 		});
 		expect(html).toContain('<figure class="cm-md-mermaid"><svg><g>ok</g></svg></figure>');
 	});
 
 	it('Mermaid 失敗時はエラーとソースを出す', async () => {
+		// 失敗する描画。エラーとソースを出す
 		const html = await render('```mermaid\nbroken\n```\n', {
-			renderMermaid: mermaidError,
+			renderMermaid: mermaidError
 		});
 		expect(html).toContain('cm-md-mermaid-error');
 		expect(html).toContain('構文エラー');
@@ -206,39 +239,50 @@ describe('renderExportHtml', () => {
 	});
 
 	it('画像解決に失敗したらプレースホルダを出す', async () => {
+		// 画像が見つからないノート。プレースホルダを出す
 		const html = await render('![図](missing.png)\n', {
-			filePath    : 'C:\\docs\\note.md',
-			resolveImage: unresolvedImage,
+			// 解決の基準になるノート
+			filePath: 'C:\\docs\\note.md',
+			// 見つからない画像
+			resolveImage: unresolvedImage
 		});
 		expect(html).toContain('cm-md-image-fallback');
 		expect(html).toContain('missing.png');
 	});
 
 	it('画像 Data URL を埋め込む', async () => {
+		// PNG の Data URL を埋め込むノート
 		const html = await render('![図](a.png)\n', {
-			filePath    : 'C:\\docs\\note.md',
-			resolveImage: resolvedPng,
+			// 解決の基準になるノート
+			filePath: 'C:\\docs\\note.md',
+			// Data URL を返す画像
+			resolveImage: resolvedPng
 		});
 		expect(html).toContain('src="data:image/png;base64,abc"');
 		expect(html).toContain('alt="図"');
 	});
 
 	it('画像の解決結果を src にそのまま書く', async () => {
+		// 解決結果の相対パスを src にそのまま書く
 		const html = await render('![図](a.png)\n', {
-			filePath    : 'C:\\docs\\note.md',
+			// 解決の基準になるノート
+			filePath: 'C:\\docs\\note.md',
 			/**
 			 *
 			 */
-			resolveImage: async () => 'media/1.png',
+			resolveImage: async () => 'media/1.png'
 		});
 		expect(html).toContain('src="media/1.png"');
 		expect(html).toContain('alt="図"');
 	});
 
 	it('幅付き埋め込み画像に width を付ける', async () => {
+		// 幅 240 付きの埋め込み。width を style に出す
 		const html = await render('![[C:\\\\docs\\\\a.png|240]]\n', {
-			filePath    : 'C:\\docs\\note.md',
-			resolveImage: resolvedPng,
+			// 解決の基準になるノート
+			filePath: 'C:\\docs\\note.md',
+			// Data URL を返す画像
+			resolveImage: resolvedPng
 		});
 		expect(html).toContain('width: 240px');
 		expect(html).toContain('is-sized');
@@ -246,6 +290,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('段落内のソース改行を br にする', async () => {
+		// 段落内の改行。強調の直後を br にする
 		const html = await render('太字：**太字**\n斜体：*斜体*\n打ち消し：~~打消し~~\n');
 		expect(html).toContain('<br>');
 		expect(html).toMatch(/太字<\/strong><br>/);
@@ -255,8 +300,11 @@ describe('renderExportHtml', () => {
 	});
 
 	it('ソースの空行を HTML / PDF 用プレースホルダとして残す', async () => {
+		// 空行が 1 つ。プレースホルダは 1 件
 		const one   = await render('一段落\n\n二段落\n');
+		// 空行が 3 つ。プレースホルダは 3 件
 		const three = await render('一段落\n\n\n\n二段落\n');
+		// 見出しの間の空行。アウトラインは出さない
 		const heads = await render('# 見出しA\n\n# 見出しB\n', { outline: { enabled: false } });
 		expect(one).toContain('<p>一段落</p>');
 		expect(one).toContain('<p>二段落</p>');
@@ -270,9 +318,9 @@ describe('renderExportHtml', () => {
 	});
 
 	it('長い文書の末尾まで出力する', async () => {
-		const filler = Array.from({ length: 80 }, (_, index) => (
-			`## 見出し${index}\n\n本文${index} ${'あ'.repeat(40)}\n\n`
-		)).join('');
+		// 80 件の見出し。末尾が欠けると失敗
+		const filler = Array.from({ length: 80 }, (_, index) => `## 見出し${index}\n\n本文${index} ${'あ'.repeat(40)}\n\n`).join('');
+		// フィラーの後ろに、末尾だと分かる見出しと段落
 		const html   = await render(`${filler}\n\n## 終端見出しUNIQUE-EXPORT-TAIL\n\n最後の段落UNIQUE-EXPORT-END\n`);
 		expect(html).toContain('終端見出しUNIQUE-EXPORT-TAIL');
 		expect(html).toContain('最後の段落UNIQUE-EXPORT-END');
@@ -280,7 +328,9 @@ describe('renderExportHtml', () => {
 	});
 
 	it('大きなフェンスコードの後の見出しもアウトラインに入れる', async () => {
+		// 80 行のフェンス。この後ろの見出しもアウトラインに入る
 		const fence = ['```text', ...Array.from({ length: 80 }, (_, index) => `line-${index} ${'x'.repeat(40)}`), '```'].join('\n');
+		// 先頭見出し、長いフェンス、その後ろの見出し
 		const html  = await render(`# 先頭見出し\n\n${fence}\n\n## フェンス後UNIQUE-OUTLINE-AFTER\n`);
 		expect(html).toContain('id="tms-mde-h-0"');
 		expect(html).toContain('id="tms-mde-h-1"');
@@ -289,10 +339,14 @@ describe('renderExportHtml', () => {
 	});
 
 	it('有効スニペットとテーマを埋め込む', async () => {
+		// 出力へ埋め込むスニペット。テーマはダーク
 		const snippet = '.tms-custom-1-underline-nomal { text-decoration: underline; }';
+		// スニペットとダークテーマを載せた HTML
 		const html    = await render('# A\n', {
-			snippetsCss : [snippet],
-			theme       : 'dark',
+			// 埋め込む CSS。1 件
+			snippetsCss: [snippet],
+			// ダーク。ライトの固定値を上書きする
+			theme: 'dark'
 		});
 		expect(html).toContain(snippet);
 		expect(html).toContain('tms-mde-editor-host');
@@ -304,6 +358,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('見出しにライブプレビューと同じ cm-line クラスを付ける', async () => {
+		// h3。ライブプレビューと同じ cm-line を付ける
 		const html = await render('### 小見出し\n');
 		expect(html).toContain('<h3 class="cm-line cm-md-h3" id="tms-mde-h-0">小見出し</h3>');
 		expect(html).toContain('tms-mde-body tms-mde-theme-light');
@@ -311,6 +366,7 @@ describe('renderExportHtml', () => {
 	});
 
 	it('Markdown 強調の内側でもカスタム装飾を付ける', async () => {
+		// 強調の外側に下線ルール。内側の太字にもクラスが付く
 		const html = await render('_v**太字**_v\n', { customDecorations: [underlineRule] });
 		expect(html).toContain('tms-underline');
 		expect(html).toContain('太字');
@@ -318,8 +374,9 @@ describe('renderExportHtml', () => {
 	});
 
 	it('HTML出力アウトラインの左右を閲覧者が切り替えられる', async () => {
+		// 親子の見出し。アウトラインの左右切替を出す
 		const html = await render('# 見出し1\n\n## 見出し2\n', {
-			outline: { enabled: true },
+			outline: { enabled: true }
 		});
 		expect(html).toContain('name="tms-mde-export-outline-side"');
 		expect(html).toContain('id="tms-mde-export-outline-side-left"');
@@ -359,8 +416,9 @@ describe('renderExportHtml', () => {
 	});
 
 	it('HTML出力アウトラインをオフにできる', async () => {
+		// 見出しはあるがアウトラインは出さない
 		const html = await render('# 見出し1\n', {
-			outline: { enabled: false },
+			outline: { enabled: false }
 		});
 		expect(html).toContain('<h1 class="cm-line cm-md-h1">見出し1</h1>');
 		expect(html).not.toContain('<nav class="tms-mde-export-outline"');
@@ -373,31 +431,38 @@ describe('renderExportHtml', () => {
 	});
 
 	it('ユーザ定義の下線・波下線ルールをクラス付きで出す', async () => {
-		const html = await render(
-			'_vあいうえお123abcノーマル下線_v\n_vvあいうえお123abc_v赤い波下線_vaa_vv\n',
-			{
-				customDecorations: [
-					{
-						name           : 'ノーマル下線',
-						enabled        : true,
-						pattern        : '_v([^v].+?)_v',
-						hideDelimiters : true,
-						cssClass       : 'tms-custom-1-underline-nomal',
-					},
-					{
-						name           : '赤い波下線',
-						enabled        : true,
-						pattern        : '_vv(.+?)_vv',
-						hideDelimiters : true,
-						cssClass       : 'tms-custom-2-underline-wave-red',
-					},
-				],
-				snippetsCss: [
-					'.tms-custom-1-underline-nomal { text-decoration: underline; }',
-					'.tms-custom-2-underline-wave-red { text-decoration: underline 2px wavy red; }',
-				],
-			},
-		);
+		// 通常下線と赤い波下線。区切りは隠し、スニペットも埋める
+		const html = await render('_vあいうえお123abcノーマル下線_v\n_vvあいうえお123abc_v赤い波下線_vaa_vv\n', {
+			// 2 種類の下線。両方有効
+			customDecorations: [
+				{
+					// 通常下線の名前
+					name: 'ノーマル下線',
+					// 有効
+					enabled: true,
+					// _vv にはマッチしない内側
+					pattern: '_v([^v].+?)_v',
+					// 区切りは出さない
+					hideDelimiters: true,
+					// 通常下線のクラス
+					cssClass: 'tms-custom-1-underline-nomal'
+				},
+				{
+					// 波下線の名前
+					name: '赤い波下線',
+					// 有効
+					enabled: true,
+					// _vv で囲んだ内側
+					pattern: '_vv(.+?)_vv',
+					// 区切りは出さない
+					hideDelimiters: true,
+					// 赤い波下線のクラス
+					cssClass: 'tms-custom-2-underline-wave-red'
+				}
+			],
+			// 2 つのクラスの実体。出力 CSS に入る
+			snippetsCss: ['.tms-custom-1-underline-nomal { text-decoration: underline; }', '.tms-custom-2-underline-wave-red { text-decoration: underline 2px wavy red; }']
+		});
 		expect(html).toContain('tms-custom-1-underline-nomal');
 		expect(html).toContain('あいうえお123abcノーマル下線');
 		expect(html).toContain('tms-custom-2-underline-wave-red');
@@ -409,7 +474,13 @@ describe('renderExportHtml', () => {
 
 describe('buildExportCss', () => {
 	it('テーマ変数とスニペットを返す', () => {
-		const css = buildExportCss({ theme: 'dark', snippetsCss: ['.x{}'] });
+		// ダークテーマと、1 件のスニペット
+		const css = buildExportCss({
+			// ダーク。ライトの変数は使わない
+			theme: 'dark',
+			// 埋め込む CSS。中身が出力に残る
+			snippetsCss: ['.x{}']
+		});
 		expect(css).toContain('.x{}');
 		expect(css).toContain('--tms-mde-color-heading');
 		expect(css).toContain('tms-mde-theme-dark');
@@ -438,36 +509,53 @@ describe('buildExportCss', () => {
 	});
 
 	it('コードブロックフォントをテーマ変数へ反映し、スニペットより前へ置く', () => {
+		// コードフォントをスニペットより前へ置く CSS
 		const css          = buildExportCss({
-			theme          : 'light',
-			codeFontFamily : '"HackGen Console NF", monospace',
-			snippetsCss    : [':root { --tms-mde-font-mono: snippet-mono; }'],
+			// ライト
+			theme: 'light',
+			// コード用フォント。スニペットより前に出る
+			codeFontFamily: '"HackGen Console NF", monospace',
+			// 同じ変数を上書きしようとするスニペット
+			snippetsCss: [':root { --tms-mde-font-mono: snippet-mono; }']
 		});
+		// テーマ側のフォント宣言の位置。見つからなければ -1
 		const fontIndex    = css.indexOf('.tms-mde-export-root { --tms-mde-font-mono: "HackGen Console NF", monospace; }');
+		// スニペットの位置。フォントより後ろ
 		const snippetIndex = css.indexOf('snippet-mono');
 		expect(fontIndex).toBeGreaterThan(-1);
 		expect(snippetIndex).toBeGreaterThan(fontIndex);
 	});
 
 	it('エディタフォントとサイズをHTML出力へ反映する', () => {
+		// 本文フォントと 15px。HTML 出力の変数になる
 		const css = buildExportCss({
-			theme           : 'light',
+			// ライト
+			theme: 'light',
+			// 本文フォント
 			editorFontFamily: '"BIZ UDゴシック", sans-serif',
-			editorFontSize  : 15,
+			// 本文サイズ。px
+			editorFontSize: 15
 		});
 		expect(css).toContain('.tms-mde-export-root { --tms-mde-font-family: "BIZ UDゴシック", sans-serif; }');
 		expect(css).toContain('.tms-mde-export .cm-editor { font-size: 15px; }');
 	});
 
 	it('画像枠線の CSS 変数を書き出す', () => {
+		// 画像枠線の幅と色。ホバー分も変数にする
 		const css = buildExportCss({
-			theme      : 'light',
+			// ライト
+			theme: 'light',
+			// 通常とホバーの枠線
 			imageBorder: {
-				width     : 2,
-				color     : '#444444',
+				// 通常の太さ。px
+				width: 2,
+				// 通常の色
+				color: '#444444',
+				// ホバー時の太さ。px
 				hoverWidth: 5,
-				hoverColor: '#2563eb',
-			},
+				// ホバー時の色
+				hoverColor: '#2563eb'
+			}
 		});
 		expect(css).toContain('--tms-mde-image-border-width: 2px;');
 		expect(css).toContain('--tms-mde-image-border-color: #444444;');
@@ -477,6 +565,7 @@ describe('buildExportCss', () => {
 
 describe('decorateText', () => {
 	it('キャプチャグループだけを装飾する', () => {
+		// 下線ルール。キャプチャだけを span にする
 		const { rules } = compileCustomDecorationRules([underlineRule]);
 		expect(decorateText('前 _v中_v 後', rules)).toBe('前 <span class="tms-underline">中</span> 後');
 	});

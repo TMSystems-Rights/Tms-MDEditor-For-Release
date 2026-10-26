@@ -20,6 +20,7 @@ public class EolAnalyzerTests
 	[Fact]
 	public void Analyze_detects_crlf()
 	{
+		// CRLF だけの入力から得た主改行と本数。混在にはしない
 		EolAnalysis analysis = EolAnalyzer.Analyze("a\r\nb\r\nc");
 
 		Assert.Equal(EolKind.Crlf, analysis.Primary);
@@ -33,6 +34,7 @@ public class EolAnalyzerTests
 	[Fact]
 	public void Analyze_detects_lf()
 	{
+		// LF だけの入力から得た主改行と本数。混在にはしない
 		EolAnalysis analysis = EolAnalyzer.Analyze("a\nb\nc");
 
 		Assert.Equal(EolKind.Lf, analysis.Primary);
@@ -46,6 +48,7 @@ public class EolAnalyzerTests
 	[Fact]
 	public void Analyze_detects_cr()
 	{
+		// CR だけの入力から得た主改行と本数。混在にはしない
 		EolAnalysis analysis = EolAnalyzer.Analyze("a\rb\rc");
 
 		Assert.Equal(EolKind.Cr, analysis.Primary);
@@ -59,6 +62,7 @@ public class EolAnalyzerTests
 	[Fact]
 	public void Analyze_detects_mixed_eol()
 	{
+		// 3種類が1つずつある入力の判定。混在になり、各種の本数は1
 		EolAnalysis analysis = EolAnalyzer.Analyze("a\r\nb\nc\rd");
 
 		Assert.True(analysis.IsMixed);
@@ -81,6 +85,7 @@ public class EolAnalyzerTests
 	[InlineData("a\r\nb\nc", EolKind.Lf, "a\nb\nc")]
 	public void NormalizeEol_unifies_line_endings(string source, EolKind target, string expected)
 	{
+		// 指定した改行へ揃えた本文。改行以外の文字は変えない
 		string normalized = EolAnalyzer.NormalizeEol(source, target);
 
 		Assert.Equal(expected, normalized);

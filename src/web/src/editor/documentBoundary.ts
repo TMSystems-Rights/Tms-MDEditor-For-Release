@@ -39,10 +39,9 @@ const documentEndScrollGenerations = new WeakMap<EditorView, number>();
  * @returns 文書末尾を head とする選択
  */
 export function createDocumentEndSelection(state: EditorState, extend: boolean): EditorSelection {
+	// 文書末尾のオフセット（文字）。空文書は 0。選択の head はここへ置く
 	const documentEnd = state.doc.length;
-	return extend
-		? EditorSelection.single(state.selection.main.anchor, documentEnd)
-		: EditorSelection.single(documentEnd);
+	return extend ? EditorSelection.single(state.selection.main.anchor, documentEnd) : EditorSelection.single(documentEnd);
 }
 
 // ==============================================
@@ -55,17 +54,18 @@ export function createDocumentEndSelection(state: EditorState, extend: boolean):
  * @returns キャレット矩形がスクロール領域の上下に収まっているとき true
  */
 function isDocumentEndVisible(view: EditorView): boolean {
+	// 文書末尾のオフセット（文字）。空文書は 0
 	const position = view.state.doc.length;
-	const rect     = view.coordsAtPos(position, 1)
-		?? view.coordsAtPos(position, -1)
-		?? view.coordsAtPos(position);
+	// 末尾キャレットの表示矩形（px）。assoc 1、取れなければ -1、それでも無ければ既定。どれも取れなければ null
+	const rect     = view.coordsAtPos(position, 1) ?? view.coordsAtPos(position, -1) ?? view.coordsAtPos(position);
+	// 座標が取れない末尾は、表示領域に入っていないとみなす
 	if (!rect) {
 		return false;
 	}
 
+	// スクロールポートの表示矩形（px）。キャレットがこの上下に収まるかを見る
 	const scrollerRect = view.scrollDOM.getBoundingClientRect();
-	return rect.top >= scrollerRect.top - DOCUMENT_END_SCROLL_TOLERANCE_PX
-		&& rect.bottom <= scrollerRect.bottom + DOCUMENT_END_SCROLL_TOLERANCE_PX;
+	return rect.top >= scrollerRect.top - DOCUMENT_END_SCROLL_TOLERANCE_PX && rect.bottom <= scrollerRect.bottom + DOCUMENT_END_SCROLL_TOLERANCE_PX;
 }
 
 /**
@@ -76,8 +76,7 @@ function isDocumentEndVisible(view: EditorView): boolean {
  * @returns 同じ世代で、キャレットがまだその末尾にあるとき true
  */
 function isActiveDocumentEndScroll(view: EditorView, generation: number, target: number): boolean {
-	return documentEndScrollGenerations.get(view) === generation
-		&& view.state.selection.main.head === target;
+	return documentEndScrollGenerations.get(view) === generation && view.state.selection.main.head === target;
 }
 
 /**
@@ -88,12 +87,15 @@ function isActiveDocumentEndScroll(view: EditorView, generation: number, target:
  * @param target - 補正開始時の文書末尾位置
  */
 function redrawDocumentEndCaret(view: EditorView, generation: number, target: number): void {
+	// 次のフレームで、scrollTop の反映後にキャレットを描き直す。同じフレームで測ると末尾へ戻る
 	requestAnimationFrame(() => {
+		// 世代が変わった、またはキャレットが末尾から動いたあとのフレームでは描き直さない
 		if (!isActiveDocumentEndScroll(view, generation, target)) {
 			return;
 		}
 
 		view.dispatch(createCaretRedrawSpec(view.state.selection));
+		// 描き直したあとも、この世代が最新なら世代を消す。途中で次の末尾移動が始まっていたら消さない
 		if (documentEndScrollGenerations.get(view) === generation) {
 			documentEndScrollGenerations.delete(view);
 		}
@@ -107,12 +109,8 @@ function redrawDocumentEndCaret(view: EditorView, generation: number, target: nu
  * @param target - 補正開始時の文書末尾位置
  * @param attempts - 残りの試行回数。未指定時は DOCUMENT_END_SCROLL_ATTEMPTS。1 のときは次フレームへ回さない
  */
-function stabilizeDocumentEndScroll(
-	view: EditorView,
-	generation: number,
-	target: number,
-	attempts = DOCUMENT_END_SCROLL_ATTEMPTS,
-): void {
+function stabilizeDocumentEndScroll(view: EditorView, generation: number, target: number, attempts = DOCUMENT_END_SCROLL_ATTEMPTS): void {
+	// 世代が違う、またはキャレットが末尾から動いているときは、この補正を始めない
 	if (!isActiveDocumentEndScroll(view, generation, target)) {
 		return;
 	}
@@ -125,20 +123,26 @@ function stabilizeDocumentEndScroll(
 		 * @returns 末尾の scrollTop と、表示が確定したか。補正を続ける条件を満たさないときは null
 		 */
 		read(measuredView) {
+			// 世代が無効、またはキャレットが末尾に無いときは計測しない
 			if (!isActiveDocumentEndScroll(measuredView, generation, target)) {
 				return null;
 			}
 
+			// スクロール要素。未接続や高さが 0 のときは末尾位置を計算できない
 			const scroller = measuredView.scrollDOM;
+			// 未接続、または表示高が 0 なら計測しない。どちらか一方でも null
 			if (!scroller.isConnected || scroller.clientHeight <= 0) {
 				return null;
 			}
 
+			// 文書末尾を表示する scrollTop（px）。0 未満にはしない
 			const targetTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+			// 末尾の scrollTop と、表示が確定したか
 			return {
+				// 末尾へ合わせる縦位置（px）
 				targetTop,
-				settled: Math.abs(scroller.scrollTop - targetTop) <= DOCUMENT_END_SCROLL_TOLERANCE_PX
-					&& isDocumentEndVisible(measuredView),
+				// 縦位置が許容以内で、かつ末尾キャレットが見えているとき true。どちらか一方だけでは未確定
+				settled: Math.abs(scroller.scrollTop - targetTop) <= DOCUMENT_END_SCROLL_TOLERANCE_PX && isDocumentEndVisible(measuredView)
 			};
 		},
 		/**
@@ -147,15 +151,18 @@ function stabilizeDocumentEndScroll(
 		 * @param measuredView - 補正を書き込むエディタ
 		 */
 		write(measure, measuredView) {
+			// 計測が無い、または補正世代が無効なら書かない。どちらか一方でも打ち切る
 			if (!measure || !isActiveDocumentEndScroll(measuredView, generation, target)) {
 				return;
 			}
 
+			// 現在の scrollTop が末尾から許容を超えてずれているときだけ書く。許容以内なら触らない
 			if (Math.abs(measuredView.scrollDOM.scrollTop - measure.targetTop) > DOCUMENT_END_SCROLL_TOLERANCE_PX) {
 				measuredView.scrollDOM.scrollTop = measure.targetTop;
 			}
 			measuredView.requestMeasure();
 
+			// まだ末尾が見えておらず、かつ残り試行があるとき次フレームへ回す。どちらか一方だけでは描き直しへ進む
 			if (!measure.settled && attempts > 1) {
 				requestAnimationFrame(() => {
 					stabilizeDocumentEndScroll(measuredView, generation, target, attempts - 1);
@@ -164,7 +171,7 @@ function stabilizeDocumentEndScroll(
 			}
 
 			redrawDocumentEndCaret(measuredView, generation, target);
-		},
+		}
 	});
 }
 
@@ -176,14 +183,20 @@ function stabilizeDocumentEndScroll(
  * @returns コマンドを処理したことを示す true
  */
 function moveToStableDocumentEnd(view: EditorView, extend: boolean): boolean {
+	// 補正開始時の文書末尾（文字）。この位置からキャレットが動いたら、古いフレームの補正は無効
 	const target     = view.state.doc.length;
+	// この末尾移動の世代。前の世代より 1 大きい。未設定のビューは 0 から始める
 	const generation = (documentEndScrollGenerations.get(view) ?? 0) + 1;
 	documentEndScrollGenerations.set(view, generation);
 
+	// 末尾への選択と、初回の scrollIntoView。可変行高の追従はこのあと別計測で行う
 	view.dispatch({
-		selection     : createDocumentEndSelection(view.state, extend),
+		// 折り畳むか、アンカーから末尾まで拡張するか
+		selection: createDocumentEndSelection(view.state, extend),
+		// 初回は CodeMirror の表示域追従に任せる。行高の伸びは後続の計測が追う
 		scrollIntoView: true,
-		userEvent     : 'select.documentEnd',
+		// 文書末尾への選択として記録する
+		userEvent: 'select.documentEnd'
 	});
 	stabilizeDocumentEndScroll(view, generation, target);
 	return true;

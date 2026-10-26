@@ -87,34 +87,59 @@ export type SessionSnapshotInput = {
  */
 export function createSessionSnapshot(input: SessionSnapshotInput): SessionSnapshot | null {
 	// 未保存タブは復元できないため除外し、各ペインの参照も同じ集合へ揃える
+	// パスがあるタブだけ。空白だけのパスは未保存扱いで除く
 	const tabs        = input.tabs.filter((tab): tab is SessionTabSnapshot => Boolean(tab.filePath?.trim()));
+	// 残すタブ ID。ペイン側の参照をこの集合へ揃える
 	const savedTabIds = new Set(tabs.map((tab) => tab.tabId));
-	const panes       = input.panes.map((pane) => {
-		const tabIds    = pane.tabIds.filter((tabId, index, values) => savedTabIds.has(tabId) && values.indexOf(tabId) === index);
-		const viewModes = Object.fromEntries(tabIds.map((tabId) => [tabId, normalizeViewMode(pane.viewModes[tabId])]));
-		return {
-			paneId: pane.paneId,
-			tabIds,
-			activeTabId: tabIds.includes(pane.activeTabId ?? '') ? pane.activeTabId! : tabIds[0] ?? '',
-			viewModes,
-		};
-	}).filter((pane) => pane.tabIds.length > 0);
+	// ファイルタブが残ったペイン。1 件も残らないペインは捨てる
+	const panes       = input.panes
+		.map((pane) => {
+			// 保存対象かつ重複を除いたタブ ID。空ならこのペインは捨てる
+			const tabIds    = pane.tabIds.filter((tabId, index, values) => savedTabIds.has(tabId) && values.indexOf(tabId) === index);
+			// 残ったタブだけの表示モード。未知の値はライブプレビュー
+			const viewModes = Object.fromEntries(tabIds.map((tabId) => [tabId, normalizeViewMode(pane.viewModes[tabId])]));
+			// このペインの保存形。選択が残っていなければ先頭、タブが無ければ空文字
+			return {
+				// レイアウト上のペイン ID
+				paneId: pane.paneId,
+				// 残したタブ ID。重複は除いてある
+				tabIds,
+				// 残ったタブに含まれる選択。無ければ先頭。タブ 0 件は空文字
+				activeTabId: tabIds.includes(pane.activeTabId ?? '') ? pane.activeTabId! : (tabIds[0] ?? ''),
+				// 残ったタブだけの表示モード
+				viewModes
+			};
+		})
+		.filter((pane) => pane.tabIds.length > 0);
+	// ファイルタブが残ったペイン ID
 	const paneIds    = new Set(panes.map((pane) => pane.paneId));
+	// 空ペインを畳んだ分割木。全部消えると null
 	const paneLayout = prunePaneLayout(input.paneLayout, paneIds);
+	// 木が空、またはペインが 0 件。保存対象が無い
 	if (!paneLayout || panes.length === 0) return null;
 
 	// レイアウトから脱落したペインとタブを再度除き、保存JSON内の相互参照を閉じる
+	// 畳んだ後に残っているペイン ID
 	const layoutPaneIds = new Set(listLayoutPaneIds(paneLayout));
+	// 木に残ったペインだけ。畳みで落ちたペインは捨てる
 	const layoutPanes   = panes.filter((pane) => layoutPaneIds.has(pane.paneId));
+	// 残ったペインが参照するタブ ID。これ以外のタブは保存しない
 	const usedTabIds    = new Set(layoutPanes.flatMap((pane) => pane.tabIds));
+	// フォーカスが残っていればそれを、無ければ先頭ペイン。layoutPanes は 1 件以上
 	const activePaneId  = layoutPaneIds.has(input.activePaneId) ? input.activePaneId : layoutPanes[0].paneId;
 
+	// 相互参照を閉じたスナップショット
 	return {
+		// 現在のセッション版。これと違う JSON は復元しない
 		schemaVersion: SESSION_SCHEMA_VERSION,
+		// 残ったペインが参照するタブだけ
 		tabs: tabs.filter((tab) => usedTabIds.has(tab.tabId)),
+		// 木に残ったペイン
 		panes: layoutPanes,
+		// 空ペインを畳んだ分割木
 		paneLayout,
-		activePaneId,
+		// 復元時にフォーカスするペイン
+		activePaneId
 	};
 }
 
@@ -125,51 +150,88 @@ export function createSessionSnapshot(input: SessionSnapshotInput): SessionSnaps
  * @returns 相互参照を閉じたスナップショット。復元できないときは null
  */
 export function normalizeSessionSnapshot(value: unknown): SessionSnapshot | null {
+	// オブジェクトでない、版が違う、タブかペインが配列でない。どれか一つでも復元しない
 	if (!isRecord(value) || value.schemaVersion !== SESSION_SCHEMA_VERSION || !Array.isArray(value.tabs) || !Array.isArray(value.panes)) return null;
 
+	// 復元できるタブ。壊れた項目は捨てる
 	const tabs: SessionTabSnapshot[] = [];
+	// すでに採用したタブ ID。重複は捨てる
 	const tabIds                     = new Set<string>();
 	// 壊れた項目と重複IDだけを捨て、残りのセッションは可能な限り復元する
 	for (const candidate of value.tabs) {
+		// オブジェクトでない、ID かパスが空白だけ、または ID が重複。どれか一つでもそのタブは捨てる
 		if (!isRecord(candidate) || !isNonEmptyString(candidate.tabId) || !isNonEmptyString(candidate.filePath) || tabIds.has(candidate.tabId)) continue;
 		tabIds.add(candidate.tabId);
-		tabs.push({ tabId: candidate.tabId, filePath: candidate.filePath });
+		// 採用した 1 タブ。パスは空にしない
+		tabs.push({
+			// ウィンドウ内のタブ ID
+			tabId: candidate.tabId,
+			// 保存済みファイルのパス
+			filePath: candidate.filePath
+		});
 	}
+	// 有効なタブが 1 件も無い。セッションは復元しない
 	if (tabs.length === 0) return null;
 
+	// 重複 ID を除いた分割木。構造が壊れていれば null
 	const rawLayout = normalizePaneLayout(value.paneLayout, new Set(), new Set());
+	// レイアウトが復元できない。タブがあってもセッションにはしない
 	if (!rawLayout) return null;
+	// 正規化後の木にあるペイン ID
 	const layoutPaneIds                = new Set(listLayoutPaneIds(rawLayout));
+	// 採用したペイン。タブが残らないものは入れない
 	const panes: SessionPaneSnapshot[] = [];
+	// すでに採用したペイン ID。重複は捨てる
 	const seenPanes                    = new Set<string>();
 	// レイアウトに存在し、少なくとも1つ有効なタブを持つペインだけを採用する
 	for (const candidate of value.panes) {
+		// 形が違う、ID が空か重複、木に無い、タブ配列が無い。どれか一つでもそのペインは捨てる
 		if (!isRecord(candidate) || !isNonEmptyString(candidate.paneId) || seenPanes.has(candidate.paneId) || !layoutPaneIds.has(candidate.paneId) || !Array.isArray(candidate.tabIds)) continue;
+		// 採用済みタブだけを残し、重複を除いた ID。空ならこのペインは捨てる
 		const paneTabIds = candidate.tabIds.filter((tabId, index, values): tabId is string => typeof tabId === 'string' && tabIds.has(tabId) && values.indexOf(tabId) === index);
+		// 有効なタブが無いペインはレイアウトから後で落とす
 		if (paneTabIds.length === 0) continue;
 		seenPanes.add(candidate.paneId);
+		// 表示モードの元オブジェクト。オブジェクトでなければ空として未知値を既定にする
 		const rawViewModes = isRecord(candidate.viewModes) ? candidate.viewModes : {};
+		// 採用した 1 ペイン
 		panes.push({
+			// レイアウト上のペイン ID
 			paneId: candidate.paneId,
+			// 有効なタブ ID。重複は除いてある
 			tabIds: paneTabIds,
+			// 残ったタブに含まれる選択。無ければ先頭
 			activeTabId: typeof candidate.activeTabId === 'string' && paneTabIds.includes(candidate.activeTabId) ? candidate.activeTabId : paneTabIds[0],
-			viewModes: Object.fromEntries(paneTabIds.map((tabId) => [tabId, normalizeViewMode(rawViewModes[tabId])])),
+			// 残ったタブだけの表示モード。未知はライブプレビュー
+			viewModes: Object.fromEntries(paneTabIds.map((tabId) => [tabId, normalizeViewMode(rawViewModes[tabId])]))
 		});
 	}
+	// 有効なペインが 1 件も無い。セッションは復元しない
 	if (panes.length === 0) return null;
 
+	// 採用したペイン ID。これ以外の葉は畳む
 	const validPaneIds = new Set(panes.map((pane) => pane.paneId));
+	// 空ペインを畳んだ木。全部消えると null
 	const paneLayout   = prunePaneLayout(rawLayout, validPaneIds);
+	// 畳んだ結果が空。ペイン配列と木が食い違うので復元しない
 	if (!paneLayout) return null;
+	// 指定フォーカスが残っていればそれ、無ければ先頭ペイン
 	const activePaneId = typeof value.activePaneId === 'string' && validPaneIds.has(value.activePaneId) ? value.activePaneId : panes[0].paneId;
+	// 残ったペインが参照するタブ ID
 	const usedTabIds   = new Set(panes.flatMap((pane) => pane.tabIds));
 
+	// 相互参照を閉じた復元結果
 	return {
+		// 現在のセッション版
 		schemaVersion: SESSION_SCHEMA_VERSION,
+		// 残ったペインが参照するタブだけ
 		tabs: tabs.filter((tab) => usedTabIds.has(tab.tabId)),
+		// タブが残ったペイン
 		panes,
+		// 空ペインを畳んだ分割木
 		paneLayout,
-		activePaneId,
+		// 復元時にフォーカスするペイン
+		activePaneId
 	};
 }
 
@@ -180,10 +242,7 @@ export function normalizeSessionSnapshot(value: unknown): SessionSnapshot | null
  * @returns 意図して空のセッションなら true
  */
 export function isEmptySessionSnapshot(value: unknown): boolean {
-	return isRecord(value)
-		&& value.schemaVersion === SESSION_SCHEMA_VERSION
-		&& Array.isArray(value.tabs)
-		&& value.tabs.length === 0;
+	return isRecord(value) && value.schemaVersion === SESSION_SCHEMA_VERSION && Array.isArray(value.tabs) && value.tabs.length === 0;
 }
 
 /**
@@ -194,8 +253,10 @@ export function isEmptySessionSnapshot(value: unknown): boolean {
  * @returns 残った木。ペインが無ければ null
  */
 export function prunePaneLayout(layout: PaneLayoutNode, paneIds: ReadonlySet<PaneId>): PaneLayoutNode | null {
+	// 畳み途中の木。すべて消えると null
 	let next: PaneLayoutNode | null = layout;
 	for (const paneId of listLayoutPaneIds(layout)) {
+		// 残す集合に無く、まだ木があるときだけその葉を外す。どちらか一方では外さない
 		if (!paneIds.has(paneId) && next) next = removePane(next, paneId);
 	}
 	return next;
@@ -219,20 +280,42 @@ function listLayoutPaneIds(layout: PaneLayoutNode): PaneId[] {
  * @returns 正規化した木。構造が壊れていれば null
  */
 function normalizePaneLayout(value: unknown, paneIds: Set<string>, splitIds: Set<string>): PaneLayoutNode | null {
-	if (!isRecord(value) || value.kind === 'pane' && !isNonEmptyString(value.paneId)) return null;
+	// オブジェクトでない、または葉なのにペイン ID が空。葉の ID 欠落は kind が pane のときだけ見る
+	if (!isRecord(value) || (value.kind === 'pane' && !isNonEmptyString(value.paneId))) return null;
+	// 葉。重複 ID は無効、そうでなければ葉を作る
 	if (value.kind === 'pane') {
+		// 同じペイン ID がすでに木にある。レイアウト全体を無効にする
 		if (paneIds.has(value.paneId as string)) return null;
 		paneIds.add(value.paneId as string);
 		return createPaneLayout(value.paneId as string);
 	}
-	if (value.kind !== 'split' || !isNonEmptyString(value.splitId) || splitIds.has(value.splitId) || value.direction !== 'horizontal' && value.direction !== 'vertical') return null;
+	// 分割でない、ID が空か重複、向きが horizontal でも vertical でもない。どれか一つでも無効
+	if (value.kind !== 'split' || !isNonEmptyString(value.splitId) || splitIds.has(value.splitId) || (value.direction !== 'horizontal' && value.direction !== 'vertical')) return null;
 	splitIds.add(value.splitId);
 	// 片側だけ壊れた分割は安全に畳めないため、分割ノード全体を無効とする
+	// 先の子。壊れていれば null
 	const first  = normalizePaneLayout(value.first, paneIds, splitIds);
+	// 後の子。壊れていれば null
 	const second = normalizePaneLayout(value.second, paneIds, splitIds);
+	// どちらかの子が壊れている。片方だけでは分割を残さない
 	if (!first || !second) return null;
+	// 0.2〜0.8 に収めた先の子の割合。数値でなければ中央の 0.5
 	const ratio = typeof value.ratio === 'number' && Number.isFinite(value.ratio) ? Math.min(0.8, Math.max(0.2, value.ratio)) : 0.5;
-	return { kind: 'split', splitId: value.splitId, direction: value.direction, ratio, first, second };
+	// 両方の子が有効な分割
+	return {
+		// 分割節である印
+		kind: 'split',
+		// この分割の ID。重複は上で捨てている
+		splitId: value.splitId,
+		// 上下か左右か。horizontal か vertical
+		direction: value.direction,
+		// 先の子が占める割合。0.2〜0.8
+		ratio,
+		// 先の子。左または上
+		first,
+		// 後の子。右または下
+		second
+	};
 }
 
 /**

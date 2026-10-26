@@ -18,13 +18,13 @@ import type { DecorationEntry } from './inlineDecorations';
  * タグ本文の文字、結合文字、数字、`_`、`-`
  * `/` と非 ASCII の記号は別の条件で見る。実行中は変えない
  */
-const TAG_TEXT_CHARACTER  = /^[\p{L}\p{M}\p{N}_-]$/u;
+const TAG_TEXT_CHARACTER = /^[\p{L}\p{M}\p{N}_-]$/u;
 
 /**
  * Unicode の記号
  * ASCII より大きい文字のときだけ、タグ本文へ追加できるかの条件に使う
  */
-const UNICODE_SYMBOL      = /^\p{S}$/u;
+const UNICODE_SYMBOL = /^\p{S}$/u;
 
 /**
  * Unicode の句読点
@@ -36,25 +36,13 @@ const UNICODE_PUNCTUATION = /^\p{P}$/u;
  * Unicode の数字
  * 数字だけのタグを除外する判定に使う。`/` はこの文字クラスに含めない
  */
-const NUMERIC_CHARACTER   = /^\p{N}$/u;
+const NUMERIC_CHARACTER = /^\p{N}$/u;
 
 /**
  * タグとして装飾しない構文ノード名
  * コード、リンク、HTML、フロントマターの中の `#` はタグにしない
  */
-const TAG_EXCLUDED_NODE_NAMES = new Set([
-	'Autolink',
-	'CodeBlock',
-	'FencedCode',
-	'HTMLBlock',
-	'HTMLTag',
-	'Image',
-	'InlineCode',
-	'Link',
-	'WikiEmbed',
-	'WikiLink',
-	'YamlFrontMatter',
-]);
+const TAG_EXCLUDED_NODE_NAMES = new Set(['Autolink', 'CodeBlock', 'FencedCode', 'HTMLBlock', 'HTMLTag', 'Image', 'InlineCode', 'Link', 'WikiEmbed', 'WikiLink', 'YamlFrontMatter']);
 
 /**
  * タグ本文に利用できる文字かを判定する
@@ -63,16 +51,17 @@ const TAG_EXCLUDED_NODE_NAMES = new Set([
  * @returns タグ本文に続けられるなら true
  */
 function isTagCharacter(character: string): boolean {
+	// 階層区切りのスラッシュは、ASCII 記号でも本文に続ける
 	if (character === '/') {
 		return true;
 	}
 
+	// 文字、結合文字、数字、`_`、`-` は本文にできる
 	if (TAG_TEXT_CHARACTER.test(character)) {
 		return true;
 	}
 
-	return (character.codePointAt(0) ?? 0) > 0x7f
-		&& (UNICODE_SYMBOL.test(character) || UNICODE_PUNCTUATION.test(character));
+	return (character.codePointAt(0) ?? 0) > 0x7f && (UNICODE_SYMBOL.test(character) || UNICODE_PUNCTUATION.test(character));
 }
 
 /**
@@ -83,6 +72,7 @@ function isTagCharacter(character: string): boolean {
  * @returns エスケープされていれば true
  */
 function isEscapedHash(lineText: string, hashIndex: number): boolean {
+	// `#` の直前に続くバックスラッシュの個数。0 ならエスケープではない
 	let slashCount = 0;
 	for (let index = hashIndex - 1; index >= 0 && lineText[index] === '\\'; index -= 1) {
 		slashCount += 1;
@@ -99,10 +89,12 @@ function isEscapedHash(lineText: string, hashIndex: number): boolean {
  * @returns タグを始めてよい位置なら true
  */
 function hasTagBoundary(lineText: string, hashIndex: number): boolean {
+	// 行頭の `#` は単語の途中ではないので、新しいタグを始めてよい
 	if (hashIndex === 0) {
 		return true;
 	}
 
+	// `#` の直前の1文字。取れなければ空文字で、境界として扱う
 	const previous = Array.from(lineText.slice(0, hashIndex)).at(-1) ?? '';
 	return previous !== '#' && !isTagCharacter(previous);
 }
@@ -114,9 +106,7 @@ function hasTagBoundary(lineText: string, hashIndex: number): boolean {
  * @returns 数字と `/` 以外の文字が 1 つでもあれば true
  */
 function hasNonNumericTagCharacter(body: string): boolean {
-	return Array.from(body).some((character) => (
-		character !== '/' && !NUMERIC_CHARACTER.test(character)
-	));
+	return Array.from(body).some((character) => character !== '/' && !NUMERIC_CHARACTER.test(character));
 }
 
 /**
@@ -127,8 +117,10 @@ function hasNonNumericTagCharacter(body: string): boolean {
  * @returns 除外構文の中なら true
  */
 function isExcludedSyntaxPosition(state: EditorState, position: number): boolean {
+	// 位置の最も内側のノード。親をたどり、根の先は null
 	let node: SyntaxNode | null = syntaxTree(state).resolveInner(position, 1);
 	while (node) {
+		// コードやリンクなどの除外名に当たった時点で、タグにしない
 		if (TAG_EXCLUDED_NODE_NAMES.has(node.name)) {
 			return true;
 		}
@@ -151,21 +143,16 @@ function isExcludedSyntaxPosition(state: EditorState, position: number): boolean
  * @param lineFrom - その行の文書上の開始位置。タグ位置へ足す
  * @param entries - 装飾を追加する配列。見つかったタグを末尾へ push する
  */
-function collectTagsFromLine(
-	state: EditorState,
-	lineText: string,
-	lineFrom: number,
-	entries: DecorationEntry[],
-): void {
+function collectTagsFromLine(state: EditorState, lineText: string, lineFrom: number, entries: DecorationEntry[]): void {
+	// 行内の次の `#` の UTF-16 位置。無ければ -1 で走査を終える
 	let hashIndex = lineText.indexOf('#');
 	while (hashIndex >= 0) {
-		if (
-			!isEscapedHash(lineText, hashIndex)
-			&& hasTagBoundary(lineText, hashIndex)
-			&& !isExcludedSyntaxPosition(state, lineFrom + hashIndex)
-		) {
+		// エスケープでなく、境界があり、除外構文の外であるときだけ本文を読む。どれか一つが欠けてもタグにしない
+		if (!isEscapedHash(lineText, hashIndex) && hasTagBoundary(lineText, hashIndex) && !isExcludedSyntaxPosition(state, lineFrom + hashIndex)) {
+			// 本文の終端。行内の UTF-16 位置。`#` の直後から、使えない文字の手前まで
 			let bodyTo = hashIndex + 1;
 			for (const character of lineText.slice(bodyTo)) {
+				// 本文に使えない文字でタグを打ち切る
 				if (!isTagCharacter(character)) {
 					break;
 				}
@@ -173,16 +160,18 @@ function collectTagsFromLine(
 				bodyTo += character.length;
 			}
 
+			// `#` を除いた本文。空ならタグにしない
 			const body = lineText.slice(hashIndex + 1, bodyTo);
-			if (
-				body.length > 0
-				&& !body.startsWith('/')
-				&& hasNonNumericTagCharacter(body)
-			) {
+			// 本文があり、先頭が `/` でなく、数字以外の文字もあるときだけ装飾する。どれか一つが欠けても mark を足さない
+			if (body.length > 0 && !body.startsWith('/') && hasNonNumericTagCharacter(body)) {
+				// この `#` から本文末までをタグ色にする mark
 				entries.push({
-					from      : lineFrom + hashIndex,
-					to        : lineFrom + bodyTo,
-					decoration: Decoration.mark({ class: 'cm-md-tag' }),
+					// タグの開始。行頭からの `#` 位置を文書位置へ足したもの
+					from: lineFrom + hashIndex,
+					// 本文の終端。文書上の文字位置
+					to: lineFrom + bodyTo,
+					// タグ用の mark。範囲の文字は残す
+					decoration: Decoration.mark({ class: 'cm-md-tag' })
 				});
 			}
 		}
@@ -198,17 +187,17 @@ function collectTagsFromLine(
  * @param sourceLineNumbers - ソース表示の行番号。1 始まり。省略時は選択から作る
  * @returns タグ範囲の mark 装飾。該当が無ければ空
  */
-export function collectTagDecorationEntries(
-	state: EditorState,
-	sourceLineNumbers: Set<number> = collectSourceLineNumbers(state),
-): DecorationEntry[] {
+export function collectTagDecorationEntries(state: EditorState, sourceLineNumbers: Set<number> = collectSourceLineNumbers(state)): DecorationEntry[] {
+	// 集めたタグの mark。該当が無ければ空配列
 	const entries: DecorationEntry[] = [];
 
 	for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+		// ソース表示の行はタグ装飾を足さない
 		if (!isPreviewLineNumber(lineNumber, sourceLineNumbers)) {
 			continue;
 		}
 
+		// プレビュー行。from はタグ位置へ足す文書上の開始
 		const line = state.doc.line(lineNumber);
 		collectTagsFromLine(state, line.text, line.from, entries);
 	}

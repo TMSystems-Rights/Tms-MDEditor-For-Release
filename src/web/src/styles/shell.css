@@ -22,15 +22,16 @@
 .tms-mde-workspace {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
-	grid-template-areas: "editor outline";
+	grid-template-areas: 'editor outline';
 	min-width: 0;
 	min-height: 0;
 	overflow: hidden;
 }
 
+/* ----- アウトラインを左へ移す ----- */
 .tms-mde-workspace.is-outline-left {
 	grid-template-columns: auto minmax(0, 1fr);
-	grid-template-areas: "outline editor";
+	grid-template-areas: 'outline editor';
 }
 
 /* ---------------------------------------------- */
@@ -51,6 +52,7 @@
 	color: var(--tms-mde-color-text);
 }
 
+/* 左に置いたときは、エディタとの境界が右辺になる */
 .tms-mde-workspace.is-outline-left .tms-mde-outline-panel {
 	border-left: none;
 	border-right: 1px solid var(--tms-mde-color-border);
@@ -58,6 +60,7 @@
 
 .tms-mde-outline-resizer {
 	position: absolute;
+	/* パネル本文より手前。ドラッグの当たり判定が中身に隠れない */
 	z-index: 5;
 	top: 0;
 	bottom: 0;
@@ -67,13 +70,14 @@
 	cursor: col-resize;
 }
 
+/* 左配置のときは、幅変更の当たりを右辺へ移す */
 .tms-mde-workspace.is-outline-left .tms-mde-outline-resizer {
 	right: -4px;
 	left: auto;
 }
 
 .tms-mde-outline-resizer::after {
-	content: "";
+	content: '';
 	position: absolute;
 	top: 0;
 	bottom: 0;
@@ -186,20 +190,14 @@
 }
 
 .tms-mde-outline-row::before {
-	content: "";
+	content: '';
 	position: absolute;
 	top: 0;
 	bottom: 0;
 	left: 8px;
 	width: calc((var(--tms-mde-outline-level) - 1) * var(--tms-mde-outline-indent));
 	pointer-events: none;
-	background-image: repeating-linear-gradient(to right,
-			transparent 0,
-			transparent 6px,
-			var(--tms-mde-outline-guide-color) 6px,
-			var(--tms-mde-outline-guide-color) 7px,
-			transparent 7px,
-			transparent var(--tms-mde-outline-indent));
+	background-image: repeating-linear-gradient(to right, transparent 0, transparent 6px, var(--tms-mde-outline-guide-color) 6px, var(--tms-mde-outline-guide-color) 7px, transparent 7px, transparent var(--tms-mde-outline-indent));
 }
 
 .tms-mde-outline-twist {
@@ -336,7 +334,7 @@
 	border-radius: 2px;
 	background: var(--tms-mde-color-primary);
 	pointer-events: none;
-	content: "";
+	content: '';
 }
 
 .tms-mde-tab.is-tab-drop-before::before {
@@ -436,27 +434,29 @@
 .tms-mde-pane-editor-surface.is-tab-drag-over::after {
 	position: absolute;
 	inset: 6px;
+	/* エディタ本文より手前。ドロップ先のハイライトが行に隠れない */
 	z-index: 4;
 	border: 2px solid var(--tms-mde-color-primary);
 	border-radius: var(--tms-mde-radius);
 	background: color-mix(in srgb, var(--tms-mde-color-primary) 16%, transparent);
 	pointer-events: none;
-	content: "";
+	content: '';
 }
 
-.tms-mde-editor-pane[data-tab-drop-zone="left"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+/* ----- ドロップした半分だけを光らせる ----- */
+.tms-mde-editor-pane[data-tab-drop-zone='left'] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
 	right: 50%;
 }
 
-.tms-mde-editor-pane[data-tab-drop-zone="right"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+.tms-mde-editor-pane[data-tab-drop-zone='right'] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
 	left: 50%;
 }
 
-.tms-mde-editor-pane[data-tab-drop-zone="top"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+.tms-mde-editor-pane[data-tab-drop-zone='top'] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
 	bottom: 50%;
 }
 
-.tms-mde-editor-pane[data-tab-drop-zone="bottom"] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
+.tms-mde-editor-pane[data-tab-drop-zone='bottom'] .tms-mde-pane-editor-surface.is-tab-drag-over::after {
 	top: 50%;
 }
 
@@ -464,6 +464,7 @@
 	position: relative;
 	background: var(--tms-mde-color-border);
 	outline: none;
+	/* ペインより手前。ドラッグ中の境界がエディタに隠れない */
 	z-index: 5;
 }
 
@@ -502,10 +503,12 @@
 	border-right: 1px solid var(--tms-mde-color-border);
 }
 
+/* 行番号もライト基調の色が勝つので、テーマ色で上書きする */
 .tms-mde-editor-host .cm-editor .cm-gutterElement {
 	color: var(--tms-mde-color-text-muted) !important;
 }
 
+/* アクティブ行のガターも同じ競合で、テーマの行背景を優先する */
 .tms-mde-editor-host .cm-editor .cm-activeLineGutter {
 	background-color: var(--tms-mde-color-active-line) !important;
 }
@@ -617,8 +620,8 @@
 	outline: 1px solid var(--tms-mde-color-primary);
 }
 
+/* ----- 狭い幅では検索行を折り返す ----- */
 @media (width <=720px) {
-
 	.tms-mde-search-row {
 		flex-wrap: wrap;
 	}
@@ -740,6 +743,7 @@
 	cursor: default;
 }
 
+/* 警告色はテーマの文字色と分ける。変数が無いため琥珀を直接指定する */
 .tms-mde-status-warning {
 	color: #d97706;
 }
@@ -755,6 +759,7 @@
 	align-items: center;
 	justify-content: center;
 	background: rgba(0, 0, 0, 0.45);
+	/* エディタの重なり（キャレット 150 まで）より手前。メニュー（1001）より奥 */
 	z-index: 1000;
 }
 
@@ -817,6 +822,7 @@
 	overflow-y: auto;
 	background: var(--tms-mde-color-surface);
 	box-shadow: var(--tms-mde-shadow);
+	/* ダイアログの背面（1000）より手前。メニューがモーダルに隠れない */
 	z-index: 1001;
 }
 

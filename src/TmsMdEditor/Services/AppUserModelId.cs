@@ -19,6 +19,7 @@ internal static class AppUserModelId
 	/// </summary>
 	public static void Apply()
 	{
+		// ポータブル、Debug、インストーラの順で決めた ID。シェルの HRESULT は捨てる
 		string appUserModelId = PortableMode.ResolveAppUserModelId(AppPaths.IsPortable, PortalUrl.IsDebugBuild());
 		_ = SetCurrentProcessExplicitAppUserModelID(appUserModelId);
 	}

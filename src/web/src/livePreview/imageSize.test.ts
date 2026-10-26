@@ -4,30 +4,64 @@
  * @file
  */
 import { describe, expect, it } from 'vitest';
-import {
-	formatMarkdownImage,
-	formatWikiEmbed,
-	parseImageSizeToken,
-	splitImageAlt,
-	splitWikiEmbedTarget,
-} from './imageSize';
+import { formatMarkdownImage, formatWikiEmbed, parseImageSizeToken, splitImageAlt, splitWikiEmbedTarget } from './imageSize';
 
 describe('imageSize', () => {
 	it('|幅 と |幅x高さ を解釈する', () => {
-		expect(parseImageSizeToken('478')).toEqual({ width: 478, height: null });
-		expect(parseImageSizeToken('300x200')).toEqual({ width: 300, height: 200 });
-		expect(parseImageSizeToken('300|left')).toEqual({ width: 300, height: null });
-		expect(parseImageSizeToken('')).toEqual({ width: null, height: null });
+		// 幅だけ。高さは指定なし
+		expect(parseImageSizeToken('478')).toEqual({
+			// 幅。px
+			width: 478,
+			// 高さ。null は指定なし
+			height: null
+		});
+		// 幅と高さの両方
+		expect(parseImageSizeToken('300x200')).toEqual({
+			// 幅。px
+			width: 300,
+			// 高さ。px
+			height: 200
+		});
+		// 幅の後ろの配置はサイズにしない
+		expect(parseImageSizeToken('300|left')).toEqual({
+			// 幅。px。配置より前
+			width: 300,
+			// 高さ。null は指定なし
+			height: null
+		});
+		// 空文字は幅も高さも指定なし
+		expect(parseImageSizeToken('')).toEqual({
+			// 幅。null は指定なし
+			width: null,
+			// 高さ。null は指定なし
+			height: null
+		});
 	});
 
 	it('WikiEmbed からパスとサイズを分離する', () => {
+		// パスと幅。高さは指定なし
 		expect(splitWikiEmbedTarget('_添付ファイル/a.png|478')).toEqual({
+			// サイズ区切りより前のパス
 			path: '_添付ファイル/a.png',
-			size: { width: 478, height: null },
+			// 幅だけ
+			size: {
+				// 幅。px
+				width: 478,
+				// 高さ。null は指定なし
+				height: null
+			}
 		});
+		// サイズ区切りが無いパス。幅も高さも指定なし
 		expect(splitWikiEmbedTarget('C:\\shots\\a.png')).toEqual({
+			// 区切りが無いので全体がパス
 			path: 'C:\\shots\\a.png',
-			size: { width: null, height: null },
+			// 指定なし
+			size: {
+				// 幅。null は指定なし
+				width: null,
+				// 高さ。null は指定なし
+				height: null
+			}
 		});
 	});
 
@@ -40,20 +74,44 @@ describe('imageSize', () => {
 	});
 
 	it('表セル用の \\|幅 を解釈する', () => {
+		// 表セルのエスケープした区切り。幅だけ
 		expect(splitWikiEmbedTarget('C:\\shots\\a.png\\|320')).toEqual({
+			// エスケープした区切りより前のパス
 			path: 'C:\\shots\\a.png',
-			size: { width: 320, height: null },
+			// 幅だけ
+			size: {
+				// 幅。px
+				width: 320,
+				// 高さ。null は指定なし
+				height: null
+			}
 		});
+		// alt と、エスケープした区切りの幅
 		expect(splitImageAlt('図\\|180')).toEqual({
-			alt : '図',
-			size: { width: 180, height: null },
+			// 区切りより前の alt
+			alt: '図',
+			// 幅だけ
+			size: {
+				// 幅。px
+				width: 180,
+				// 高さ。null は指定なし
+				height: null
+			}
 		});
 	});
 
 	it('標準画像 alt からサイズを分離する', () => {
+		// alt と幅。高さは指定なし
 		expect(splitImageAlt('図|120')).toEqual({
-			alt : '図',
-			size: { width: 120, height: null },
+			// 区切りより前の alt
+			alt: '図',
+			// 幅だけ
+			size: {
+				// 幅。px
+				width: 120,
+				// 高さ。null は指定なし
+				height: null
+			}
 		});
 	});
 });

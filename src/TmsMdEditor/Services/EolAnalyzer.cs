@@ -21,16 +21,22 @@ internal static class EolAnalyzer
 	/// <returns>主改行、混在かどうか、CRLF / LF / CR の個数</returns>
 	public static EolAnalysis Analyze(string text)
 	{
+		// CRLF の個数。単独の CR や LF は含めない。0 はこの種別が無い
 		int crlfCount = 0;
+		// 直前が CR でない LF の個数。0 はこの種別が無い
 		int lfCount   = 0;
+		// 次が LF でない CR の個数。0 はこの種別が無い
 		int crCount   = 0;
 
 		for (int index = 0; index < text.Length; index += 1)
 		{
+			// 今見ている文字。CR の次が LF なら組で数える
 			char current = text[index];
 
+			// CR のとき、次が LF なら CRLF、そうでなければ単独 CR として数える
 			if (current == '\r')
 			{
+				// 次の文字も範囲内で LF のときだけ CRLF として数える。どちらかが欠けても入らない
 				if (index + 1 < text.Length && text[index + 1] == '\n')
 				{
 					crlfCount += 1;
@@ -44,29 +50,35 @@ internal static class EolAnalyzer
 				continue;
 			}
 
+			// 単独 LF。CRLF の LF は上で index を進めてここへ来ない
 			if (current == '\n')
 			{
 				lfCount += 1;
 			}
 		}
 
+		// 現れた改行種別の数。0 は改行なし、2 以上は混在
 		int kindsPresent = 0;
 
+		// この種別が 1 回でもあれば種別に数える。0 件では入らない
 		if (crlfCount > 0)
 		{
 			kindsPresent += 1;
 		}
 
+		// 単独 LF が 1 回でもあれば種別に数える
 		if (lfCount > 0)
 		{
 			kindsPresent += 1;
 		}
 
+		// 単独 CR が 1 回でもあれば種別に数える
 		if (crCount > 0)
 		{
 			kindsPresent += 1;
 		}
 
+		// 同数のときは CRLF、次に LF を優先した主改行。すべて 0 なら CRLF
 		EolKind primary = ResolvePrimaryEol(crlfCount, lfCount, crCount);
 
 		return new EolAnalysis(primary, kindsPresent > 1, crlfCount, lfCount, crCount);
@@ -80,13 +92,17 @@ internal static class EolAnalyzer
 	/// <returns>統一した本文。未知の <paramref name="target"/> では引数のまま</returns>
 	public static string NormalizeEol(string text, EolKind target)
 	{
+		// いったん LF に寄せた本文。未知の種別では使わず引数を返す
 		string normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal)
 			.Replace("\r", "\n", StringComparison.Ordinal);
 
 		return target switch
 		{
+			// CRLF へ戻す
 			EolKind.Crlf => normalized.Replace("\n", "\r\n", StringComparison.Ordinal),
+			// LF のまま返す
 			EolKind.Lf   => normalized,
+			// 単独 CR へ戻す
 			EolKind.Cr   => normalized.Replace("\n", "\r", StringComparison.Ordinal),
 			_            => text,
 		};
@@ -102,8 +118,11 @@ internal static class EolAnalyzer
 	{
 		return value?.Trim().ToLowerInvariant() switch
 		{
+			// Windows 改行
 			"crlf" => EolKind.Crlf,
+			// LF のみ
 			"lf"   => EolKind.Lf,
+			// 旧 Mac の CR のみ
 			"cr"   => EolKind.Cr,
 			_      => throw new InvalidOperationException($"未対応の改行コードです: {value}"),
 		};
@@ -118,16 +137,19 @@ internal static class EolAnalyzer
 	/// <returns>主改行。すべて 0 のときは CRLF</returns>
 	private static EolKind ResolvePrimaryEol(int crlfCount, int lfCount, int crCount)
 	{
+		// 改行が一つも無いときは主を CRLF にする。どれか一つでもあれば入らない
 		if (crlfCount == 0 && lfCount == 0 && crCount == 0)
 		{
 			return EolKind.Crlf;
 		}
 
+		// CRLF が LF と CR のどちらにも劣らないとき主を CRLF にする。片方に負ければ入らない
 		if (crlfCount >= lfCount && crlfCount >= crCount)
 		{
 			return EolKind.Crlf;
 		}
 
+		// LF が CR 以上なら LF。CR の方が多ければ入らない
 		if (lfCount >= crCount)
 		{
 			return EolKind.Lf;

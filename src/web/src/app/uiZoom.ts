@@ -5,9 +5,11 @@
  */
 
 /** UI ズームの下限。0.5 は 50% */
+// prettier-ignore
 const UI_ZOOM_MIN  = 0.5;
 
 /** UI ズームの上限。3 は 300% */
+// prettier-ignore
 const UI_ZOOM_MAX  = 3;
 
 /** ホイールとキーボードで増減する刻み。0.1 は 10 パーセントポイント */
@@ -61,7 +63,9 @@ export function computeZoomedFontSize(baseFontSize: number, zoom: number = uiZoo
  * @returns 倍率を変えた場合 true
  */
 export function setUiZoom(next: number): boolean {
+	// 0.5〜3 に収め、小数第 1 位へ丸めた倍率。現在値と同じなら状態は変えない
 	const clamped = Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, Math.round(next * 10) / 10));
+	// 丸めた結果が現在と同じときはリスナーを呼ばせず false を返す。範囲外から丸めて同じ値になったときも入る
 	if (clamped === uiZoom) {
 		return false;
 	}
@@ -88,6 +92,7 @@ function notifyUiZoomChange(): void {
 	changeListener?.(uiZoom);
 }
 
+// prettier-ignore
 /**
  * ズームインのキーか判定する
  * Ctrl があり Alt が無いときの `+`、`Add`、`=`。Shift の有無は見ない
@@ -95,6 +100,7 @@ function notifyUiZoomChange(): void {
  * @returns ズームインなら true
  */
 export function isUiZoomInKey(event: KeyboardEvent): boolean {
+	// Ctrl が無い、または Alt があるときはズームインにしない。どちらか一方だけでも対象外
 	if (!event.ctrlKey || event.altKey) {
 		return false;
 	}
@@ -104,6 +110,7 @@ export function isUiZoomInKey(event: KeyboardEvent): boolean {
 		|| event.key === '=';
 }
 
+// prettier-ignore
 /**
  * ズームアウトのキーか判定する
  * Ctrl があり Alt も Shift も無いときの `-`、`Subtract`、`_`
@@ -111,6 +118,7 @@ export function isUiZoomInKey(event: KeyboardEvent): boolean {
  * @returns ズームアウトなら true
  */
 export function isUiZoomOutKey(event: KeyboardEvent): boolean {
+	// Ctrl が無い、Alt がある、Shift がある、のどれかならズームアウトにしない。一つでもあれば対象外
 	if (!event.ctrlKey || event.altKey || event.shiftKey) {
 		return false;
 	}
@@ -120,6 +128,7 @@ export function isUiZoomOutKey(event: KeyboardEvent): boolean {
 		|| event.key === '_';
 }
 
+// prettier-ignore
 /**
  * ズームを 100% に戻すキーか判定する
  * Ctrl があり Alt も Shift も無いときの `0`
@@ -138,31 +147,46 @@ export function isUiZoomResetKey(event: KeyboardEvent): boolean {
  * すでに 100% ならリスナーは呼ばない
  */
 export function resetUiZoom(): void {
+	// 100% へ変えられたときだけリスナーへ通知する。すでに 100% なら通知しない
 	if (setUiZoom(1)) {
 		notifyUiZoomChange();
 	}
 }
 
+// prettier-ignore
 /**
  * Ctrl+ホイールと変更通知を登録する
  * リスナーは 1 つだけ保持し、呼ぶたびに置き換える。ホイールリスナーは解除しない
  * @param onChange - 倍率変更時に現在値を受け取る関数。省略時は通知しない
  */
 export function bindUiZoom(onChange?: UiZoomChangeListener): void {
+	// ----- リスナーの差し替え -----
+
 	changeListener = onChange ?? null;
 	notifyUiZoomChange();
 
+	// ----- Ctrl+ホイール -----
+
+	// Ctrl+ホイールで倍率を変える。Ctrl が無いときは何もせず、ページのスクロールを残す
 	window.addEventListener('wheel', (event) => {
+		// Ctrl が無いホイールはズームにしない。preventDefault も呼ばない
 		if (!event.ctrlKey) {
 			return;
 		}
 
 		event.preventDefault();
+		// ホイール上方向（deltaY が負）は拡大、それ以外は縮小。1 段は 0.1。deltaY が 0 のときも縮小
 		const delta = event.deltaY < 0 ? UI_ZOOM_STEP : -UI_ZOOM_STEP;
+		// 上下限の内側で倍率を変えられたときだけ通知する。端で値が変わらなければ通知しない
 		if (adjustUiZoom(delta)) {
 			notifyUiZoomChange();
 		}
-	}, { passive: false });
+	},
+	// ホイールリスナーの登録オプション。既定の Ctrl+ホイールを止められるようにする
+	{
+		// false 固定。passive だと preventDefault が無視され、ブラウザのズームを止められない
+		passive: false
+	});
 }
 
 /**
@@ -172,13 +196,22 @@ export function bindUiZoom(onChange?: UiZoomChangeListener): void {
  * @returns ズーム操作として処理した場合 true
  */
 export function handleUiZoomKeydown(event: KeyboardEvent): boolean {
+	// キーに対応する増減量。拡大は 0.1、縮小は -0.1。リセットと対象外ではこの 0 を使わずに戻る
 	let delta = 0;
+	// ズームインのキーのときだけ 0.1 増やす。Ctrl 無しや Alt 付きはここに入らない
 	if (isUiZoomInKey(event)) {
+		// 拡大の 1 段。倍率 0.1
 		delta = UI_ZOOM_STEP;
-	} else if (isUiZoomOutKey(event)) {
+	}
+	// ズームアウトのキーだけ 0.1 減らす。ズームインに入らなかったキーだけを見る
+	else if (isUiZoomOutKey(event)) {
+		// 縮小の 1 段。倍率 -0.1
 		delta = -UI_ZOOM_STEP;
-	} else if (isUiZoomResetKey(event)) {
+	}
+	// 100% へ戻すキーだけ既定動作を止める。インでもアウトでもないキーだけを見る。すでに 100% でも処理済みにする
+	else if (isUiZoomResetKey(event)) {
 		event.preventDefault();
+		// 100% へ変えられたときだけ通知する。すでに 100% なら通知せず、このキーは処理済み
 		if (setUiZoom(1)) {
 			notifyUiZoomChange();
 		}
@@ -189,6 +222,7 @@ export function handleUiZoomKeydown(event: KeyboardEvent): boolean {
 	}
 
 	event.preventDefault();
+	// 増減の結果が上下限の内側で変わったときだけ通知する。端に張り付いていれば通知しない
 	if (adjustUiZoom(delta)) {
 		notifyUiZoomChange();
 	}

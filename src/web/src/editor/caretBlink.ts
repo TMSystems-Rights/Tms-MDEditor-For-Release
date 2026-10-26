@@ -24,6 +24,7 @@ class CaretBlinkController {
 	 * @param view - 点滅対象のエディタ。DOM の class をこのビューへ付ける
 	 */
 	public constructor(private readonly view: EditorView) {
+		// 生成時点でフォーカスがあるときだけ点滅を始める。未フォーカスではタイマーを持たない
 		if (this.view.hasFocus) {
 			this.startBlink();
 		}
@@ -35,14 +36,17 @@ class CaretBlinkController {
 	 * @param update - 今回のビュー更新。フォーカス変化と選択変化の判定に使う
 	 */
 	public update(update: ViewUpdate): void {
+		// 選択が動いたフレームはキャレットを表示へ戻す。消灯中に移動すると、次の点灯まで位置が見えない
 		if (update.selectionSet) {
 			this.showCaret();
 		}
 
+		// フォーカスが変わっていない更新では、点滅の開始も停止もしない
 		if (!update.focusChanged) {
 			return;
 		}
 
+		// フォーカスを得たとき点滅を始める。失ったときはこの分岐に入らず、タイマーを止めて表示へ戻す
 		if (update.view.hasFocus) {
 			this.startBlink();
 			return;
@@ -67,6 +71,7 @@ class CaretBlinkController {
 	private startBlink(): void {
 		this.stopBlink();
 		this.showCaret();
+		// 半周期ごとに隠す class を反転する。停止は stopBlink がこのタイマーを捨てるまで続く
 		this.timer = setInterval(() => {
 			this.view.dom.classList.toggle(CARET_HIDDEN_CLASS);
 		}, CARET_BLINK_HALF_CYCLE_MS);
@@ -76,11 +81,13 @@ class CaretBlinkController {
 	 * 点滅タイマーを止める。タイマーが無いときは何もしない
 	 */
 	private stopBlink(): void {
+		// 停止中（null）は解除しない。二重に clearInterval しない
 		if (this.timer === null) {
 			return;
 		}
 
 		clearInterval(this.timer);
+		// 停止後は null。次の startBlink まで点滅しない
 		this.timer = null;
 	}
 

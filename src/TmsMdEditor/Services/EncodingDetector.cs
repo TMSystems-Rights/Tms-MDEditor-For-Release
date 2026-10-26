@@ -22,21 +22,25 @@ internal static class EncodingDetector
 	/// <returns>採用する文字コード。設定値へは書き戻さない</returns>
 	public static TextEncodingKind DetectEncoding(ReadOnlySpan<byte> bytes)
 	{
+		// UTF-8 BOM は 3 バイトが EF BB BF のときだけ。長さ不足や途中のバイトが違えば入らない
 		if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
 		{
 			return TextEncodingKind.Utf8Bom;
 		}
 
+		// UTF-16 LE の BOM。長さが 2 以上で FF FE のときだけ。一方が違えば入らない
 		if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
 		{
 			return TextEncodingKind.Utf16Le;
 		}
 
+		// UTF-16 BE の BOM。FE FF のときだけ。LE の並びでは入らない
 		if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
 		{
 			return TextEncodingKind.Utf16Be;
 		}
 
+		// BOM が無く、不正な並びも無いとき UTF-8。不正なら Cp932 へ落とす
 		if (IsValidUtf8(bytes))
 		{
 			return TextEncodingKind.Utf8;
@@ -77,10 +81,15 @@ internal static class EncodingDetector
 	{
 		return encodingKind switch
 		{
+			// BOM 無し UTF-8
 			TextEncodingKind.Utf8     => new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+			// BOM 付き UTF-8
 			TextEncodingKind.Utf8Bom  => new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
+			// BOM 付き UTF-16 リトルエンディアン
 			TextEncodingKind.Utf16Le  => new UnicodeEncoding(bigEndian: false, byteOrderMark: true),
+			// BOM 付き UTF-16 ビッグエンディアン
 			TextEncodingKind.Utf16Be  => new UnicodeEncoding(bigEndian: true, byteOrderMark: true),
+			// Windows のコードページ 932
 			TextEncodingKind.Cp932    => Encoding.GetEncoding(932),
 			_                         => throw new ArgumentOutOfRangeException(nameof(encodingKind), encodingKind, null),
 		};
@@ -93,28 +102,35 @@ internal static class EncodingDetector
 	/// <returns>不正な継続バイトや先頭バイトが無ければ true</returns>
 	public static bool IsValidUtf8(ReadOnlySpan<byte> bytes)
 	{
+		// 次に読む位置。末尾まで進んだら妥当。空配列は 0 のまま妥当
 		int index = 0;
 
 		while (index < bytes.Length)
 		{
+			// 今の先頭バイト。0x7F 以下は 1 バイトで進む
 			byte value = bytes[index];
 
+			// ASCII。多バイトの判定には入らない
 			if (value <= 0x7F)
 			{
 				index += 1;
 				continue;
 			}
 
+			// この先頭から続くバイト数。不正な先頭では代入せず false
 			int sequenceLength;
 
+			// 2 バイト列の先頭。上位 3 ビットが 110 のときだけ
 			if ((value & 0xE0) == 0xC0)
 			{
 				sequenceLength = 2;
 			}
+			// 3 バイト列の先頭。2 バイトの形には当てはまらない
 			else if ((value & 0xF0) == 0xE0)
 			{
 				sequenceLength = 3;
 			}
+			// 4 バイト列の先頭。2 バイトでも 3 バイトでもない
 			else if ((value & 0xF8) == 0xF0)
 			{
 				sequenceLength = 4;
@@ -124,6 +140,7 @@ internal static class EncodingDetector
 				return false;
 			}
 
+			// 宣言よりファイル末尾が先に来る途切れ。不正ではなく妥当とみなす
 			if (index + sequenceLength > bytes.Length)
 			{
 				// サンプル末尾で文字列が切れているだけなら UTF-8 として扱う
@@ -132,6 +149,7 @@ internal static class EncodingDetector
 
 			for (int offset = 1; offset < sequenceLength; offset += 1)
 			{
+				// 継続バイトでない並びは UTF-8 として不正
 				if ((bytes[index + offset] & 0xC0) != 0x80)
 				{
 					return false;
@@ -154,10 +172,15 @@ internal static class EncodingDetector
 	{
 		return value?.Trim().ToLowerInvariant() switch
 		{
+			// BOM 無し UTF-8。ハイフンの有無は同じ種別
 			"utf8" or "utf-8"           => TextEncodingKind.Utf8,
+			// BOM 付き UTF-8
 			"utf8bom" or "utf-8(bom)"   => TextEncodingKind.Utf8Bom,
+			// UTF-16 リトルエンディアン
 			"utf16le" or "utf-16le"     => TextEncodingKind.Utf16Le,
+			// UTF-16 ビッグエンディアン
 			"utf16be" or "utf-16be"     => TextEncodingKind.Utf16Be,
+			// コードページ 932。shift_jis も同じ種別
 			"cp932" or "shift_jis"      => TextEncodingKind.Cp932,
 			_                           => throw new InvalidOperationException($"未対応の文字コードです: {value}"),
 		};

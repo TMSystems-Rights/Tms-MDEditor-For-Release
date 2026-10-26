@@ -21,15 +21,27 @@ export type ImageDisplaySize = {
  * @returns 幅と高さ（px）。数値でなければ両方 null
  */
 export function parseImageSizeToken(token: string): ImageDisplaySize {
+	// サイズ指定の先頭トークン。`|` より後ろの配置指定は捨てる。空文字はサイズ無し
 	const first = token.split('|')[0]?.trim() ?? '';
+	// `300` または `300x200` の一致。数値でなければ null
 	const match = /^(\d+)(?:x(\d+))?$/i.exec(first);
+	// 数値として読めなければ幅も高さも無い
 	if (!match) {
-		return { width: null, height: null };
+		// 解釈できないサイズ。両方未指定
+		return {
+			// 表示幅（px）。トークンが数値でないので null
+			width: null,
+			// 表示高さ（px）。トークンが数値でないので null
+			height: null
+		};
 	}
 
+	// トークンから取り出した表示サイズ。高さは幅だけの指定では無い
 	return {
-		width : Number(match[1]),
-		height: match[2] ? Number(match[2]) : null,
+		// 表示幅（px）。整数。0 もトークンにあればそのまま入る
+		width: Number(match[1]),
+		// 表示高さ（px）。`x` 以降が無ければ null
+		height: match[2] ? Number(match[2]) : null
 	};
 }
 
@@ -44,7 +56,7 @@ export function splitWikiEmbedTarget(raw: string): { path: string; size: ImageDi
 	if (escaped >= 0) {
 		return {
 			path: raw.slice(0, escaped).trim(),
-			size: parseImageSizeToken(raw.slice(escaped + 2)),
+			size: parseImageSizeToken(raw.slice(escaped + 2))
 		};
 	}
 
@@ -55,7 +67,7 @@ export function splitWikiEmbedTarget(raw: string): { path: string; size: ImageDi
 
 	return {
 		path: raw.slice(0, pipe).trim(),
-		size: parseImageSizeToken(raw.slice(pipe + 1)),
+		size: parseImageSizeToken(raw.slice(pipe + 1))
 	};
 }
 
@@ -69,8 +81,8 @@ export function splitImageAlt(alt: string): { alt: string; size: ImageDisplaySiz
 	const escaped = alt.indexOf('\\|');
 	if (escaped >= 0) {
 		return {
-			alt : alt.slice(0, escaped),
-			size: parseImageSizeToken(alt.slice(escaped + 2)),
+			alt: alt.slice(0, escaped),
+			size: parseImageSizeToken(alt.slice(escaped + 2))
 		};
 	}
 
@@ -80,8 +92,8 @@ export function splitImageAlt(alt: string): { alt: string; size: ImageDisplaySiz
 	}
 
 	return {
-		alt : alt.slice(0, pipe),
-		size: parseImageSizeToken(alt.slice(pipe + 1)),
+		alt: alt.slice(0, pipe),
+		size: parseImageSizeToken(alt.slice(pipe + 1))
 	};
 }
 
@@ -94,10 +106,12 @@ export function splitImageAlt(alt: string): { alt: string; size: ImageDisplaySiz
  * @returns `![[...]]` 形式の記法
  */
 export function formatWikiEmbed(path: string, width: number | null, options?: { escapePipe?: boolean }): string {
+	// 幅が px として使えないときはサイズを書かない。null と 0 以下のどちらでもサイズ無し
 	if (width === null || width <= 0) {
 		return `![[${path}]]`;
 	}
 
+	// パスと幅の区切り。表セルでは `\|`、それ以外は `|`
 	const delimiter = options?.escapePipe ? '\\|' : '|';
 	return `![[${path}${delimiter}${Math.round(width)}]]`;
 }
@@ -111,13 +125,10 @@ export function formatWikiEmbed(path: string, width: number | null, options?: { 
  * @param options - 表セル向けの区切り。escapePipe が true のとき `|` ではなく `\|` を使う。省略時は `|`
  * @returns `![alt](url)` 形式の記法
  */
-export function formatMarkdownImage(
-	alt: string,
-	url: string,
-	width: number | null,
-	options?: { escapePipe?: boolean },
-): string {
+export function formatMarkdownImage(alt: string, url: string, width: number | null, options?: { escapePipe?: boolean }): string {
+	// alt と幅の区切り。表セルでは `\|`、それ以外は `|`。幅を書かないときも値は作る
 	const delimiter = options?.escapePipe ? '\\|' : '|';
+	// 記法に書く alt。幅が null でなく正のときだけ区切りと幅（px、四捨五入）を足す。どちらかが欠けても alt だけ
 	const altPart   = width !== null && width > 0 ? `${alt}${delimiter}${Math.round(width)}` : alt;
 	return `![${altPart}](${url})`;
 }

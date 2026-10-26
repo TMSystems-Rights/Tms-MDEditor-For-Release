@@ -25,9 +25,13 @@ param(
 	[string]$Configuration = 'Debug'
 )
 
+# コマンドレットの失敗を停止例外にする。ネイティブの終了コードは別途見る
 $ErrorActionPreference = 'Stop'
+# このスクリプトの親。Web と csproj の基準ディレクトリ
 $repoRoot = Resolve-Path "$PSScriptRoot\.."
+# npm を実行するディレクトリ。本体の csproj とは別
 $webDir   = Join-Path $repoRoot 'src\web'
+# dotnet build の対象。テストプロジェクトは含めない
 $project  = Join-Path $repoRoot 'src\TmsMdEditor\TmsMdEditor.csproj'
 
 <#
@@ -50,7 +54,9 @@ $project  = Join-Path $repoRoot 'src\TmsMdEditor\TmsMdEditor.csproj'
     - Stop-Process が失敗したときは、その例外をそのまま送出する
 #>
 function Stop-TmsMdEditorIfRunning {
+	# 実行中の TmsMdEditor。見つからなければ空配列で、終了処理に入らない
 	$processes = @(Get-Process -Name 'TmsMdEditor' -ErrorAction SilentlyContinue)
+	# 残っていないときは終了せず false。呼び出し側は再ビルドしない
 	if ($processes.Count -eq 0) {
 		return $false
 	}
@@ -89,6 +95,7 @@ function Invoke-DotnetBuild {
 	)
 
 	& dotnet build $project -c $Configuration | Out-Host
+	# dotnet の終了コード。0 以外は失敗。この関数はプロセスを終了しない
 	$exitCode = $LASTEXITCODE
 	return $exitCode
 }
@@ -102,10 +109,12 @@ try {
 	Write-Host '==> npm install (web)'
 	Push-Location $webDir
 	npm install
+	# 依存の取得に失敗したら、Web のビルドも本体も始めない
 	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 	Write-Host '==> npm run build (web)'
 	npm run build
+	# Web の成果物ができないときは本体ビルドへ進まない
 	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 	Pop-Location
 
@@ -114,19 +123,25 @@ try {
 	# ----------------------------------------------
 
 	Write-Host "==> dotnet build ($Configuration)"
+	# 本体ビルドの終了コード。0 以外のときだけ exe の残留を疑う
 	$dotnetExitCode = [int](Invoke-DotnetBuild -Configuration $Configuration)
+	# 失敗したときだけ残留プロセスを探す。成功時は再実行しない
 	if ($dotnetExitCode -ne 0) {
 		Write-Warning "dotnet build failed (exit code $dotnetExitCode). Checking for lingering TmsMdEditor process..."
+		# プロセスを終了できたときだけ 1 回再ビルドする。残っていなければ終了コードはそのまま
 		if (Stop-TmsMdEditorIfRunning) {
 			Write-Host "==> dotnet build retry ($Configuration)"
+			# 再ビルドの終了コード。0 以外なら下でそのコードのまま終わる
 			$dotnetExitCode = [int](Invoke-DotnetBuild -Configuration $Configuration)
 		}
 	}
 
+	# 再ビルド後も失敗なら、その終了コードで終わる
 	if ($dotnetExitCode -ne 0) { exit $dotnetExitCode }
 
 	Write-Host 'Build completed.'
 } finally {
+	# npm の作業ディレクトリに残っているときだけ戻す。本体ビルドまで進んでいれば何もしない
 	if ((Get-Location).Path -eq $webDir) {
 		Pop-Location
 	}

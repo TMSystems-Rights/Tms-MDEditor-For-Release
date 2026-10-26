@@ -43,6 +43,7 @@
 				<!-- ---------------------------------------------- -->
 				<!-- 初期状態は閉じる。表示と幅は TypeScript が hidden と幅の変数を更新する -->
 				<aside id="tmsMdeOutlinePanel" class="tms-mde-outline-panel" aria-label="アウトライン" hidden>
+					<!-- 空の要素を区切りとして読み上げ、キーボードの幅変更を受ける。操作は後続スクリプトが pointer と keydown で行う -->
 					<div id="tmsMdeOutlineResizer" class="tms-mde-outline-resizer" role="separator" aria-label="アウトラインの幅を変更" aria-orientation="vertical" tabindex="0"></div>
 					<header class="tms-mde-outline-header">
 						<div class="tms-mde-outline-header-title-row">
@@ -62,11 +63,17 @@
 			<!-- ステータスバー（レイアウト崩れしないようデフォルト値で埋めておく） -->
 			<!-- -------------------------------------------------- -->
 			<footer class="tms-mde-status-bar">
+				<!-- カーソル位置の表示専用。隣の操作ボタンと同じ見た目だが、クリックではメニューを開かない -->
 				<button id="tmsMdeStatusCursor" type="button" class="tms-mde-status-item tms-mde-status-static">行 1, 列 1</button>
+				<!-- 文字数の表示専用。クリックではメニューを開かない -->
 				<button id="tmsMdeStatusCharCount" type="button" class="tms-mde-status-item tms-mde-status-static">0 文字</button>
+				<!-- 文字コードの選択を開く。表示専用ボタンと同じ見た目 -->
 				<button id="tmsMdeStatusEncoding" type="button" class="tms-mde-status-item">UTF-8</button>
+				<!-- 改行の変換メニューを開く。表示専用ボタンと同じ見た目 -->
 				<button id="tmsMdeStatusEol" type="button" class="tms-mde-status-item">CRLF</button>
+				<!-- ソースとライブプレビューを切り替える。大ファイルのときは後続スクリプトが操作を止める -->
 				<button id="tmsMdeStatusViewMode" type="button" class="tms-mde-status-item">ソース</button>
+				<!-- 100% のときは表示専用。変倍中だけクリックで 100% に戻す。aria-label は後続スクリプトが書き換える -->
 				<button id="tmsMdeStatusZoom" type="button" class="tms-mde-status-item tms-mde-status-static" aria-label="表示倍率">100%</button>
 				<!-- tmsMdeStatusLargeFile：大ファイル時だけ表示する。通常時は hidden -->
 				<button id="tmsMdeStatusLargeFile" type="button" class="tms-mde-status-item tms-mde-status-warning" hidden>大ファイル（ソース固定）</button>

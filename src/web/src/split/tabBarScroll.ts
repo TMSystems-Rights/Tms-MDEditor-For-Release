@@ -62,16 +62,21 @@ export function getTabBarWheelScrollDelta(event: WheelDeltaLike): number {
  * @returns スクロール位置を変えた場合 true
  */
 export function applyTabBarWheelScroll(tabBar: ScrollMetricsLike, event: WheelDeltaLike): boolean {
+	// Ctrl 付き、または内容が可視幅に収まっている。片方だけでも位置は変えない
 	if (event.ctrlKey || tabBar.scrollWidth <= tabBar.clientWidth) {
 		return false;
 	}
 
+	// 横へ足す量。縦ホイールの方が大きければ縦の差分を使う。単位は CSS ピクセル
 	const delta = getTabBarWheelScrollDelta(event);
+	// 差分が 0 なら位置は変わらない
 	if (delta === 0) {
 		return false;
 	}
 
+	// 右端までスクロールした位置。内容幅から可視幅を引く。単位は CSS ピクセル
 	const maxScroll   = tabBar.scrollWidth - tabBar.clientWidth;
+	// 0 から右端までに収めた次の位置。はみ出した差分は捨てる
 	const nextScroll  = Math.min(maxScroll, Math.max(0, tabBar.scrollLeft + delta));
 	tabBar.scrollLeft = nextScroll;
 	return true;
@@ -85,10 +90,12 @@ export function applyTabBarWheelScroll(tabBar: ScrollMetricsLike, event: WheelDe
  * @returns 適用すべき `scrollLeft`。単位は CSS ピクセル
  */
 export function computeTabRevealScrollLeft(scroller: HorizontalScrollerLike, element: HorizontalBoxLike): number {
+	// タブの左が容器より左。見切れを戻すため scrollLeft を減らす
 	if (element.left < scroller.left) {
 		return scroller.scrollLeft - (scroller.left - element.left);
 	}
 
+	// タブの右が容器より右。見切れを戻すため scrollLeft を増やす
 	if (element.right > scroller.right) {
 		return scroller.scrollLeft + (element.right - scroller.right);
 	}
@@ -103,15 +110,23 @@ export function computeTabRevealScrollLeft(scroller: HorizontalScrollerLike, ele
  * @param element - 表示したいタブ
  */
 export function revealElementInHorizontalScroller(scroller: HTMLElement, element: HTMLElement): void {
+	// 容器の画面上の矩形。左右の比較に使う
 	const scrollerBox   = scroller.getBoundingClientRect();
+	// 見せたいタブの画面上の矩形
 	const elementBox    = element.getBoundingClientRect();
 	scroller.scrollLeft = computeTabRevealScrollLeft(
+		// 計算へ渡す容器の寸法と画面上の左右。DOM 要素そのものは渡さない
 		{
-			scrollLeft : scroller.scrollLeft,
+			// 現在の横スクロール位置。単位は CSS ピクセル
+			scrollLeft: scroller.scrollLeft,
+			// 内容の全幅。単位は CSS ピクセル
 			scrollWidth: scroller.scrollWidth,
+			// 可視幅。単位は CSS ピクセル
 			clientWidth: scroller.clientWidth,
-			left       : scrollerBox.left,
-			right      : scrollerBox.right
+			// 容器左端のビューポート X
+			left: scrollerBox.left,
+			// 容器右端のビューポート X
+			right: scrollerBox.right
 		},
 		elementBox
 	);

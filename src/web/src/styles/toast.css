@@ -11,7 +11,9 @@
 .tms-mde-toast-host {
 	position: fixed;
 	right: 16px;
+	/* ステータスバーに重ねないための下余白 */
 	bottom: 48px;
+	/* ダイアログ（1000）とメニュー（1001）より手前。通知がモーダルに隠れない */
 	z-index: 10000;
 	display: flex;
 	flex-direction: column;
@@ -31,7 +33,9 @@
 	line-height: 1.4;
 	opacity: 1;
 	transform: translateY(0);
-	transition: opacity 0.2s ease, transform 0.2s ease;
+	transition:
+		opacity 0.2s ease,
+		transform 0.2s ease;
 	pointer-events: auto;
 }
 

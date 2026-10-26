@@ -34,6 +34,7 @@ public sealed class WindowIconTests : IDisposable
 	/// </summary>
 	public void Dispose()
 	{
+		// 一時ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot))
 		{
 			Directory.Delete(_tempRoot, recursive: true);
@@ -46,11 +47,14 @@ public sealed class WindowIconTests : IDisposable
 	[Fact]
 	public void Load_reads_icon_file_beside_executable()
 	{
+		// リポジトリの build/icon.ico。出力ディレクトリから親を辿る。無いときは直後の存在確認が失敗する
 		string source = ResolveRepoIconPath();
 		Assert.True(File.Exists(source), $"build/icon.ico が見つかりません: {source}");
+		// exe の隣に見立てて一時ディレクトリへ複製した icon.ico
 		string copy = Path.Combine(_tempRoot, WindowIcon.FileName);
 		File.Copy(source, copy);
 
+		// 複製を置いたディレクトリから読んだアイコン。見つからなければ null
 		object? icon = WindowIcon.Load(_tempRoot, executablePath: null);
 
 		Assert.NotNull(icon);
@@ -73,10 +77,13 @@ public sealed class WindowIconTests : IDisposable
 	/// <returns>見つかった icon.ico のパス。無いときは build/icon.ico</returns>
 	private static string ResolveRepoIconPath()
 	{
+		// 探索を始めるディレクトリ。出力先から親へ上がり、辿れなくなったら null
 		string? directory = System.AppContext.BaseDirectory;
 		while (!string.IsNullOrWhiteSpace(directory))
 		{
+			// この段の build/icon.ico。無ければ親へ上がる
 			string candidate = Path.Combine(directory, "build", "icon.ico");
+			// この段に icon.ico があるときだけそのパスを返す。無いときは親を見る
 			if (File.Exists(candidate))
 			{
 				return candidate;

@@ -120,11 +120,13 @@ internal sealed class SingleInstanceManager : IDisposable
 	/// <returns>Mutex を新規作成できた、または既に所有していれば true</returns>
 	public bool TryBecomePrimary()
 	{
+		// 判定済みなら Mutex を取り直さず、初回の所有結果を返す
 		if (_mutex is not null)
 		{
 			return _ownsMutex;
 		}
 
+		// 新規作成できたか。false は既存プロセスがあり、このプロセスは所有しない
 		_mutex = new Mutex(initiallyOwned: true, _mutexName, out bool createdNew);
 		_ownsMutex = createdNew;
 		_mutexOwnerThreadId = createdNew ? Environment.CurrentManagedThreadId : 0;
@@ -139,12 +141,14 @@ internal sealed class SingleInstanceManager : IDisposable
 	/// <exception cref="ArgumentNullException"><paramref name="activationHandler"/> が null</exception>
 	public void StartListening(Action<string[]> activationHandler)
 	{
+		// 後続プロセスは待受を持たない
 		if (!_ownsMutex)
 		{
 			throw new InvalidOperationException("最初のインスタンス以外では Named Pipe を開始できません。");
 		}
 
 		ArgumentNullException.ThrowIfNull(activationHandler);
+		// 待受が既にある 2 回目は失敗させる。未開始の null では入らない
 		if (_listenerTask is not null)
 		{
 			throw new InvalidOperationException("Named Pipe は既に開始されています。");
@@ -162,8 +166,10 @@ internal sealed class SingleInstanceManager : IDisposable
 	/// <returns>接続して書き終えたら true。再試行後も接続できなければ false</returns>
 	public bool TryForwardToPrimary(string[] args)
 	{
+		// 空白だけの引数を除いた 1 行 JSON。接続前に作る
 		string payload = JsonSerializer.Serialize(new ActivationRequest
 		{
+			// 空白だけの要素は送らない。全部空白なら空配列
 			Args = args.Where(arg => !string.IsNullOrWhiteSpace(arg)).ToArray(),
 		});
 
@@ -171,6 +177,7 @@ internal sealed class SingleInstanceManager : IDisposable
 		{
 			try
 			{
+				// 既存プロセスへの送信側。サーバーは 1 本だけ
 				using var client = new NamedPipeClientStream(
 					".",
 					_pipeName,
@@ -178,6 +185,7 @@ internal sealed class SingleInstanceManager : IDisposable
 					PipeOptions.None);
 				client.Connect(ConnectTimeoutMs);
 
+				// BOM 無し UTF-8 で 1 行書いて閉じる。Flush は行のたびに行う
 				using var writer = new StreamWriter(client, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), leaveOpen: false)
 				{
 					AutoFlush = true,
@@ -187,6 +195,7 @@ internal sealed class SingleInstanceManager : IDisposable
 			}
 			catch (Exception ex) when (ex is IOException or TimeoutException)
 			{
+				// 再試行の最後だけ失敗を記録して false を返す。途中の失敗では入らず、待ってから次を試す
 				if (attempt == ConnectRetryCount - 1)
 				{
 					_logger.Warn(LogCategory.Instance, "既存インスタンスへの起動要求転送に失敗しました", new Dictionary<string, object?>
@@ -208,6 +217,7 @@ internal sealed class SingleInstanceManager : IDisposable
 	/// </summary>
 	public void Dispose()
 	{
+		// 待受を開始していたときだけ止める。未開始の null では解放だけに進む
 		if (_cancellationTokenSource is not null)
 		{
 			_cancellationTokenSource.Cancel();
@@ -225,6 +235,7 @@ internal sealed class SingleInstanceManager : IDisposable
 			}
 		}
 
+		// 所有していて、取得したスレッドと今のスレッドが同じときだけ Mutex を解放する。どちらかが欠けても入らない
 		if (_ownsMutex && Environment.CurrentManagedThreadId == _mutexOwnerThreadId)
 		{
 			_mutex?.ReleaseMutex();
@@ -247,6 +258,7 @@ internal sealed class SingleInstanceManager : IDisposable
 		{
 			try
 			{
+				// 1 接続だけの受信側。次のループで作り直す
 				using var server = new NamedPipeServerStream(
 					_pipeName,
 					PipeDirection.In,
@@ -255,11 +267,15 @@ internal sealed class SingleInstanceManager : IDisposable
 					PipeOptions.Asynchronous);
 				await server.WaitForConnectionAsync(cancellationToken);
 
+				// BOM を見ない UTF-8。1 行読んで閉じる
 				using var reader = new StreamReader(server, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: false);
+				// 1 行。空や空白、切断で null のときは要求が無い
 				string? payload = await reader.ReadLineAsync(cancellationToken);
+				// 空行は null。JSON でなければ例外が外側の catch へ出る
 				ActivationRequest? request = string.IsNullOrWhiteSpace(payload)
 					? null
 					: JsonSerializer.Deserialize<ActivationRequest>(payload);
+				// 空白を除いた引数。要求が null なら空配列で、開くファイル無しとして渡す
 				string[] args = request?.Args?
 					.Where(arg => !string.IsNullOrWhiteSpace(arg))
 					.ToArray() ?? [];
@@ -286,6 +302,7 @@ internal sealed class SingleInstanceManager : IDisposable
 	/// <returns>接尾辞。開発用、製品用、またはポータブルのハッシュ</returns>
 	private static string GetInstanceScope()
 	{
+		// AppData ルートのフォルダ名。末尾の区切りは除く。ポータブルでは範囲の材料にしない
 		string appDataFolder = Path.GetFileName(AppPaths.AppDataRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 		return PortableMode.ResolveInstanceScope(AppPaths.IsPortable, AppPaths.PortableExeDir, appDataFolder);
 	}

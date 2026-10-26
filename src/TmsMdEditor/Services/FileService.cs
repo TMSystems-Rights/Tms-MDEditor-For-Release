@@ -67,11 +67,16 @@ internal sealed class FileService
 	/// <exception cref="FileNotFoundException">正規化後のパスにファイルが無い</exception>
 	public TextFileInfo Read(string filePath, TextEncodingKind? specifiedEncoding = null)
 	{
+		// 実在するファイルの絶対パス。空や未存在は例外
 		string fullPath = NormalizeExistingFilePath(filePath);
+		// ファイル全体のバイト。空ファイルは長さ 0
 		byte[] bytes    = File.ReadAllBytes(fullPath);
 		// 再読込で明示指定された文字コードを優先し、通常読込だけ自動判定する
+		// null の指定は BOM と UTF-8 妥当性から決める
 		TextEncodingKind encoding = specifiedEncoding ?? EncodingDetector.DetectEncoding(bytes);
+		// 採用した文字コードで復号した本文。空ファイルは空文字
 		string text     = EncodingDetector.Decode(bytes, encoding);
+		// 主改行と混在。改行が無ければ CRLF で混在ではない
 		EolAnalysis eol = EolAnalyzer.Analyze(text);
 
 		_logger.Debug(LogCategory.File, "ファイルを読み込みました", new Dictionary<string, object?>
@@ -82,15 +87,23 @@ internal sealed class FileService
 			[LogProperty.EolMixed]   = eol.IsMixed,
 		});
 
+		// ディスク上のサイズ。単位はバイト。空ファイルは 0
 		long fileSizeBytes = new FileInfo(fullPath).Length;
 
+		// ホストへ返す読み込み結果。監視は始めない
 		return new TextFileInfo
 		{
+			// 正規化した絶対パス
 			FilePath      = fullPath,
+			// 復号した本文
 			Text          = text,
+			// 指定が無ければ自動判定した文字コード
 			Encoding      = encoding,
+			// 最も多い改行。無ければ CRLF
 			PrimaryEol    = eol.Primary,
+			// 2 種類以上の改行があるとき true
 			EolMixed      = eol.IsMixed,
+			// 読み込んだバイト数。単位はバイト
 			FileSizeBytes = fileSizeBytes,
 		};
 	}
@@ -106,13 +119,17 @@ internal sealed class FileService
 	/// <exception cref="InvalidOperationException"><paramref name="filePath"/> にディレクトリ部分が無い</exception>
 	public SaveFileResult Save(string filePath, string text, TextEncodingKind encoding, EolKind? unifyEol)
 	{
+		// 保存先の絶対パス。親が無ければ後で作る
 		string fullPath = Path.GetFullPath(filePath);
 		// 混在改行を保持する選択肢があるため、統一指定がある場合だけ本文を変換する
+		// null のときは本文の改行を変えない
 		string content  = unifyEol.HasValue ? EolAnalyzer.NormalizeEol(text, unifyEol.Value) : text;
+		// 指定文字コードのバイト列。UTF-8 は BOM 無し
 		byte[] bytes    = EncodingDetector.Encode(content, encoding);
 
 		WriteBytesAtomic(fullPath, bytes);
 
+		// 保存後本文の主改行と混在。統一しなければ元の混在が残る
 		EolAnalysis eol = EolAnalyzer.Analyze(content);
 
 		_logger.Info(LogCategory.File, "ファイルを保存しました", new Dictionary<string, object?>
@@ -124,12 +141,18 @@ internal sealed class FileService
 			[LogProperty.UnifyEol]   = unifyEol?.ToString(),
 		});
 
+		// 書けた保存結果。失敗は例外のまま呼び出し元へ出る
 		return new SaveFileResult
 		{
+			// 原子的な置換まで終わった
 			Success    = true,
+			// 保存した絶対パス
 			FilePath   = fullPath,
+			// 書き込んだ文字コード。指定どおり
 			Encoding   = encoding,
+			// 保存後本文の主改行
 			PrimaryEol = eol.Primary,
+			// 保存後も 2 種類以上残っていれば true
 			EolMixed   = eol.IsMixed,
 		};
 	}
@@ -159,7 +182,9 @@ internal sealed class FileService
 	/// <returns>Data URL と解決した絶対パス。失敗時は Error</returns>
 	public ReadImageResult ReadImageAsDataUrl(string? path, string? documentPath, string? embed)
 	{
+		// パス解決の結果。失敗時は Error だけでバイトは読まない
 		ReadImageResult located = ResolveLocalImage(path, documentPath, embed);
+		// 解決失敗、またはパスが空白なら Data URL を作らずその結果を返す。どちらか一方でも入る
 		if (!located.Ok || string.IsNullOrWhiteSpace(located.ResolvedPath))
 		{
 			return located;
@@ -167,8 +192,11 @@ internal sealed class FileService
 
 		try
 		{
+			// 画像ファイルのバイト。上限は解決側で見ている
 			byte[] bytes   = File.ReadAllBytes(located.ResolvedPath);
+			// Data URL に載せるメディア種別。未知の拡張子は汎用のバイト列
 			string mime    = GuessMimeType(Path.GetExtension(located.ResolvedPath));
+			// base64 の Data URL。空ファイルでもヘッダは付く
 			string dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
 
 			_logger.Debug(LogCategory.File, "画像を読み込みました", new Dictionary<string, object?>
@@ -177,10 +205,14 @@ internal sealed class FileService
 				[LogProperty.Bytes]        = bytes.Length,
 			});
 
+			// 読めた画像。例外にはしない
 			return new ReadImageResult
 			{
+				// バイトを Data URL にできた
 				Ok           = true,
+				// プレビュー用の Data URL
 				DataUrl      = dataUrl,
+				// 解決した絶対パス
 				ResolvedPath = located.ResolvedPath,
 			};
 		}
@@ -194,9 +226,12 @@ internal sealed class FileService
 				[LogProperty.Error]        = ex.Message,
 			});
 
+			// 読み込み例外は結果のエラーにする
 			return new ReadImageResult
 			{
+				// Data URL は作っていない
 				Ok    = false,
+				// 例外メッセージ。利用者向け
 				Error = ex.Message,
 			};
 		}
@@ -214,33 +249,48 @@ internal sealed class FileService
 		try
 		{
 			// 通常Markdown画像とObsidian埋め込みを共通の絶対パスへ解決してから安全性を確認する
+			// 材料不足は null。存在確認はここではしない
 			string? resolved = ResolveImagePath(path, documentPath, embed);
+			// 解決できない、または実在しないときは見つからない失敗。どちらか一方でも入る
 			if (resolved is null || !File.Exists(resolved))
 			{
+				// パスを返せない失敗
 				return new ReadImageResult
 				{
+					// 解決していない
 					Ok    = false,
+					// 利用者向け。Data URL は入れない
 					Error = "画像ファイルが見つかりません。",
 				};
 			}
 
 			// PDF へコピーする前に、Data URL 化と同じ上限で大きなファイルを弾く
+			// サイズ判定用。単位はバイト
 			var info = new FileInfo(resolved);
+			// 8MB を超えるファイルは読まない
 			if (info.Length > MaxImageBytes)
 			{
+				// 上限超過の失敗
 				return new ReadImageResult
 				{
+					// パスは採用しない
 					Ok    = false,
+					// 上限を MB で示した理由
 					Error = $"画像サイズが上限（{MaxImageBytes / (1024 * 1024)}MB）を超えています。",
 				};
 			}
 
+			// ドット付き拡張子。大文字小文字は無視して対応一覧と比べる
 			string extension = Path.GetExtension(resolved);
+			// 対応一覧に無い拡張子は未対応
 			if (!ImageExtensions.Contains(extension))
 			{
+				// 形式拒否
 				return new ReadImageResult
 				{
+					// パスは採用しない
 					Ok    = false,
+					// 利用者向け
 					Error = "未対応の画像形式です。",
 				};
 			}
@@ -251,9 +301,12 @@ internal sealed class FileService
 				[LogProperty.Bytes]        = info.Length,
 			});
 
+			// バイトは読まず、絶対パスだけ返す
 			return new ReadImageResult
 			{
+				// 上限と拡張子を通過した
 				Ok           = true,
+				// 解決した絶対パス。Data URL は入れない
 				ResolvedPath = resolved,
 			};
 		}
@@ -267,9 +320,12 @@ internal sealed class FileService
 				[LogProperty.Error]        = ex.Message,
 			});
 
+			// 解決中の例外は結果のエラーにする
 			return new ReadImageResult
 			{
+				// パスは返せない
 				Ok    = false,
+				// 例外メッセージ
 				Error = ex.Message,
 			};
 		}
@@ -295,18 +351,23 @@ internal sealed class FileService
 	/// <exception cref="InvalidOperationException">サイズが上限を超える、または拡張子が未対応</exception>
 	public string SaveImageCopy(string directory, byte[] bytes, string preferredFileName)
 	{
+		// 上限 8MB を超えるバイト列は保存しない
 		if (bytes.LongLength > MaxImageBytes)
 		{
 			throw new InvalidOperationException($"画像サイズが上限（{MaxImageBytes / (1024 * 1024)}MB）を超えています。");
 		}
 
+		// 希望名の拡張子。対応一覧に無いと保存しない
 		string extension = Path.GetExtension(preferredFileName);
+		// 未対応の拡張子は連番を付ける前に失敗にする
 		if (!ImageExtensions.Contains(extension))
 		{
 			throw new InvalidOperationException("未対応の画像形式です。");
 		}
 
+		// 拡張子を除いた幹。空白だけなら日時名に置き換える
 		string stem = Path.GetFileNameWithoutExtension(preferredFileName);
+		// 幹が空の貼り付けは、衝突しにくい日時名にする
 		if (string.IsNullOrWhiteSpace(stem))
 		{
 			stem = $"Pasted image {DateTime.Now:yyyyMMddHHmmss}";
@@ -315,7 +376,9 @@ internal sealed class FileService
 		Directory.CreateDirectory(directory);
 
 		// 同名添付を上書きせず、連番を付けて既存リンクの参照先を保護する
+		// 最初の候補。実在すれば連番を足す
 		string dest = Path.Combine(directory, stem + extension);
+		// 次に試す連番。1 から。空いている名前が見つかるまで増える
 		int suffix  = 1;
 		while (File.Exists(dest))
 		{
@@ -343,6 +406,7 @@ internal sealed class FileService
 	/// <returns>| より前を trim した文字列。| が無ければ全体を trim する</returns>
 	internal static string StripImageSizeSuffix(string value)
 	{
+		// 幅指定の |。無ければ -1 で全体をパスとして trim する
 		int pipe = value.IndexOf('|');
 		return pipe < 0 ? value.Trim() : value[..pipe].Trim();
 	}
@@ -359,18 +423,23 @@ internal sealed class FileService
 		// Wiki埋め込みはVault内検索が必要なため、通常のMarkdownパスより先に専用解決する
 		if (!string.IsNullOrWhiteSpace(embed))
 		{
+			// 幅指定を除いた埋め込み名
 			string embedPath = StripImageSizeSuffix(embed);
+			// 完全修飾なら文書位置を見ずにその絶対パスを返す
 			if (TryResolveAbsoluteImagePath(embedPath, out string? absoluteEmbed))
 			{
 				return absoluteEmbed;
 			}
 
+			// 文書が無い相対埋め込みは解決できない
 			if (string.IsNullOrWhiteSpace(documentPath))
 			{
 				return null;
 			}
 
+			// 文書のあるディレクトリ。取れなければ検索の起点が無い
 			string? documentDirectory = Path.GetDirectoryName(Path.GetFullPath(documentPath));
+			// ディレクトリが空、または実在しないときは埋め込みを探さない。どちらか一方でも入る
 			if (string.IsNullOrWhiteSpace(documentDirectory) || !Directory.Exists(documentDirectory))
 			{
 				return null;
@@ -379,11 +448,13 @@ internal sealed class FileService
 			return FindEmbedImage(documentDirectory, embedPath);
 		}
 
+		// 埋め込みもパスも無いときは解決材料が無い
 		if (string.IsNullOrWhiteSpace(path))
 		{
 			return null;
 		}
 
+		// 幅指定を除き、区切りをプラットフォーム文字へ揃えたパス
 		string trimmed = StripImageSizeSuffix(path).Replace('/', Path.DirectorySeparatorChar);
 
 		// 絶対パスは文書位置に依存させず、そのまま正規化して返す
@@ -392,12 +463,15 @@ internal sealed class FileService
 			return absolutePath;
 		}
 
+		// 相対パスなのに基準の文書が無いときは解決しない
 		if (string.IsNullOrWhiteSpace(documentPath))
 		{
 			return null;
 		}
 
+		// 文書のあるディレクトリ。取れなければ結合できない
 		string? baseDirectory = Path.GetDirectoryName(Path.GetFullPath(documentPath));
+		// ディレクトリ部分が空の文書パスは基準にできない
 		if (string.IsNullOrWhiteSpace(baseDirectory))
 		{
 			return null;
@@ -415,12 +489,15 @@ internal sealed class FileService
 	private static bool TryResolveAbsoluteImagePath(string path, out string? resolved)
 	{
 		resolved = null;
+		// 空白の候補は絶対パスにしない
 		if (string.IsNullOrWhiteSpace(path))
 		{
 			return false;
 		}
 
+		// 空白を除き、区切りを揃えた候補
 		string normalized = path.Trim().Replace('/', Path.DirectorySeparatorChar);
+		// 相対パスは失敗として null のまま返す
 		if (!Path.IsPathFullyQualified(normalized))
 		{
 			return false;
@@ -446,14 +523,19 @@ internal sealed class FileService
 	/// <returns>見つかった絶対パス。同名が複数なら null。無ければ null</returns>
 	private static string? FindEmbedImage(string documentDirectory, string embedName)
 	{
+		// 区切りを揃えた埋め込み名。幅指定は呼び出し側が除いている
 		string normalized = embedName.Trim().Replace('/', Path.DirectorySeparatorChar);
+		// パスの末尾のファイル名。空なら探す対象が無い
 		string fileName   = Path.GetFileName(normalized);
+		// ファイル名が空の埋め込みは解決しない
 		if (string.IsNullOrWhiteSpace(fileName))
 		{
 			return null;
 		}
 
+		// .obsidian がある保管庫ルート。文書が保管庫外なら null
 		string? vaultRoot = FindObsidianVaultRoot(documentDirectory);
+		// フォルダ付きの名前は、明示相対か保管庫基準かを分ける
 		if (normalized.Contains(Path.DirectorySeparatorChar))
 		{
 			// `./` と `../` は明示的な文書相対パスとして扱う
@@ -463,9 +545,11 @@ internal sealed class FileService
 			}
 
 			// Obsidian のフォルダ付き内部リンクは保管庫ルート基準。添付先名は固定しない
+			// 保管庫が無いときは null。あるときは実在する結合パスだけ
 			string? vaultCandidate = vaultRoot is null
 				? null
 				: ExistingFullPath(vaultRoot, normalized.TrimStart(Path.DirectorySeparatorChar));
+			// 保管庫基準で実在したときだけそれを返す。null なら文書相対へ落ちる
 			if (vaultCandidate is not null)
 			{
 				return vaultCandidate;
@@ -475,7 +559,9 @@ internal sealed class FileService
 			return ExistingFullPath(documentDirectory, normalized);
 		}
 
+		// 文書隣の同名ファイル
 		string direct = Path.Combine(documentDirectory, fileName);
+		// 隣にあれば検索せずそれを返す
 		if (File.Exists(direct))
 		{
 			return direct;
@@ -486,7 +572,9 @@ internal sealed class FileService
 		{
 			foreach (string extension in ImageExtensions)
 			{
+				// 文書隣へ対応拡張子を足した候補
 				string withExt = Path.Combine(documentDirectory, fileName + extension);
+				// 最初に実在した拡張子を採用する
 				if (File.Exists(withExt))
 				{
 					return withExt;
@@ -494,6 +582,7 @@ internal sealed class FileService
 			}
 		}
 
+		// 再帰検索の起点。保管庫が無ければ文書ディレクトリ
 		string searchRoot = vaultRoot ?? documentDirectory;
 		return FindUniqueEmbedImage(searchRoot, fileName);
 	}
@@ -505,9 +594,11 @@ internal sealed class FileService
 	/// <returns>保管庫ルート。見つからなければ null</returns>
 	private static string? FindObsidianVaultRoot(string documentDirectory)
 	{
+		// 文書から親へたどる起点
 		var current = new DirectoryInfo(Path.GetFullPath(documentDirectory));
 		while (current is not null)
 		{
+			// .obsidian があるディレクトリを保管庫ルートにする
 			if (Directory.Exists(Path.Combine(current.FullName, ".obsidian")))
 			{
 				return current.FullName;
@@ -540,6 +631,7 @@ internal sealed class FileService
 	{
 		try
 		{
+			// 結合した絶対パス。不正なら catch で null
 			string candidate = Path.GetFullPath(Path.Combine(baseDirectory, relativePath));
 			return File.Exists(candidate) ? candidate : null;
 		}
@@ -557,7 +649,9 @@ internal sealed class FileService
 	/// <returns>一意に見つかったパス。0 件または 2 件以上、探索失敗は null</returns>
 	private static string? FindUniqueEmbedImage(string searchRoot, string fileName)
 	{
+		// 一意に見つかったパス。2 件目が出たら null を返して結び付けない
 		string? match = null;
+		// 拡張子が無ければ対応拡張子を順に足す。あればファイル名そのもの
 		IEnumerable<string> searchNames = string.IsNullOrEmpty(Path.GetExtension(fileName))
 			? ImageExtensions.Select(extension => fileName + extension)
 			: [fileName];
@@ -568,6 +662,7 @@ internal sealed class FileService
 			{
 				foreach (string candidate in Directory.EnumerateFiles(searchRoot, searchName, SearchOption.AllDirectories))
 				{
+					// 2 件目が見つかった短縮リンクは、どちらかへ恣意的に結び付けない
 					if (match is not null)
 					{
 						// Obsidian の短縮リンクを同名ファイルへ恣意的に結び付けない
@@ -605,13 +700,21 @@ internal sealed class FileService
 	{
 		return extension.ToLowerInvariant() switch
 		{
+			// PNG
 			".png"  => "image/png",
+			// JPEG。拡張子 jpg
 			".jpg"  => "image/jpeg",
+			// JPEG。拡張子 jpeg
 			".jpeg" => "image/jpeg",
+			// GIF
 			".gif"  => "image/gif",
+			// WebP
 			".webp" => "image/webp",
+			// BMP
 			".bmp"  => "image/bmp",
+			// ICO
 			".ico"  => "image/x-icon",
+			// SVG
 			".svg"  => "image/svg+xml",
 			_       => "application/octet-stream",
 		};
@@ -626,13 +729,16 @@ internal sealed class FileService
 	/// <exception cref="FileNotFoundException">正規化後のパスにファイルが無い</exception>
 	private static string NormalizeExistingFilePath(string filePath)
 	{
+		// 空白だけのパスは絶対パスにせず失敗にする
 		if (string.IsNullOrWhiteSpace(filePath))
 		{
 			throw new InvalidOperationException("ファイルパスが指定されていません。");
 		}
 
+		// 相対パスを絶対パスにした候補。実在しなければ読めない
 		string fullPath = Path.GetFullPath(filePath);
 
+		// 正規化後にファイルが無いときは見つからない失敗
 		if (!File.Exists(fullPath))
 		{
 			throw new FileNotFoundException("ファイルが見つかりません。", fullPath);
@@ -649,8 +755,10 @@ internal sealed class FileService
 	/// <exception cref="InvalidOperationException"><paramref name="filePath"/> にディレクトリ部分が無い</exception>
 	private static void WriteBytesAtomic(string filePath, byte[] bytes)
 	{
+		// 保存先のディレクトリ。パスにディレクトリが無ければ null か空
 		string? directory = Path.GetDirectoryName(filePath);
 
+		// ディレクトリを決められないパスは一時ファイルを置けない
 		if (string.IsNullOrWhiteSpace(directory))
 		{
 			throw new InvalidOperationException($"Invalid file path: {filePath}");
@@ -659,11 +767,13 @@ internal sealed class FileService
 		Directory.CreateDirectory(directory);
 
 		// 同一ディレクトリの一時ファイルを使い、最終移動を同一ボリューム内の原子的操作にする
+		// プロセス ID を含めた別名。本体とは別ファイル
 		string tempPath = Path.Combine(directory, $".{Path.GetFileName(filePath)}.{Environment.ProcessId}.tmp");
 		File.WriteAllBytes(tempPath, bytes);
 
 		try
 		{
+			// 既存があるときは中身だけ差し替える。新規では入らず Move する
 			if (File.Exists(filePath))
 			{
 				// 削除してから Move すると FileSystemWatcher が Deleted を上げる
@@ -678,6 +788,7 @@ internal sealed class FileService
 		finally
 		{
 			// Replace/Move失敗時にも次回保存を邪魔する一時ファイルを可能な限り残さない
+			// 置換に失敗して残った一時ファイルだけ消す。成功して消えていれば入らない
 			if (File.Exists(tempPath))
 			{
 				try

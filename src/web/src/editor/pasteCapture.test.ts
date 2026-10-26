@@ -12,7 +12,9 @@ import { shouldSkipEditorPasteCapture } from './pasteCapture';
  * @returns target.closest だけを持つ ClipboardEvent のモック
  */
 function pasteEvent(selectors: string[]): ClipboardEvent {
+	// closest の一致だけで UI 所属を表す貼り付けイベント。実 DOM は使わない
 	return {
+		// 実ノードではなく、closest だけを持つ target
 		target: {
 			/**
 			 * セレクタが引数の一覧に含まれるときだけ、空オブジェクトを返す
@@ -21,8 +23,8 @@ function pasteEvent(selectors: string[]): ClipboardEvent {
 			 */
 			closest(selector: string) {
 				return selectors.includes(selector) ? {} : null;
-			},
-		},
+			}
+		}
 	} as unknown as ClipboardEvent;
 }
 

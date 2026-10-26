@@ -8,9 +8,13 @@ import { createDraggableTabElement } from './tabElement';
 
 describe('createDraggableTabElement', () => {
 	it('フォーカスを奪わない div をネイティブドラッグ可能なタブとして生成する', () => {
+		// setAttribute が記録する属性。生成後に role と aria-selected を見る
 		const attributes = new Map<string, string>();
+		// 生成直後の div モック。tabIndex は 0、draggable は false から書き換わる
 		const element    = {
-			tabIndex : 0,
+			// 生成直後の tabindex。関数が -1 へ変える
+			tabIndex: 0,
+			// 生成直後はドラッグ不可。関数が true へ変える
 			draggable: false,
 			/**
 			 * 属性値を記録する
@@ -19,10 +23,12 @@ describe('createDraggableTabElement', () => {
 			 */
 			setAttribute(name: string, value: string) {
 				attributes.set(name, value);
-			},
+			}
 		} as unknown as HTMLDivElement;
 
+		// createElement が受けたタグ名。空のままなら生成していない
 		let createdTagName = '';
+		// createElement だけを持つ document。実 DOM ではない
 		const documentRef  = {
 			/**
 			 * 生成対象のタグ名を記録する
@@ -32,7 +38,7 @@ describe('createDraggableTabElement', () => {
 			createElement(tagName: string) {
 				createdTagName = tagName;
 				return element;
-			},
+			}
 		} as unknown as Pick<Document, 'createElement'>;
 
 		expect(createDraggableTabElement(documentRef, true)).toBe(element);

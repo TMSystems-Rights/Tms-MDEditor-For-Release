@@ -66,24 +66,51 @@ internal sealed class NoteViewPositionStore
 	/// <returns>成否と、Web 層へ返す JSON。失敗時も空の現行スキーマを入れ、例外は出さない</returns>
 	public NoteViewPositionLoadResult Load()
 	{
+		// 表示位置ファイルの絶対パス。有無は次で見る
 		string path = GetPath();
 		// 初回起動は異常ではないため、空の現行スキーマを通常結果として返す
-		if (!File.Exists(path)) return new NoteViewPositionLoadResult { Success = true, Document = EmptyDocument() };
+		if (!File.Exists(path))
+		{
+			// 復元する位置がまだ無い成功
+			return new NoteViewPositionLoadResult
+			{
+				// ファイルが無いことは失敗にしない
+				Success = true,
+				// エントリが空の現行スキーマ
+				Document = EmptyDocument(),
+			};
+		}
 
 		try
 		{
+			// 読み終えたら破棄する文書
 			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+			// 版が読めない、または 1 と 2 以外ならファイル全体を不正にする。どちらか一方でも入る
 			if (!TryReadSchemaVersion(document.RootElement, out int schemaVersion) || !IsSupportedSchema(schemaVersion))
 			{
 				throw new InvalidDataException("未対応または不正な表示位置形式です。");
 			}
 
-			return new NoteViewPositionLoadResult { Success = true, Document = SerializeDocument(ReadEntries(document.RootElement, schemaVersion)) };
+			// 有効なエントリだけを現行スキーマで返す
+			return new NoteViewPositionLoadResult
+			{
+				// 対応する版として読めた
+				Success = true,
+				// 壊れた 1 件を除いた JSON
+				Document = SerializeDocument(ReadEntries(document.RootElement, schemaVersion)),
+			};
 		}
 		catch (Exception ex)
 		{
 			_logger.Warn(LogCategory.NoteViewPosition, "表示位置を読み込めませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
-			return new NoteViewPositionLoadResult { Success = false, Document = EmptyDocument() };
+			// 読めなくても起動は続け、空の現行スキーマを返す
+			return new NoteViewPositionLoadResult
+			{
+				// 復元できない
+				Success = false,
+				// 空の現行スキーマ。例外は出さない
+				Document = EmptyDocument(),
+			};
 		}
 	}
 
@@ -97,16 +124,21 @@ internal sealed class NoteViewPositionStore
 		try
 		{
 			// 壊れたクライアント入力を既存ファイルへ混ぜる前に、文書単位で形式を拒否する
+			// 版が読めない、または 1 と 2 以外なら既存ファイルを変えない。どちらか一方でも入る
 			if (!TryReadSchemaVersion(incoming, out int incomingSchemaVersion) || !IsSupportedSchema(incomingSchemaVersion))
 			{
 				throw new InvalidDataException("未対応または不正な表示位置形式です。");
 			}
 
 			// 複数ウィンドウが別々のノート位置を送るため、上書きではなく既存内容へマージする
+			// 新しい方を残し、最大 200 件に切った一覧
 			List<NoteViewPositionEntry> merged = Merge(ReadStoredEntries(), ReadEntries(incoming, incomingSchemaVersion));
+			// マージ結果を現行スキーマで原子的に書く。空なら空配列
 			JsonFileHelper.WriteAtomic(GetPath(), new NoteViewPositionDocument
 			{
+				// 保存時は折りたたみを含む現行版へ上げる
 				SchemaVersion = CurrentSchemaVersion,
+				// 更新が新しい順の最大 200 件。空なら空配列
 				Entries       = merged,
 			});
 			return new NoteViewPositionSaveResult { Success = true };
@@ -114,7 +146,14 @@ internal sealed class NoteViewPositionStore
 		catch (Exception ex)
 		{
 			_logger.Error(LogCategory.NoteViewPosition, "表示位置を保存できませんでした", new Dictionary<string, object?> { [LogProperty.Error] = ex.Message });
-			return new NoteViewPositionSaveResult { Success = false, Message = "表示位置を保存できませんでした。" };
+			// 検証失敗や書き込み失敗。既存ファイルは検証前なら残る
+			return new NoteViewPositionSaveResult
+			{
+				// 書けていない
+				Success = false,
+				// 利用者向け。詳細はログ
+				Message = "表示位置を保存できませんでした。",
+			};
 		}
 	}
 
@@ -128,12 +167,16 @@ internal sealed class NoteViewPositionStore
 	/// <returns>マージ元のエントリ。読めなければ空</returns>
 	private List<NoteViewPositionEntry> ReadStoredEntries()
 	{
+		// 既存ファイルのパス。無ければ空として保存を続ける
 		string path = GetPath();
+		// ファイルが無い初回はマージ元が空
 		if (!File.Exists(path)) return [];
 
 		try
 		{
+			// 既存文書。壊れていれば catch で空にする
 			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+			// 版が読めない、または未対応なら既存を空として新しい位置だけ保存する。どちらか一方でも入る
 			if (!TryReadSchemaVersion(document.RootElement, out int schemaVersion) || !IsSupportedSchema(schemaVersion)) return [];
 			return ReadEntries(document.RootElement, schemaVersion);
 		}
@@ -151,6 +194,7 @@ internal sealed class NoteViewPositionStore
 	/// <returns>note-view-positions.json のパス</returns>
 	private string GetPath()
 	{
+		// キャッシュが null のときはブートストラップを読み直す
 		string dataDir = _configStore.CachedDataDir ?? _configStore.GetDataDirInfo().DataDir;
 		return AppPaths.GetNoteViewPositionsPath(dataDir);
 	}
@@ -164,6 +208,7 @@ internal sealed class NoteViewPositionStore
 	private static List<NoteViewPositionEntry> Merge(IEnumerable<NoteViewPositionEntry> current, IEnumerable<NoteViewPositionEntry> incoming)
 	{
 		// Windowsパスの表記揺れを同一キーへ寄せ、ノートごとに最新の更新だけを残す
+		// 正規化したパスをキーにした最新エントリ。同じノートは 1 件
 		Dictionary<string, NoteViewPositionEntry> byKey = new(StringComparer.Ordinal);
 		foreach (NoteViewPositionEntry entry in current)
 		{
@@ -172,7 +217,9 @@ internal sealed class NoteViewPositionStore
 
 		foreach (NoteViewPositionEntry entry in incoming)
 		{
+			// 表記揺れを吸収した比較キー
 			string key = NormalizeKey(entry.FilePath);
+			// 既存が無い、または受信の方が同じか新しいときだけ置き換える。古いかつ既存があるときは入らない
 			if (!byKey.TryGetValue(key, out NoteViewPositionEntry? existing) || CompareUpdatedAt(entry.UpdatedAt, existing.UpdatedAt) >= 0)
 			{
 				byKey[key] = entry;
@@ -195,15 +242,18 @@ internal sealed class NoteViewPositionStore
 	/// <returns>有効なエントリ。配列が無ければ空</returns>
 	private static List<NoteViewPositionEntry> ReadEntries(JsonElement document, int schemaVersion)
 	{
+		// entries が無い、または配列でない文書は空として扱う。どちらか一方でも入る
 		if (!document.TryGetProperty(StoredJsonProperty.Entries, out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
 		{
 			return [];
 		}
 
+		// 必須項目が揃ったエントリ。壊れた 1 件は入れない
 		List<NoteViewPositionEntry> result = [];
 		foreach (JsonElement candidate in entries.EnumerateArray())
 		{
 			// 1件の破損で全履歴を失わないよう、有効なエントリだけを回収する
+			// 必須が揃った 1 件だけ回収する。欠ければこの要素は捨てる
 			if (TryReadEntry(candidate, schemaVersion, out NoteViewPositionEntry entry)) result.Add(entry);
 		}
 
@@ -220,6 +270,7 @@ internal sealed class NoteViewPositionStore
 	private static bool TryReadEntry(JsonElement element, int schemaVersion, out NoteViewPositionEntry entry)
 	{
 		entry = new NoteViewPositionEntry();
+		// オブジェクトであり、必須の文字列と 0 以上の位置が揃い、横スクロールが負でないときだけ成功。どれか一つが欠けても失敗
 		if (element.ValueKind != JsonValueKind.Object
 			|| !TryReadString(element, "filePath", out string filePath)
 			|| !TryReadString(element, "updatedAt", out string updatedAt)
@@ -233,19 +284,29 @@ internal sealed class NoteViewPositionStore
 			return false;
 		}
 
+		// 折りたたんだ見出しの開始位置。旧版は読まず空。単位は文字
 		List<int> collapsedHeadingFroms = schemaVersion >= CurrentSchemaVersion
 			? ReadCollapsedHeadingFroms(element)
 			: [];
 
+		// 必須が揃った 1 件。失敗時の空エントリを置き換える
 		entry = new NoteViewPositionEntry
 		{
+			// ノートのパス。比較キーは保存側で正規化する
 			FilePath        = filePath,
+			// どちらが新しいかを決める更新時刻
 			UpdatedAt       = updatedAt,
+			// カーソル位置。単位は文字。0 以上
 			Anchor          = anchor,
+			// 縦スクロールの余白。単位は px
 			YMargin         = yMargin,
+			// 横スクロール。単位は px。負は拒否済み
 			ScrollLeft      = scrollLeft,
+			// 選択範囲の始点。単位は文字
 			SelectionAnchor = selectionAnchor,
+			// 選択範囲の終点。単位は文字
 			SelectionHead   = selectionHead,
+			// 折りたたみ位置。旧版は空
 			CollapsedHeadingFroms = collapsedHeadingFroms,
 		};
 		return true;
@@ -280,6 +341,7 @@ internal sealed class NoteViewPositionStore
 	/// <returns>文字位置の一覧。単位は文字。負の値と非整数は捨てる</returns>
 	private static List<int> ReadCollapsedHeadingFroms(JsonElement element)
 	{
+		// プロパティが無い、または配列でないときは折りたたみなし。どちらか一方でも入る
 		if (!element.TryGetProperty("collapsedHeadingFroms", out JsonElement property) || property.ValueKind != JsonValueKind.Array)
 		{
 			return [];
@@ -303,12 +365,15 @@ internal sealed class NoteViewPositionStore
 	private static bool TryReadString(JsonElement element, string name, out string value)
 	{
 		value = string.Empty;
+		// プロパティが無い、または文字列でないときは失敗。どちらか一方でも入る
 		if (!element.TryGetProperty(name, out JsonElement property) || property.ValueKind != JsonValueKind.String)
 		{
 			return false;
 		}
 
+		// JSON の文字列。null は空白と同じく失敗
 		string? text = property.GetString();
+		// 空白だけは必須の文字列として受けない
 		if (string.IsNullOrWhiteSpace(text)) return false;
 		value = text.Trim();
 		return true;
@@ -324,6 +389,7 @@ internal sealed class NoteViewPositionStore
 	private static bool TryReadInt(JsonElement element, string name, out int value)
 	{
 		value = 0;
+		// 数値の 0 以上の整数でないときは失敗。欠落、別の型、負のどれかでも入る
 		if (!element.TryGetProperty(name, out JsonElement property) || property.ValueKind != JsonValueKind.Number || !property.TryGetInt32(out int parsed) || parsed < 0)
 		{
 			return false;
@@ -343,6 +409,7 @@ internal sealed class NoteViewPositionStore
 	private static bool TryReadDouble(JsonElement element, string name, out double value)
 	{
 		value = 0;
+		// 有限の数値でないときは失敗。欠落、別の型、無限大のどれかでも入る
 		if (!element.TryGetProperty(name, out JsonElement property) || property.ValueKind != JsonValueKind.Number || !property.TryGetDouble(out double parsed) || !double.IsFinite(parsed))
 		{
 			return false;
@@ -364,6 +431,7 @@ internal sealed class NoteViewPositionStore
 	private static string NormalizeKey(string filePath)
 	{
 		// 大文字小文字と区切り文字の差を吸収し、同じWindowsファイルの重複登録を防ぐ
+		// 前後の空白を除き、区切りをバックスラッシュへ揃えたパス。絶対化に失敗してもこれをキーにする
 		string trimmed = filePath.Trim().Replace('/', '\\');
 		try
 		{
@@ -416,9 +484,12 @@ internal sealed class NoteViewPositionStore
 	/// <returns>schemaVersion と entries を持つ JSON</returns>
 	private static JsonElement SerializeDocument(List<NoteViewPositionEntry> entries)
 	{
+		// 現行スキーマの JSON。プロパティ名は camelCase
 		return JsonSerializer.SerializeToElement(new NoteViewPositionDocument
 		{
+			// Web 層へ返す版。保存と同じ現行
 			SchemaVersion = CurrentSchemaVersion,
+			// 載せるエントリ。上限の切り捨ては呼び出し側が済ませている
 			Entries       = entries,
 		}, BridgeJsonOptions());
 	}
@@ -429,8 +500,10 @@ internal sealed class NoteViewPositionStore
 	/// <returns>camelCase の直列化設定</returns>
 	private static JsonSerializerOptions BridgeJsonOptions()
 	{
+		// Web 層のプロパティ名を camelCase にする設定。呼び出しのたびに新しい
 		return new JsonSerializerOptions
 		{
+			// ディスクとブリッジの名前は camelCase
 			PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
 		};
 	}

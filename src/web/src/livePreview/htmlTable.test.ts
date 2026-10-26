@@ -14,9 +14,8 @@ describe('htmlTable', () => {
 	});
 
 	it('許可タグと colspan を残し script を落とす', () => {
-		const html = sanitizeHtmlTable(
-			'<table><tr><th colspan="2" onclick="alert(1)">見出し</th></tr><tr><td>A<script>x()</script></td><td>B</td></tr></table>',
-		);
+		// 許可タグと colspan を残し、script と onclick を落とした表
+		const html = sanitizeHtmlTable('<table><tr><th colspan="2" onclick="alert(1)">見出し</th></tr><tr><td>A<script>x()</script></td><td>B</td></tr></table>');
 		expect(html).toContain('<table>');
 		expect(html).toContain('colspan="2"');
 		expect(html).not.toContain('onclick');

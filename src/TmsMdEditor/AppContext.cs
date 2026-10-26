@@ -95,19 +95,23 @@ internal sealed class AppContext : IDisposable
 	/// <returns>読込結果。失敗でも Config には使える文書が入っている</returns>
 	public LoadConfigResult Initialize()
 	{
+		// ディスクから読んだ設定。失敗でも Config には使える文書が入る。Message は問題が無ければ null
 		LoadConfigResult result = ConfigStore.Load();
 		Config            = result.Config;
 		ConfigLoadMessage = result.Message;
 
+		// バックアップから復旧したとき。Success でもユーザーへ理由を残す
 		if (result.RecoveredFromBackup)
 		{
 			Logger.Warn(LogCategory.Shell, result.Message ?? "設定をバックアップから復旧しました");
 		}
+		// 復旧ではなく、かつ失敗メッセージがあるときだけ警告する。どちらかが欠けるとここには入らない
 		else if (!result.Success && !string.IsNullOrWhiteSpace(result.Message))
 		{
 			Logger.Warn(LogCategory.Shell, result.Message);
 		}
 
+		// 起動に使ったデータ保存先。キャッシュが空のときは app-config の値
 		Logger.Info(LogCategory.Shell, "設定を読み込みました", new Dictionary<string, object?>
 		{
 			[LogProperty.DataDir] = ConfigStore.CachedDataDir ?? BootstrapConfigStore.Load().DataDir,
@@ -125,21 +129,32 @@ internal sealed class AppContext : IDisposable
 	/// <param name="maximized">閉じる時点で最大化していたか。true のとき次回も最大化で開く</param>
 	public void PersistWindowState(int width, int height, bool maximized)
 	{
+		// ウィンドウサイズだけを差し替えた保存用の文書。他の節はメモリ上の現在値を残す
 		AppConfigDocument next = new()
 		{
+			// 形式版。この保存では変えない
 			SchemaVersion     = Config.SchemaVersion,
+			// 閉じる時点の通常表示サイズと最大化。ピクセル
 			Window            = new WindowConfig
 			{
+				// 通常表示の幅。ピクセル。最大化中は RestoreBounds の幅
 				Width     = width,
+				// 通常表示の高さ。ピクセル。最大化中は RestoreBounds の高さ
 				Height    = height,
+				// true なら次回も最大化で開く。false は通常サイズで開く
 				Maximized = maximized,
 			},
+			// エディタ設定。この保存では変えない
 			Settings          = Config.Settings,
+			// カスタム装飾。この保存では変えない
 			CustomDecorations = Config.CustomDecorations,
+			// 最近使ったファイル。この保存では変えない
 			RecentFiles       = Config.RecentFiles,
 		};
 
+		// 書き込み結果。失敗時は Config が null で、メモリ上の設定は残る
 		SaveConfigResult result = ConfigStore.Save(next);
+		// 保存に成功し、かつ返った文書があるときだけメモリを差し替える。片方でも欠けると直前の設定を残す
 		if (result.Success && result.Config is not null)
 		{
 			Config = result.Config;

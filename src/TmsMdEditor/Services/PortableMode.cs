@@ -52,8 +52,11 @@ internal static class PortableMode
 	/// <exception cref="InvalidOperationException"><paramref name="execPath"/> のディレクトリを決められない</exception>
 	public static string ResolveExeDir(string execPath)
 	{
+		// 相対パスを絶対パスにした実行ファイル
 		string fullPath = Path.GetFullPath(execPath);
+		// exe のディレクトリ。ルートだけのパスでは空や null になり得る
 		string? directory = Path.GetDirectoryName(fullPath);
+		// ディレクトリを決められないパスはポータブル判定へ進まず失敗にする
 		if (string.IsNullOrWhiteSpace(directory))
 		{
 			throw new InvalidOperationException("実行ファイルのディレクトリを解決できません。");
@@ -81,6 +84,7 @@ internal static class PortableMode
 	/// <returns>判定ファイルがあれば true</returns>
 	public static bool DetectPortableMode(string execPath, Func<string, bool>? existsFn = null)
 	{
+		// 存在判定。テストが null を渡したときは File.Exists。戻りは常に非 null
 		Func<string, bool> exists = existsFn ?? File.Exists;
 		return exists(ResolveMarkerPath(execPath));
 	}
@@ -92,18 +96,29 @@ internal static class PortableMode
 	/// <returns>exe 隣の data と、その配下のログ、一時、WebView2、バックアップ、スニペット</returns>
 	public static PortableDataPaths ResolvePortableDataPaths(string exeDir)
 	{
+		// exe 隣の data。dataDir もログもこの配下で、まだ作らない
 		string userData = Path.Combine(exeDir, "data");
 
+		// ポータブルの保存先一式。平坦配置なので DataDir は UserData と同じ
 		return new PortableDataPaths
 		{
+			// 判定に使った exe のディレクトリ。保存先そのものではない
 			ExeDir         = exeDir,
+			// ユーザーデータルート
 			UserData       = userData,
+			// 設定上の dataDir。userData と重ねない
 			DataDir        = userData,
+			// 日次ログ
 			Logs           = Path.Combine(userData, "logs"),
+			// 一時ファイル
 			Temp           = Path.Combine(userData, "temp"),
+			// 編集用 WebView2。インストーラの LocalAppData とは別
 			WebView2       = Path.Combine(userData, "webview2"),
+			// 印刷用。編集用と混ぜない
 			WebView2Print  = Path.Combine(userData, "webview2-print"),
+			// 設定バックアップ
 			Backups        = Path.Combine(userData, "backups"),
+			// CSS スニペット
 			Snippets       = Path.Combine(userData, "snippets"),
 		};
 	}
@@ -148,6 +163,7 @@ internal static class PortableMode
 	/// <returns>ポータブル、Debug、インストーラのいずれかの AppUserModelID</returns>
 	public static string ResolveAppUserModelId(bool isPortable, bool isDebug)
 	{
+		// ポータブルは Debug より優先し、開発用 ID は使わない
 		if (isPortable)
 		{
 			return PortableAppUserModelId;
@@ -165,11 +181,14 @@ internal static class PortableMode
 	/// <returns>Mutex 名とパイプ名の接尾辞。ポータブルは portable- と SHA-256 の先頭 16 桁</returns>
 	public static string ResolveInstanceScope(bool isPortable, string? exeDir, string appDataFolderName)
 	{
+		// ポータブルは exe の場所で範囲を分ける。インストーラのフォルダ名では入らない
 		if (isPortable)
 		{
+			// 比較用の絶対パス。null や空白の exeDir はカレント、末尾の区切りは除き、大文字に揃える
 			string normalized = Path.GetFullPath(string.IsNullOrWhiteSpace(exeDir) ? "." : exeDir)
 				.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
 				.ToUpperInvariant();
+			// パスの SHA-256。先頭 16 桁だけを範囲名に使う
 			byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
 			return "portable-" + Convert.ToHexString(hash)[..16].ToLowerInvariant();
 		}
@@ -190,7 +209,9 @@ internal static class PortableMode
 	/// <returns>作成と削除までできれば成功。失敗時は例外メッセージを入れる</returns>
 	public static WritableProbeResult ProbeWritableDirectory(string directory)
 	{
+		// 他プロセスと衝突しない探針ファイル名。プロセス ID と UTC のティック
 		string probeName = $".write-probe-{Environment.ProcessId}-{DateTime.UtcNow.Ticks}";
+		// 探針ファイルのフルパス。失敗時の後始末もこのパス
 		string probePath = Path.Combine(directory, probeName);
 
 		try
@@ -204,6 +225,7 @@ internal static class PortableMode
 		{
 			try
 			{
+				// 残った探針ファイルがあるときだけ消す。最初から無ければ入らない
 				if (File.Exists(probePath))
 				{
 					File.Delete(probePath);
@@ -214,9 +236,12 @@ internal static class PortableMode
 				// 探針ファイルの後始末に失敗しても、書き込み不可の判定を優先する
 			}
 
+			// 書き込み不可。別の場所へは切り替えない
 			return new WritableProbeResult
 			{
+				// 探針は失敗
 				Ok    = false,
+				// 呼び出し元がダイアログへ出す例外メッセージ
 				Error = ex.Message,
 			};
 		}

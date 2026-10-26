@@ -32,15 +32,21 @@ internal static class Program
 		PortableRuntime.ApplyIfNeeded();
 		AppUserModelId.Apply();
 
+		// ウィンドウより長く生きるサービス一式。設定読込に失敗しても既定値で起動を続ける
 		using var appContext = new AppContext();
 		appContext.Initialize();
 		RegisterUnhandledExceptionLogging(appContext.Logger);
 
+		// 主プロセスの所有と、後続起動からの引数転送。Dispose で所有を手放す
 		using var singleInstanceManager = new SingleInstanceManager(appContext.Logger);
+		// このプロセスが主か。false は既に主プロセスがいる
 		bool isPrimaryInstance = singleInstanceManager.TryBecomePrimary();
+		// 単一インスタンスを抜けて新しいウィンドウを開く印。印が無ければ false
 		bool forceNewWindow = StartupArguments.IsForceNewWindow(args);
+		// 主でなく、新規ウィンドウの印もなく、設定が single-instance のときだけ既存へ渡す。一つでも欠けるとこのプロセスで開く
 		if (!isPrimaryInstance && !forceNewWindow && appContext.Config.Settings.InstanceMode == "single-instance")
 		{
+			// 既存プロセスへ引数を渡せなかったとき。渡せたときは警告を出さず終了する
 			if (!singleInstanceManager.TryForwardToPrimary(args))
 			{
 				MessageBox.Show(
@@ -53,7 +59,9 @@ internal static class Program
 			return;
 		}
 
+		// 主ウィンドウ。セッションを保存するのは isPrimaryInstance が true のときだけ
 		using var mainForm = new MainForm(args, appContext, isSessionOwner: isPrimaryInstance);
+		// このプロセスが主のときだけ、後続のファイル起動を待ち受ける
 		if (isPrimaryInstance)
 		{
 			singleInstanceManager.StartListening(mainForm.ReceiveExternalOpenRequest);
@@ -68,8 +76,11 @@ internal static class Program
 	/// <param name="logger">日次ログへ書くロガー。null は渡さない。登録はプロセス終了まで残る</param>
 	private static void RegisterUnhandledExceptionLogging(Logger logger)
 	{
+		// UI スレッドの未処理例外を日次ログへ残す。登録はプロセス終了まで残る
 		Application.ThreadException += (_, eventArgs) => LogUnhandledException(logger, "winforms-thread", eventArgs.Exception);
+		// アプリドメインで捕捉されなかった例外を日次ログへ残す。例外オブジェクトでなければその文字列から作る
 		AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) => LogUnhandledException(logger, "app-domain", eventArgs.ExceptionObject as Exception ?? new Exception(eventArgs.ExceptionObject?.ToString()));
+		// 観測されなかったタスク例外を日次ログへ残し、プロセス終了の契機にしない
 		TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
 		{
 			LogUnhandledException(logger, "task", eventArgs.Exception);
@@ -88,9 +99,12 @@ internal static class Program
 	{
 		try
 		{
+			// 発生元の区分と例外全文。書き込み失敗は呼び出し元へ投げ直さない
 			logger.Error(LogCategory.Unhandled, "未処理例外を検出しました", new Dictionary<string, object?>
 			{
+				// winforms-thread、app-domain、task のいずれか
 				[LogProperty.Source]    = source,
+				// 例外の全文。null の例外は渡さない
 				[LogProperty.Exception] = exception.ToString(),
 			});
 		}

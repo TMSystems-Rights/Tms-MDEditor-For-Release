@@ -4,11 +4,7 @@
  * @file
  */
 import { syntaxTree } from '@codemirror/language';
-import {
-	type EditorState,
-	type StateCommand,
-	type TransactionSpec,
-} from '@codemirror/state';
+import { type EditorState, type StateCommand, type TransactionSpec } from '@codemirror/state';
 
 /**
  * 行内にあるタスクマーカーの範囲と、チェック状態
@@ -42,12 +38,16 @@ export function isTaskMarkerChecked(text: string): boolean {
  * @returns 見つけたマーカー。タスク行でないときは null
  */
 export function findTaskMarkerAt(state: EditorState, pos: number): TaskMarkerRange | null {
+	// pos がある論理行。探索はこの行の from から to までに限る
 	const line                        = state.doc.lineAt(pos);
+	// 最初に見つかった有効なマーカー。行内に無ければ null のまま
 	let found: TaskMarkerRange | null = null;
 
 	syntaxTree(state).iterate({
+		// 探索の開始（文書オフセット、含む）。この行の先頭
 		from: line.from,
-		to  : line.to,
+		// 探索の終了（文書オフセット、含まない）。この行の末尾で、次の行へは出ない
+		to: line.to,
 		/**
 		 * 行内の最初の有効な TaskMarker を見つけたら探索を止める
 		 * @param node - 走査中の構文ノード
@@ -57,22 +57,29 @@ export function findTaskMarkerAt(state: EditorState, pos: number): TaskMarkerRan
 		 * @returns 有効なマーカーを見つけたとき false。それ以外は未指定で探索を続ける
 		 */
 		enter(node) {
+			// TaskMarker 以外は見ない。リスト記号や本文では探索を続ける
 			if (node.name !== 'TaskMarker') {
 				return;
 			}
 
+			// ノードの文字列。パターンに合うものだけをチェック状態の判定に使う
 			const text = state.doc.sliceString(node.from, node.to);
+			// `[ ]`、`[x]`、`[X]` 以外の TaskMarker は対象にしない
 			if (!TASK_MARKER_PATTERN.test(text)) {
 				return;
 			}
 
+			// この行で採用するマーカー。最初の一つで探索を止める
 			found = {
-				from   : node.from,
-				to     : node.to,
-				checked: isTaskMarkerChecked(text),
+				// マーカー先頭（文書オフセット、含む）
+				from: node.from,
+				// マーカー末尾（文書オフセット、含まない）
+				to: node.to,
+				// `[x]` または `[X]` なら true。`[ ]` は false で、次のトグル先は `[x]`
+				checked: isTaskMarkerChecked(text)
 			};
 			return false;
-		},
+		}
 	});
 
 	return found;
@@ -85,23 +92,34 @@ export function findTaskMarkerAt(state: EditorState, pos: number): TaskMarkerRan
  * @param pos - マーカーを探す文書オフセット
  * @returns 置換トランザクション。マーカーが無い、または読み取り専用のときは null
  */
-export function buildToggleTaskMarkerTransaction(
-	state: EditorState,
-	pos: number,
-): TransactionSpec | null {
+export function buildToggleTaskMarkerTransaction(state: EditorState, pos: number): TransactionSpec | null {
+	// 読み取り専用ではマーカーを書き換えない
 	if (state.readOnly) {
 		return null;
 	}
 
+	// カーソル行の最初の有効なマーカー。タスク行でなければ null
 	const marker = findTaskMarkerAt(state, pos);
+	// マーカーが無い行はトグルしない
 	if (!marker) {
 		return null;
 	}
 
+	// 置き換えるマーカー文字列。チェック済みは未チェックへ、未チェックは `[x]` へ戻す
 	const insert = marker.checked ? '[ ]' : '[x]';
+	// マーカー範囲だけを置き換える変更。選択位置はスペックに含めない
 	return {
-		changes  : { from: marker.from, to: marker.to, insert },
-		userEvent: 'input.toggleCheckbox',
+		// マーカーの from から to までを、反転した文字列で置き換える
+		changes: {
+			// 置換の開始（文書オフセット、含む）。マーカーの先頭
+			from: marker.from,
+			// 置換の終了（文書オフセット、含まない）。マーカーの末尾
+			to: marker.to,
+			// チェックを反転したマーカー。チェック済みなら `[ ]`、未チェックなら `[x]`
+			insert
+		},
+		// チェックボックスの切り替えとして記録する。通常の文字入力とは分ける
+		userEvent: 'input.toggleCheckbox'
 	};
 }
 
@@ -113,7 +131,9 @@ export function buildToggleTaskMarkerTransaction(
  * @returns トグルしたとき true。対象が無いときは false
  */
 export const toggleCheckboxCommand: StateCommand = ({ state, dispatch }) => {
+	// 主カーソル行のトグル。読み取り専用か、マーカーが無いときは null
 	const spec = buildToggleTaskMarkerTransaction(state, state.selection.main.head);
+	// 適用できる変更が無いときは dispatch しない
 	if (!spec) {
 		return false;
 	}

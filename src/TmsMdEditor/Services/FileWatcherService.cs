@@ -72,8 +72,11 @@ internal sealed class FileWatcherService : IDisposable
 	/// <param name="filePath">追跡するファイル。相対パスはカレントから絶対パスにする。ディレクトリを決められなければ何もしない</param>
 	public void Track(string filePath)
 	{
+		// 追跡キーにする絶対パス。相対はカレントから解決する
 		string fullPath = Path.GetFullPath(filePath);
+		// 親ディレクトリ。決められなければ watcher は作らない
 		string? directory = Path.GetDirectoryName(fullPath);
+		// ディレクトリが空のパスは追跡しない
 		if (string.IsNullOrWhiteSpace(directory)) return;
 
 		lock (_syncRoot)
@@ -82,16 +85,25 @@ internal sealed class FileWatcherService : IDisposable
 			// 同じフォルダのファイルは1つのwatcherで監視し、ハンドル数の増加を抑える
 			if (_watchers.ContainsKey(directory)) return;
 
+			// このディレクトリ専用の監視。同名キーがあるときは作らない
 			var watcher = new FileSystemWatcher(directory)
 			{
+				// 拡張子を限らず、名前の変化も受ける
 				Filter = "*.*",
+				// 名前、最終更新、サイズ。属性だけは見ない
 				NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+				// 作成直後から通知する。後から有効化はしない
 				EnableRaisingEvents = true,
 			};
+			// 内容またはサイズの変化を、追跡中ならデバウンスへ載せる
 			watcher.Changed += (_, e) => QueueChange(e.FullPath, ExternalFileChangeKind.Changed);
+			// 作成も内容変更として同じ待ちに載せる
 			watcher.Created += (_, e) => QueueChange(e.FullPath, ExternalFileChangeKind.Changed);
+			// 削除は待ちを長めにして、一時的な消えをすぐ再読込にしない
 			watcher.Deleted += (_, e) => QueueChange(e.FullPath, ExternalFileChangeKind.Deleted);
+			// 名前変更は変更前のパスを追う。新しいパスは別イベントに任せる
 			watcher.Renamed += (_, e) => QueueChange(e.OldFullPath, ExternalFileChangeKind.Renamed);
+			// 監視バッファ溢れなどはログだけ残し、追跡集合は消さない
 			watcher.Error += (_, e) => _logger.Warn(LogCategory.Watcher, "外部変更監視でエラーが発生しました", new Dictionary<string, object?> { [LogProperty.Error] = e.GetException()?.Message });
 			_watchers.Add(directory, watcher);
 		}
@@ -103,11 +115,13 @@ internal sealed class FileWatcherService : IDisposable
 	/// <param name="filePath">抑止するファイル。相対パスはカレントから絶対パスにする</param>
 	public void SuppressNextChange(string filePath)
 	{
+		// 抑止テーブルのキー。相対パスは絶対パスにする
 		string fullPath = Path.GetFullPath(filePath);
 		lock (_syncRoot)
 		{
 			// 自アプリの保存通知を外部変更として再読込しないよう、短時間だけ抑止する
 			_suppressedUntil[fullPath] = DateTimeOffset.UtcNow.AddSeconds(2);
+			// 保存前に溜まっていた待ちがあれば破棄する。無ければ何もしない
 			if (_debounceTimers.Remove(fullPath, out System.Threading.Timer? timer)) timer.Dispose();
 		}
 	}
@@ -137,14 +151,18 @@ internal sealed class FileWatcherService : IDisposable
 	/// <param name="kind">OS が報告した種別。削除と名前変更は公開前に待ち時間を長くする</param>
 	private void QueueChange(string filePath, ExternalFileChangeKind kind)
 	{
+		// 追跡集合と同じ絶対パス。相対はカレントから解決する
 		string fullPath = Path.GetFullPath(filePath);
 		lock (_syncRoot)
 		{
+			// 追跡していないパスの変化は捨てる
 			if (!_trackedFiles.Contains(fullPath)) return;
+			// 自アプリの保存直後は外部変化として再読込しない
 			if (IsSuppressedUnlocked(fullPath)) return;
 			// 保存時に連続発火するChanged/Size通知を、最後の1件へまとめる
 			if (_debounceTimers.Remove(fullPath, out System.Threading.Timer? previous)) previous.Dispose();
 			// atomic replaceは一時的にDeleted/Renamedを出すため、存在確認の猶予を長めに取る
+			// 削除だけ 400 ミリ秒。それ以外は 250 ミリ秒。0 にはしない
 			int delayMs = kind == ExternalFileChangeKind.Deleted ? 400 : 250;
 			_debounceTimers[fullPath] = new System.Threading.Timer(_ => Publish(fullPath, kind), null, delayMs, Timeout.Infinite);
 		}
@@ -159,12 +177,16 @@ internal sealed class FileWatcherService : IDisposable
 	{
 		lock (_syncRoot)
 		{
+			// 発火したタイマーは二度と動かさない。既に無ければ何もしない
 			if (_debounceTimers.Remove(filePath, out System.Threading.Timer? timer)) timer.Dispose();
+			// 待ちのあいだに保存抑止が入っていたら公開しない
 			if (IsSuppressedUnlocked(filePath)) return;
 		}
 
+		// 購読側へ渡す種別。削除や名前変更でもファイルが残っていれば内容変更へ読み替える
 		ExternalFileChangeKind publishKind = kind;
 		// 待機中に同じパスが復活した場合は、削除ではなく内容変更として扱う
+		// 種別が削除か名前変更であり、かつファイルが残っているときだけ入る。どちらかが欠けても入らない
 		if ((kind is ExternalFileChangeKind.Deleted or ExternalFileChangeKind.Renamed)
 			&& File.Exists(filePath))
 		{
@@ -181,7 +203,9 @@ internal sealed class FileWatcherService : IDisposable
 	/// <returns>現在時刻より期限が先なら true。項目が無い、または期限切れなら false</returns>
 	private bool IsSuppressedUnlocked(string fullPath)
 	{
+		// 抑止項目が無いパスは外部変化として扱う
 		if (!_suppressedUntil.TryGetValue(fullPath, out DateTimeOffset until)) return false;
+		// 期限が現在より先なら、まだ自アプリの保存として無視する
 		if (until > DateTimeOffset.UtcNow) return true;
 		// 期限切れエントリは判定時に掃除し、保存回数に比例して辞書が増えないようにする
 		_suppressedUntil.Remove(fullPath);

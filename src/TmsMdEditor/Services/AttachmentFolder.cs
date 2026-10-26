@@ -28,7 +28,9 @@ internal static class AttachmentFolder
 	/// <returns>ピクチャ、またはユーザープロファイルの Pictures 配下の既定パス</returns>
 	public static string GetDefaultFolder()
 	{
+		// ピクチャ特殊フォルダ。未設定の環境では空になり、ユーザー配下の Pictures へ落とす
 		string pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+		// 特殊フォルダが空のときだけ、ユーザープロファイル直下の Pictures を既定にする
 		if (string.IsNullOrWhiteSpace(pictures))
 		{
 			pictures = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Pictures");
@@ -46,7 +48,9 @@ internal static class AttachmentFolder
 	/// <returns>絶対パスを決められたら true。相対パスや不正なパスは false</returns>
 	public static bool TryResolve(string? configured, out string folder, out string? error)
 	{
+		// null は空として扱う設定値。前後の空白は除く。長さ 0 は既定フォルダ
 		string trimmed = (configured ?? string.Empty).Trim();
+		// 空の設定は失敗にせず、ピクチャ配下の既定フォルダを返す
 		if (trimmed.Length == 0)
 		{
 			folder = GetDefaultFolder();
@@ -54,7 +58,9 @@ internal static class AttachmentFolder
 			return true;
 		}
 
+		// 環境変数を展開した候補。未定義の変数は展開されず残る
 		string expanded = Environment.ExpandEnvironmentVariables(trimmed);
+		// 相対パスは保存先にせず失敗にする。絶対パスだけ次の正規化へ進む
 		if (!Path.IsPathFullyQualified(expanded))
 		{
 			folder = string.Empty;

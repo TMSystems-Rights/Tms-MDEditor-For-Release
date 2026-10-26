@@ -92,12 +92,15 @@ const imageCache = new Map<string, string>();
  * @returns 画像ソースの種別を判定する
  */
 export function classifyImageSource(raw: string): ImageSourceKind {
+	// 前後空白を除いた参照。判定はこれだけを見る
 	const trimmed = raw.trim();
+	// http(s) か data URL はリモートまたは埋め込み URL
 	if (/^https?:\/\//i.test(trimmed) || /^data:/i.test(trimmed)) {
 		return 'url';
 	}
 
 	// Windows 絶対パス / UNC / ルート相対（/foo）以外の drive 付き
+	// ドライブレターか UNC は絶対パス。相対解決しない
 	if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('\\\\')) {
 		return 'absolute';
 	}
@@ -120,18 +123,26 @@ function cacheKeyFor(spec: ImageSpec): string {
  * @returns ローカル画像を Data URL として読み込む。無ければ null
  */
 async function loadLocalImageDataUrl(spec: ImageSpec): Promise<string | null> {
+	// 種別、文書パス、参照を含むキャッシュキー
 	const key    = cacheKeyFor(spec);
+	// 同じキーの Data URL。無ければ undefined
 	const cached = imageCache.get(key);
+	// 一度読めた画像はホストへ再要求しない
 	if (cached) {
 		return cached;
 	}
 
 	try {
+		// ホストが返した読み込み結果。失敗は ok が false
 		const result = await invokeBridge<ReadImageResult>(BRIDGE_METHOD.fileReadImageAsDataUrl, {
-			path         : spec.kind === 'embed' ? undefined : spec.raw,
-			embed        : spec.kind === 'embed' ? spec.raw : undefined,
-			documentPath : spec.documentPath ?? undefined,
+			// 埋め込み以外のパス。埋め込みは embed へ渡す
+			path: spec.kind === 'embed' ? undefined : spec.raw,
+			// Wiki 埋め込みの参照。それ以外は渡さない
+			embed: spec.kind === 'embed' ? spec.raw : undefined,
+			// 相対解決に使う文書パス。未保存なら undefined
+			documentPath: spec.documentPath ?? undefined
 		});
+		// 失敗、または Data URL が無い結果はキャッシュしない。どちらか一方でも null
 		if (!result.ok || !result.dataUrl) {
 			return null;
 		}
@@ -149,10 +160,12 @@ async function loadLocalImageDataUrl(spec: ImageSpec): Promise<string | null> {
  * @returns 絶対パスの埋め込みは未保存でも解決できるなら true
  */
 function needsDocumentPath(spec: ImageSpec): boolean {
+	// ノート相対は文書パスが無いと解決できない
 	if (spec.kind === 'relative') {
 		return true;
 	}
 
+	// 埋め込みのうち、絶対パスでないものだけ文書パスが要る。どちらか一方では要らない
 	if (spec.kind === 'embed' && classifyImageSource(spec.raw) !== 'absolute') {
 		return true;
 	}
@@ -183,19 +196,12 @@ export class ImageWidget extends WidgetType {
 	 * @returns 同一なら true
 	 */
 	eq(other: WidgetType): boolean {
+		// 別種のウィジェットは同じ画像にしない
 		if (!(other instanceof ImageWidget)) {
 			return false;
 		}
 
-		return other.spec.alt === this.spec.alt
-			&& other.spec.raw === this.spec.raw
-			&& other.spec.kind === this.spec.kind
-			&& other.spec.documentPath === this.spec.documentPath
-			&& other.spec.loadRemoteImages === this.spec.loadRemoteImages
-			&& other.spec.width === this.spec.width
-			&& other.spec.height === this.spec.height
-			&& other.spec.sourceFrom === this.spec.sourceFrom
-			&& other.spec.sourceTo === this.spec.sourceTo;
+		return other.spec.alt === this.spec.alt && other.spec.raw === this.spec.raw && other.spec.kind === this.spec.kind && other.spec.documentPath === this.spec.documentPath && other.spec.loadRemoteImages === this.spec.loadRemoteImages && other.spec.width === this.spec.width && other.spec.height === this.spec.height && other.spec.sourceFrom === this.spec.sourceFrom && other.spec.sourceTo === this.spec.sourceTo;
 	}
 
 	/**
@@ -203,23 +209,28 @@ export class ImageWidget extends WidgetType {
 	 * @returns 生成した要素
 	 */
 	toDOM(view?: EditorView): HTMLElement {
+		// 画像とハンドルを入れる枠。編集はさせない
 		const wrap     = document.createElement('span');
 		wrap.className = 'cm-md-image-wrap';
 		wrap.setAttribute('contenteditable', 'false');
+		// ソース開始が分かっているときだけ、書き戻し用に覚える
 		if (this.spec.sourceFrom !== undefined) {
 			wrap.dataset.sourceFrom = String(this.spec.sourceFrom);
 		}
 
+		// ソース終端が分かっているときだけ、書き戻しの範囲に使う
 		if (this.spec.sourceTo !== undefined) {
 			wrap.dataset.sourceTo = String(this.spec.sourceTo);
 		}
 
 		wrap.dataset.imagePath = this.spec.raw.replaceAll('\\', '/');
 		imageWrapPaths.set(wrap, this.spec.raw);
+		// 表セルなど、DOM から view を引けないときだけ束縛する
 		if (view) {
 			imageWrapViews.set(wrap, view);
 		}
 
+		// 表示する画像。読み込み前は src を置かない
 		const img     = document.createElement('img');
 		img.className = 'cm-md-image';
 		img.alt       = this.spec.alt || this.spec.raw;
@@ -227,10 +238,12 @@ export class ImageWidget extends WidgetType {
 		img.draggable = false;
 		applyImageDisplayStyle(img, this.spec);
 
+		// 読めないときの代わり。初期はパスだけ
 		const placeholder       = document.createElement('span');
 		placeholder.className   = 'cm-md-image-fallback';
 		placeholder.textContent = this.spec.raw;
 
+		// 幅を変える右下ハンドル。画像が無いときは出さない
 		const handle     = document.createElement('span');
 		handle.className = 'cm-md-image-resize';
 		handle.title     = 'ドラッグしてサイズを変更';
@@ -244,26 +257,29 @@ export class ImageWidget extends WidgetType {
 		const showFallback = (message?: string): void => {
 			img.remove();
 			handle.remove();
-			placeholder.textContent = message
-				? `${this.spec.raw}（${message}）`
-				: this.spec.raw;
+			placeholder.textContent = message ? `${this.spec.raw}（${message}）` : this.spec.raw;
+			// まだ枠に無いときだけ、代わりの表示を足す
 			if (!placeholder.isConnected) {
 				wrap.appendChild(placeholder);
 			}
 		};
 
+		// URL はホストを通さず、ブラウザへ直接読ませる
 		if (this.spec.kind === 'url') {
+			// リモート読み込みがオフの URL は画像を出さない
 			if (!this.spec.loadRemoteImages) {
 				showFallback('リモート画像オフ');
 				return wrap;
 			}
 
 			img.src = this.spec.raw;
+			// 読み込み失敗のときだけ、パスと理由を代わりに出す
 			img.addEventListener('error', () => showFallback('読み込み失敗'));
 			wrap.append(img, handle);
 			return wrap;
 		}
 
+		// 文書パスが必要で、かつ未保存のときは解決できない。どちらか一方では読む
 		if (needsDocumentPath(this.spec) && !this.spec.documentPath) {
 			showFallback('未保存のため解決不可');
 			return wrap;
@@ -271,6 +287,7 @@ export class ImageWidget extends WidgetType {
 
 		wrap.appendChild(placeholder);
 		void loadLocalImageDataUrl(this.spec).then((dataUrl) => {
+			// Data URL が無い画像は見つからなかったものとして出す
 			if (!dataUrl) {
 				showFallback('見つかりません');
 				return;
@@ -278,7 +295,9 @@ export class ImageWidget extends WidgetType {
 
 			img.src = dataUrl;
 			applyImageDisplayStyle(img, this.spec);
+			// 読み込み後にもう一度、自然サイズが分かった状態で幅を当てる
 			img.addEventListener('load', () => applyImageDisplayStyle(img, this.spec));
+			// 読めない Data URL はパスと理由へ替える
 			img.addEventListener('error', () => showFallback('読み込み失敗'));
 			placeholder.replaceWith(img);
 			wrap.appendChild(handle);
@@ -309,9 +328,9 @@ export class ImageWidget extends WidgetType {
  * @param spec - 仕様
  */
 function applyImageDisplayStyle(img: HTMLImageElement, spec: ImageSpec): void {
-	const width = spec.width && spec.width > 0
-		? spec.width
-		: recallCellImageWidth(spec.raw);
+	// 記法の幅。正の指定が無ければ、同じパスで覚えたセル幅。どちらも無ければ 0 か null
+	const width = spec.width && spec.width > 0 ? spec.width : recallCellImageWidth(spec.raw);
+	// 正の幅があるときだけ固定し、無いときは既定の上限へ戻す
 	if (width && width > 0) {
 		img.classList.add('is-sized');
 		img.style.width     = `${width}px`;
@@ -335,6 +354,7 @@ function applyImageDisplayStyle(img: HTMLImageElement, spec: ImageSpec): void {
  * @param handle - ハンドル
  */
 function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle: HTMLElement): void {
+	// ドラッグ中なら true。二重開始を止める
 	let dragging = false;
 
 	/**
@@ -343,18 +363,26 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 	 * @param pointerId - Pointer Capture 用 ID。省略可
 	 */
 	const startDrag = (clientX: number, pointerId?: number): void => {
+		// すでにドラッグ中の開始は無視する
 		if (dragging) {
 			return;
 		}
 
 		dragging         = true;
+		// 開始時の画面 X。移動量の基準
 		const startX     = clientX;
+		// 開始時の幅（px）。まだ 0 なら 120
 		const startWidth = img.getBoundingClientRect().width || img.naturalWidth || 120;
+		// これ以上広げない幅（px）。内容幅が無ければ 720、下限は 80
 		const maxWidth   = Math.max(80, wrap.closest('.cm-content')?.clientWidth ?? 720);
+		// 最後に表示した幅（px）。離したときに書き戻す
 		let lastWidth    = startWidth;
+		// 2px 以上動いたら true。クリックだけでは書き戻さない
 		let moved        = false;
+		// 終了処理を一度だけにするための印
 		let finished     = false;
 
+		// Pointer Events のときだけ、ハンドルへキャプチャを取る
 		if (pointerId !== undefined) {
 			try {
 				handle.setPointerCapture(pointerId);
@@ -368,7 +396,9 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 		 * @param moveX - ポインタ X
 		 */
 		const applyMove = (moveX: number): void => {
+			// 下限 24、上限 maxWidth に収めた次の幅（px）
 			const next = Math.min(maxWidth, Math.max(24, startWidth + (moveX - startX)));
+			// 開始幅から 2px 以上離れたときだけ、書き戻す対象にする
 			if (Math.abs(next - startWidth) >= 2) {
 				moved = true;
 			}
@@ -385,6 +415,7 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 		 * ドラッグ終了時にソースへ書き戻す
 		 */
 		const finish = (): void => {
+			// 終了は一度だけ。離すイベントが重なっても二重に書かない
 			if (finished) {
 				return;
 			}
@@ -399,8 +430,10 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 			document.removeEventListener('pointerup', finish, true);
 			document.removeEventListener('mouseup', finish, true);
 			handle.removeEventListener('lostpointercapture', finish);
+			// キャプチャを取ったときだけ、まだ持っていれば解放する
 			if (pointerId !== undefined) {
 				try {
+					// まだキャプチャを持っているときだけ解放する
 					if (handle.hasPointerCapture(pointerId)) {
 						handle.releasePointerCapture(pointerId);
 					}
@@ -409,6 +442,7 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 				}
 			}
 
+			// ほとんど動いていないドラッグはソースへ書かない
 			if (!moved) {
 				return;
 			}
@@ -431,16 +465,24 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 		};
 
 		window.addEventListener('pointermove', onPointerMove, true);
+		// 離す、またはキャンセルで幅を書き戻す
 		window.addEventListener('pointerup', finish, true);
+		// ポインタがキャンセルされたときも同じ終了にする
 		window.addEventListener('pointercancel', finish, true);
+		// Pointer Events が無い環境の移動
 		window.addEventListener('mousemove', onMouseMove, true);
+		// Pointer Events が無い環境の離す
 		window.addEventListener('mouseup', finish, true);
+		// ウィンドウ外で離したときの取りこぼし
 		document.addEventListener('pointerup', finish, true);
 		document.addEventListener('mouseup', finish, true);
+		// キャプチャを失ったときもドラッグを終える
 		handle.addEventListener('lostpointercapture', finish);
 	};
 
+	// 左ボタンのポインタ押下だけドラッグを始める
 	handle.addEventListener('pointerdown', (event) => {
+		// 左ボタン以外は幅を変えない
 		if (event.button !== 0) {
 			return;
 		}
@@ -449,7 +491,9 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
 		event.stopPropagation();
 		startDrag(event.clientX, event.pointerId);
 	});
+	// Pointer Events が無い環境の左ボタン押下
 	handle.addEventListener('mousedown', (event) => {
+		// 左ボタン以外は幅を変えない
 		if (event.button !== 0) {
 			return;
 		}
@@ -468,25 +512,42 @@ function bindImageResizeHandle(wrap: HTMLElement, img: HTMLImageElement, handle:
  * @returns 更新したか
  */
 export function persistImageResizeWidth(wrap: HTMLElement, width: number): boolean {
+	// ラッパに束縛したパス。無ければ空文字
 	const path      = getImageWrapPath(wrap);
+	// 画像が入っている表セル。表の外なら null
 	const tableCell = wrap.closest<HTMLElement>('[data-table-row]');
+	// セルの行番号。セルが無ければ NaN
 	const row       = Number(tableCell?.dataset.tableRow);
+	// セルの列番号。セルが無ければ NaN
 	const column    = Number(tableCell?.dataset.tableColumn);
 	rememberCellImageWidth(
 		path,
 		width,
-		Number.isInteger(row) && Number.isInteger(column) ? { row, column } : undefined,
+		Number.isInteger(row) && Number.isInteger(column)
+			? {
+				// 幅を覚える行。整数のときだけ渡す
+				row,
+				// 幅を覚える列。整数のときだけ渡す
+				column
+			}
+			: undefined
 	);
 
+	// 表セル専用の書き戻し。無ければ undefined
 	const persist = imageWrapPersisters.get(wrap);
-	let   wrote   = persist?.(width) ?? false;
+	// 専用の書き戻しが成功したか。無ければ false
+	let wrote     = persist?.(width) ?? false;
+	// 束縛した view。無ければ DOM から探す。どちらも無ければ null
 	const view    = imageWrapViews.get(wrap) ?? EditorView.findFromDOM(wrap);
+	// まだ書いておらず、かつ view があるときだけ通常の幅更新を試す。どちらか一方では試さない
 	if (!wrote && view) {
+		// dataset の開始位置。未設定なら undefined
 		const sourceFrom = wrap.dataset.sourceFrom;
+		// dataset の終端。未設定なら undefined
 		const sourceTo   = wrap.dataset.sourceTo;
-		let pos          = sourceFrom !== undefined && sourceFrom !== ''
-			? Number(sourceFrom)
-			: NaN;
+		// 開始位置。空文字や未設定は NaN
+		let pos          = sourceFrom !== undefined && sourceFrom !== '' ? Number(sourceFrom) : NaN;
+		// 開始位置が数値でないときだけ、DOM から文書位置を取る
 		if (!Number.isFinite(pos)) {
 			try {
 				pos = view.posAtDOM(wrap);
@@ -495,23 +556,24 @@ export function persistImageResizeWidth(wrap: HTMLElement, width: number): boole
 			}
 		}
 
-		const end = sourceTo !== undefined && sourceTo !== ''
-			? Number(sourceTo)
-			: undefined;
-		wrote     = applyImageWidthByPath(view, path, width, Number.isFinite(pos) ? pos : undefined)
-			|| (Number.isFinite(pos) && applyImageWidthOnDocumentLine(view, pos, width))
-			|| (Number.isFinite(pos) && applyImageDisplayWidth(
-				view,
-				pos,
-				width,
-				Number.isFinite(end) ? end : undefined,
-			));
+		// 記法の終端。空文字や未設定は undefined
+		const end = sourceTo !== undefined && sourceTo !== '' ? Number(sourceTo) : undefined;
+		wrote     = applyImageWidthByPath(view, path, width, Number.isFinite(pos) ? pos : undefined) || (Number.isFinite(pos) && applyImageWidthOnDocumentLine(view, pos, width)) || (Number.isFinite(pos) && applyImageDisplayWidth(view, pos, width, Number.isFinite(end) ? end : undefined));
 	}
 
-	wrap.dispatchEvent(new CustomEvent('tms-mde-table-image-resized', {
-		bubbles: true,
-		detail : { width, persisted: wrote },
-	}));
+	wrap.dispatchEvent(
+		new CustomEvent('tms-mde-table-image-resized', {
+			// 表ウィジェットまで届かせる
+			bubbles: true,
+			// 書き戻した幅と、ソースを更新できたか
+			detail: {
+				// 表示幅（px）
+				width,
+				// ソースへ書けたら true
+				persisted: wrote
+			}
+		})
+	);
 	return wrote;
 }
 
@@ -522,21 +584,22 @@ export function persistImageResizeWidth(wrap: HTMLElement, width: number): boole
  * @param to - 終了位置
  * @param spec - 画像仕様
  */
-export function pushImageReplace(
-	entries: DecorationEntry[],
-	from: number,
-	to: number,
-	spec: ImageSpec,
-): void {
+export function pushImageReplace(entries: DecorationEntry[], from: number, to: number, spec: ImageSpec): void {
+	// 空範囲は置換しない
 	if (from >= to) {
 		return;
 	}
 
+	// 記法全体を画像ウィジェットへ置き換える
 	entries.push({
+		// 記法の開始
 		from,
+		// 記法の終端
 		to,
+		// 画像ウィジェット。同じ仕様なら再利用する
 		decoration: Decoration.replace({
-			widget: new ImageWidget(spec),
-		}),
+			// この仕様を描くウィジェット
+			widget: new ImageWidget(spec)
+		})
 	});
 }

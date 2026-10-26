@@ -38,6 +38,7 @@ internal sealed class WindowApi
 	/// <returns>更新を受け付けた結果。タイトル文字列の検証失敗は返さない</returns>
 	public WindowTitleResult SetTitle(JsonElement paramsElement)
 	{
+		// 表示するタイトル。プロパティが無い、または null のときは製品名 TMS-MDEditor
 		string title = paramsElement.TryGetProperty(BridgeProperty.Title, out JsonElement titleElement)
 			? titleElement.GetString() ?? "TMS-MDEditor"
 			: "TMS-MDEditor";
@@ -55,35 +56,46 @@ internal sealed class WindowApi
 	/// <exception cref="InvalidOperationException">tab がオブジェクトでない、または実行ファイルのパスを取得できない</exception>
 	public object DetachTab(JsonElement paramsElement)
 	{
+		// いまのカーソル位置。スクリーン座標、ピクセル。要求 JSON の座標は使わない
 		Point dropPoint = Cursor.Position;
+		// ドロップ位置が自分のウィンドウ内のとき。タブは外さず detached は false
 		if (_mainForm.Bounds.Contains(dropPoint))
 		{
 			return new { detached = false };
 		}
+		// tab がオブジェクトとして取れないとき。プロパティが無い、または値があってもオブジェクトでない。両方揃ったオブジェクトでは入らない
 		if (!paramsElement.TryGetProperty(BridgeProperty.Tab, out JsonElement tabElement) || tabElement.ValueKind != JsonValueKind.Object)
 		{
 			throw new InvalidOperationException("切り離すタブ状態が指定されていません。");
 		}
 
+		// タブ状態を置く一時ディレクトリ。無ければ作る
 		string transferDirectory = AppPaths.TabTransferDirectory;
 		Directory.CreateDirectory(transferDirectory);
+		// この切り離し専用の JSON。渡し先を作れないときは削除する
 		string transferPath = Path.Combine(transferDirectory, $"{Guid.NewGuid():N}.json");
 		File.WriteAllText(transferPath, tabElement.GetRawText());
 
+		// 自分の exe のパス。取れないときは例外になり、一時ファイルは残る
 		string executablePath = Environment.ProcessPath
 			?? throw new InvalidOperationException("実行ファイルのパスを取得できませんでした。");
+		// カーソル位置に別の編集ウィンドウがあるとき。targetWindow はそのハンドル。無ければ新しいプロセスを起動する
 		if (WindowInterop.TryFindOtherEditorWindow(dropPoint, _mainForm.Handle, executablePath, out IntPtr targetWindow))
 		{
+			// true なら相手がタブを受け取った。false は受け取り失敗で、一時ファイルを消す
 			bool transferred = WindowInterop.SendDetachedTab(
 				targetWindow,
 				_mainForm.Handle,
 				new DetachedTabTransferRequest(transferPath, dropPoint.X, dropPoint.Y));
+			// 相手が受け取れなかったとき。一時ファイルを残すと次の起動が誤読する
 			if (!transferred) File.Delete(transferPath);
 			return new { detached = transferred };
 		}
 
+		// 新しいプロセスの起動情報。引数で一時ファイルとドロップ座標を渡す
 		var startInfo = new ProcessStartInfo(executablePath)
 		{
+			// false ならシェルを介さず、このプロセスと同じユーザーで起動する
 			UseShellExecute = false,
 		};
 		startInfo.ArgumentList.Add("--force-new-window");

@@ -36,6 +36,7 @@ public sealed class UpdateServiceTests
 	[Fact]
 	public async Task CheckAsync_returns_available_release_without_authentication()
 	{
+		// 認証ヘッダが付かないことを見るスタブ。最新リリースの JSON を 200 で返す
 		var handler = new StubHttpMessageHandler(_ => JsonResponse("""
 		{
 		  "tag_name": "v1.2.0",
@@ -44,9 +45,12 @@ public sealed class UpdateServiceTests
 		  "assets": [{ "id": 42, "name": "TmsMdEditor-1.2.0-setup.exe", "size": 12, "browser_download_url": "https://example.test/TmsMdEditor-1.2.0-setup.exe" }]
 		}
 		"""));
+		// スタブへ固定したクライアント。GitHub へは接続しない
 		using var client = new HttpClient(handler);
+		// 現行を 1.0.0 にした更新確認。1.2.0 を更新ありと判定する
 		using var service = new UpdateService(new Logger(), client, "1.0.0");
 
+		// 認証なしで得た更新確認。失敗時は Status が available 以外
 		UpdateCheckResult result = await service.CheckAsync();
 
 		Assert.Equal("available", result.Status);
@@ -62,6 +66,7 @@ public sealed class UpdateServiceTests
 	[Fact]
 	public async Task CheckAsync_tag_name_only_succeeds_without_installer_asset()
 	{
+		// インストーラ資産が無く、ポータブル ZIP だけの応答を返すスタブ
 		var handler = new StubHttpMessageHandler(_ => JsonResponse("""
 		{
 		  "tag_name": "v1.2.0",
@@ -69,9 +74,12 @@ public sealed class UpdateServiceTests
 		  "assets": [{ "id": 9, "name": "TMS-MDEditor-1.2.0-portable-x64.zip", "size": 4 }]
 		}
 		"""));
+		// スタブへ固定したクライアント。GitHub へは接続しない
 		using var client = new HttpClient(handler);
+		// タグ名だけを見る更新確認。現行は 1.0.0
 		using var service = new UpdateService(new Logger(), client, "1.0.0");
 
+		// インストーラ無しでも更新ありになる結果。モードは portable
 		UpdateCheckResult result = await service.CheckAsync(tagNameOnly: true);
 
 		Assert.Equal("available", result.Status);
@@ -81,29 +89,43 @@ public sealed class UpdateServiceTests
 	}
 
 	/// <summary>
-	/// サイズと SHA-256 が一致したインストーラの実体を返し、要求に認証ヘッダは付かない。
+	/// サイズと SHA-256 が一致したインストーラの実体を返し、要求に認証ヘッダは付かない
 	/// </summary>
 	[Fact]
 	public async Task DownloadAsync_verifies_size_and_sha256_before_returning_installer()
 	{
+		// サイズと SHA-256 の両方に使うインストーラ本文
 		byte[] content = Encoding.UTF8.GetBytes("verified installer content");
+		// content の SHA-256 を16進大文字にした期待値。不一致ならダウンロードは成功にしない
 		string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content));
+		// インストーラ本文を 200 で返すスタブ。認証は要求しない
 		var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
 		{
+			// 検証対象のインストーラバイト。サイズは content の長さと一致する
 			Content = new ByteArrayContent(content),
 		});
+		// スタブへ固定したクライアント。GitHub へは接続しない
 		using var client = new HttpClient(handler);
+		// 現行 1.0.0 から、渡したリリース情報のインストーラを取りに行く
 		using var service = new UpdateService(new Logger(), client, "1.0.0");
+		// ダウンロードへ渡すリリース情報。サイズと SHA-256 は content から作った値
 		var release = new UpdateReleaseInfo
 		{
+			// 現行 1.0.0 より新しい比較用の版
 			Version              = "1.2.0",
+			// 保存するインストーラのファイル名
 			InstallerName        = "TmsMdEditor-1.2.0-setup.exe",
+			// 資産 API を使わないときでも残す資産 ID。このテストは URL で取る
 			InstallerAssetId     = 42,
+			// スタブが受けるダウンロード URL。認証ヘッダは付かない
 			InstallerDownloadUrl = "https://example.test/TmsMdEditor-1.2.0-setup.exe",
+			// content のバイト数。応答と一致しないと失敗する
 			InstallerSize        = content.Length,
+			// content から計算した SHA-256。不一致ならファイルを返さない
 			Sha256               = hash,
 		};
 
+		// 検証を通過したダウンロード結果。失敗時は Success が false で InstallerPath は null
 		UpdateDownloadResult result = await service.DownloadAsync(release);
 
 		try
@@ -116,6 +138,7 @@ public sealed class UpdateServiceTests
 		}
 		finally
 		{
+			// パスが返り、かつそのファイルが残っているときだけ削除する。どちらかが欠けていれば触らない
 			if (result.InstallerPath is { } installerPath && File.Exists(installerPath)) File.Delete(installerPath);
 		}
 	}
@@ -127,6 +150,7 @@ public sealed class UpdateServiceTests
 	/// <returns>成功の HTTP 応答</returns>
 	private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
 	{
+		// UTF-8 の application/json。空文字でも応答は 200 のまま
 		Content = new StringContent(json, Encoding.UTF8, "application/json"),
 	};
 

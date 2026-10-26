@@ -14,13 +14,18 @@ import type { DecorationEntry } from './inlineDecorations';
  * @param to - 隠す範囲の終端。from 以上なら追加しない
  */
 export function pushHiddenReplace(entries: DecorationEntry[], from: number, to: number): void {
+	// 開始が終端以上なら隠す文字が無い。空範囲の装飾は足さない
 	if (from >= to) {
 		return;
 	}
 
+	// レイアウトから外す replace。中身が空なので文字も幅も残さない
 	entries.push({
+		// 隠す範囲の開始。ドキュメント先頭からの文字位置
 		from,
+		// 隠す範囲の終端。from より大きい
 		to,
-		decoration: Decoration.replace({}),
+		// 中身の無い replace。この範囲は行の高さにも残さない
+		decoration: Decoration.replace({})
 	});
 }

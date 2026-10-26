@@ -9,6 +9,7 @@ import type { ViewMode } from '../types/app';
  * ネイティブのテーブルメニューが送る操作 ID
  * 並びはメニュー側の対応表であり、実行中には変えない
  */
+// prettier-ignore
 export const TABLE_MENU_ACTIONS = [
 	'insertTable',
 	'insertTableRowsBefore',
@@ -32,6 +33,7 @@ export const TABLE_MENU_ACTIONS = [
 ] as const;
 
 /** `TABLE_MENU_ACTIONS` のいずれか。未知の文字列はメニュー操作として扱わない */
+// prettier-ignore
 export type TableMenuAction = typeof TABLE_MENU_ACTIONS[number];
 
 /** 各テーブル操作を有効にするか。キーは操作 ID、値 true が選択可能 */
@@ -82,31 +84,56 @@ export type TableMenuRuntimeContext = {
  * @param context - 現在のビューと表選択。呼び出しのたびに評価し、保持しない
  * @returns 操作 ID ごとの活性。true がその項目を選べる
  */
+// prettier-ignore
 export function buildTableMenuEnabledState(context: TableMenuRuntimeContext): TableMenuEnabledState {
+	// 表を編集できる状態。ビューがあり、読み取り専用でなく、ライブプレビューのときだけ true。どれか一つ欠けても false
 	const editable = context.hasView && !context.readOnly && context.viewMode === 'live-preview';
+	// 行の構造選択が編集可能なときだけ true。編集不可、列選択、構造選択が無い、のどれかなら false
 	const rows     = editable && context.structure?.axis === 'row';
+	// 列の構造選択が編集可能なときだけ true。編集不可、行選択、構造選択が無い、のどれかなら false
 	const columns  = editable && context.structure?.axis === 'column';
+	// セル範囲の選択が編集可能なときだけ true。選択が null、または編集不可なら false
 	const cells    = editable && context.cells !== null;
 
+	// 操作 ID ごとの活性。true だけメニューで選べる。編集できないときは全項目 false
 	return {
+		// 編集可能で、キャレットが表の外にあるときだけ新規の表を挿入できる。表の中、または編集不可では false。どちらか一方が欠けても false
 		insertTable             : editable && !context.inMarkdownTable,
+		// 選択行の前へ行を足せる。行の構造選択が編集可能でないときは false
 		insertTableRowsBefore   : rows,
+		// 選択行の後ろへ行を足せる。行の構造選択が編集可能でないときは false
 		insertTableRowsAfter    : rows,
+		// 選択行を削除できる。行選択かつ削除可のときだけ true。どちらか一方が欠けても false
 		deleteTableRows         : rows && context.structure?.canDelete === true,
+		// 選択行を上へ動かせる。行選択かつ前方向へ動けるときだけ true。どちらか一方が欠けても false
 		moveTableRowsUp         : rows && context.structure?.canMovePrevious === true,
+		// 選択行を下へ動かせる。行選択かつ次方向へ動けるときだけ true。どちらか一方が欠けても false
 		moveTableRowsDown       : rows && context.structure?.canMoveNext === true,
+		// 選択列の左へ列を足せる。列の構造選択が編集可能でないときは false
 		insertTableColumnsBefore: columns,
+		// 選択列の右へ列を足せる。列の構造選択が編集可能でないときは false
 		insertTableColumnsAfter : columns,
+		// 選択列を削除できる。列選択かつ削除可のときだけ true。どちらか一方が欠けても false
 		deleteTableColumns      : columns && context.structure?.canDelete === true,
+		// 選択列を左へ動かせる。列選択かつ前方向へ動けるときだけ true。どちらか一方が欠けても false
 		moveTableColumnsLeft    : columns && context.structure?.canMovePrevious === true,
+		// 選択列を右へ動かせる。列選択かつ次方向へ動けるときだけ true。どちらか一方が欠けても false
 		moveTableColumnsRight   : columns && context.structure?.canMoveNext === true,
+		// 選択セルを結合できる。セル選択かつ結合可のときだけ true。どちらか一方が欠けても false
 		mergeTableCells         : cells && context.cells?.canMerge === true,
+		// 結合を解除できる。セル選択かつ解除可のときだけ true。どちらか一方が欠けても false
 		unmergeTableCells       : cells && context.cells?.canUnmerge === true,
+		// セルを左寄せにできる。セル範囲があり編集可能なら true。結合できるかは見ない
 		alignTableCellLeft      : cells,
+		// セルを中央寄せにできる。セル範囲があり編集可能なら true。結合できるかは見ない
 		alignTableCellCenter    : cells,
+		// セルを右寄せにできる。セル範囲があり編集可能なら true。結合できるかは見ない
 		alignTableCellRight     : cells,
+		// セルの縦位置を上にできる。セル範囲があり編集可能なら true。結合できるかは見ない
 		valignTableCellTop      : cells,
+		// セルの縦位置を中央にできる。セル範囲があり編集可能なら true。結合できるかは見ない
 		valignTableCellMiddle   : cells,
+		// セルの縦位置を下にできる。セル範囲があり編集可能なら true。結合できるかは見ない
 		valignTableCellBottom   : cells,
 	};
 }

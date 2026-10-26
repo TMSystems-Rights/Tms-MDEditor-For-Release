@@ -4,12 +4,7 @@
  * @file
  */
 import { indentLess, indentMore } from '@codemirror/commands';
-import {
-	EditorSelection,
-	type ChangeSpec,
-	type EditorState,
-	type StateCommand,
-} from '@codemirror/state';
+import { EditorSelection, type ChangeSpec, type EditorState, type StateCommand } from '@codemirror/state';
 
 // ==============================================
 // リスト行の解析
@@ -47,20 +42,31 @@ const TASK_CONTENT_PREFIX = /^\[[ xX]\]\s+/;
  * @returns 分解したマーカー。リスト行でないときは null
  */
 export function parseListLine(text: string): ListLineInfo | null {
+	// リスト行のキャプチャ。箇条書きでも番号付きでも一致しない行は null
 	const match = LIST_LINE_PATTERN.exec(text);
+	// パターンに合わない行はリストではないので、分解しない
 	if (!match) {
 		return null;
 	}
 
+	// 番号のキャプチャがあるとき番号付き。箇条書きは false で、番号側の欄は空文字にする
 	const isOrdered = Boolean(match[2]);
+	// マーカーの分解。使わない側の番号、区切り、記号は空文字
 	return {
-		indent     : match[1],
-		numberText : isOrdered ? match[2] : '',
-		separator  : isOrdered ? match[3] : '',
-		bullet     : isOrdered ? '' : match[4],
-		after      : match[5],
-		content    : match[6],
-		isOrdered,
+		// マーカーより前の空白。タブとスペースの混在をそのまま持つ
+		indent: match[1],
+		// 番号の数字。箇条書きは空文字
+		numberText: isOrdered ? match[2] : '',
+		// 番号の区切り。`.` または `)`。箇条書きは空文字
+		separator: isOrdered ? match[3] : '',
+		// 箇条書きの記号。番号付きは空文字
+		bullet: isOrdered ? '' : match[4],
+		// マーカーと本文の間の空白。1 文字以上ある行だけがパターンに一致する
+		after: match[5],
+		// マーカーの後ろ。タスクマーカーを含むことがある
+		content: match[6],
+		// 番号付きなら true。箇条書きは false
+		isOrdered
 	};
 }
 
@@ -70,6 +76,7 @@ export function parseListLine(text: string): ListLineInfo | null {
  * @returns マーカーと直後の空白を含む文字数。タスクでなければ 0
  */
 export function taskMarkerPrefixLength(content: string): number {
+	// 本文先頭の `[ ]` / `[x]` / `[X]` と直後の空白。タスクでなければ null で、長さは 0
 	const match = TASK_CONTENT_PREFIX.exec(content);
 	return match ? match[0].length : 0;
 }
@@ -85,6 +92,7 @@ export function taskMarkerPrefixLength(content: string): number {
  * @returns スペース換算の幅。空文字は 0
  */
 function measureIndent(indent: string, tabSize: number): number {
+	// スペース換算の幅（桁）。空のインデントは 0 のまま
 	let width = 0;
 	for (const ch of indent) {
 		width += ch === '\t' ? tabSize - (width % tabSize) : 1;
@@ -101,10 +109,12 @@ function measureIndent(indent: string, tabSize: number): number {
  * @returns インデント文字列。width が 0 以下のときは空文字
  */
 function buildIndent(width: number, tabSize: number, useTabs: boolean): string {
+	// 幅が無い、または負ならインデントを作らない。0 は空文字で、行頭に空白を足さない
 	if (width <= 0) {
 		return '';
 	}
 
+	// タブを使わないときは、幅と同じ個数のスペースだけにする。タブは混ぜない
 	if (!useTabs) {
 		return ' '.repeat(width);
 	}
@@ -125,18 +135,17 @@ function buildIndent(width: number, tabSize: number, useTabs: boolean): string {
  * @param startNumber - 後続の最初に付ける番号
  * @param changes - 番号の置換を追加する配列。本文が既にその番号なら追加しない
  */
-function renumberFollowingOrderedLines(
-	state: EditorState,
-	startLineNumber: number,
-	indent: string,
-	startNumber: number,
-	changes: ChangeSpec[],
-): void {
+function renumberFollowingOrderedLines(state: EditorState, startLineNumber: number, indent: string, startNumber: number, changes: ChangeSpec[]): void {
+	// 次に付ける番号。空行や深い行を飛ばしても増やさず、同階層の番号付きを 1 行処理するたびに増える
 	let number = startNumber;
 	for (let lineNumber = startLineNumber + 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+		// 走査中の行。置換するのはこの行の番号部分だけ
 		const line = state.doc.line(lineNumber);
+		// その行のリスト分解。リストでなければ null
 		const info = parseListLine(line.text);
+		// リストでない行。空行なら階層は続いているとみて次へ、本文がある行で打ち切る
 		if (!info) {
+			// 空白だけの行は階層の切れ目にしない。番号は進めず次の行へ
 			if (line.text.trim() === '') {
 				continue;
 			}
@@ -144,26 +153,43 @@ function renumberFollowingOrderedLines(
 			break;
 		}
 
+		// 走査行のインデント幅（桁）。タブは tabSize で数える
 		const lineIndentWidth = measureIndent(info.indent, state.tabSize);
+		// 振り直し対象の階層の幅（桁）。文字列の一致ではなく幅で比べる
 		const targetWidth     = measureIndent(indent, state.tabSize);
+		// より浅い行に当たったら、この階層の続きは終わったので打ち切る
 		if (lineIndentWidth < targetWidth) {
 			break;
 		}
 
+		// より深い行は別階層なので、番号を変えず飛ばす
 		if (lineIndentWidth > targetWidth) {
 			continue;
 		}
 
+		// 同じ幅の箇条書きに当たったら、番号付きの続きではないので打ち切る
 		if (!info.isOrdered) {
 			break;
 		}
 
+		// 既に付けたい番号なら置換しない。違うときだけ数字の範囲を置き換える
 		if (info.numberText !== String(number)) {
+			// 番号の開始（文字）。インデントの直後
 			const from = line.from + info.indent.length;
+			// 番号の終了（文字）。数字の長さだけ。区切りの `.` や `)` は含めない
 			const to   = from + info.numberText.length;
-			changes.push({ from, to, insert: String(number) });
+			// 数字だけを置き換える変更。区切りと本文は残す
+			changes.push({
+				// 番号の開始（文字、含む）
+				from,
+				// 番号の終了（文字、含まない）
+				to,
+				// 振り直した番号の文字列
+				insert: String(number)
+			});
 		}
 
+		// 同階層の番号付きを 1 行処理したので、次の行へ付ける番号を 1 進める
 		number += 1;
 	}
 }
@@ -175,16 +201,17 @@ function renumberFollowingOrderedLines(
  * @param indent - 対象階層のインデント文字列
  * @returns 直前の番号に 1 を足した値。同階層の番号が無いときは 1
  */
-function nextOrderedNumberAtIndent(
-	state: EditorState,
-	lineNumber: number,
-	indent: string,
-): number {
+function nextOrderedNumberAtIndent(state: EditorState, lineNumber: number, indent: string): number {
+	// 対象階層の幅（桁）。この幅の番号付きだけを直前の兄弟とみなす
 	const targetWidth = measureIndent(indent, state.tabSize);
 	for (let current = lineNumber - 1; current >= 1; current -= 1) {
+		// 基準行より前の行。空行は飛ばし、階層が切れたら探索を終える
 		const line = state.doc.line(current);
+		// その行のリスト分解。リストでなければ null
 		const info = parseListLine(line.text);
+		// リストでない行。空行なら続きを探し、本文がある行で打ち切る
 		if (!info) {
+			// 空白だけの行は階層の切れ目にしない
 			if (line.text.trim() === '') {
 				continue;
 			}
@@ -192,15 +219,19 @@ function nextOrderedNumberAtIndent(
 			break;
 		}
 
+		// その行のインデント幅（桁）
 		const width = measureIndent(info.indent, state.tabSize);
+		// より浅い行に当たったら、同じ階層の兄弟はもう無い
 		if (width < targetWidth) {
 			break;
 		}
 
+		// より深い行は別階層なので飛ばす
 		if (width > targetWidth) {
 			continue;
 		}
 
+		// 同じ幅の箇条書きに当たったら、番号の続きではない
 		if (!info.isOrdered) {
 			break;
 		}
@@ -224,77 +255,79 @@ function nextOrderedNumberAtIndent(
  * @returns 置換と、タスクマーカーの直後へ置いたキャレット。処理できないときは null
  */
 function buildListIndentUpdate(state: EditorState, forward: boolean) {
+	// タブ幅（桁）。1 段の増減はこの幅
 	const tabSize = state.tabSize;
+	// 文書にタブが 1 つでもあるとき true。新しいインデントもタブを使う。無ければ false でスペースだけ
 	const useTabs = state.doc.toString().includes('\t');
 
+	// 行の置換。1 範囲でも処理できないときは、この配列を返さず null にする
 	const changes = [] as ChangeSpec[];
+	// タスクマーカーの直後へ置くキャレット。範囲の数だけ積む
 	const cursors = [] as ReturnType<typeof EditorSelection.cursor>[];
 
 	for (const range of state.selection.ranges) {
+		// 範囲選択が 1 つでもあると、リストのインデントとしては処理しない
 		if (!range.empty) {
 			return null;
 		}
 
+		// キャレットがある行。この行だけを 1 段動かす
 		const line = state.doc.lineAt(range.head);
+		// リスト分解。リストでなければ null
 		const info = parseListLine(line.text);
+		// リストでない行が 1 つでもあると、選択全体をリスト処理しない
 		if (!info) {
 			return null;
 		}
 
+		// いまのインデント幅（桁）
 		const currentWidth = measureIndent(info.indent, tabSize);
-		const nextWidth    = forward
-			? currentWidth + tabSize
-			: Math.max(0, currentWidth - tabSize);
+		// 1 段動かしたあとの幅（桁）。浅くするときは 0 未満にしない
+		const nextWidth    = forward ? currentWidth + tabSize : Math.max(0, currentWidth - tabSize);
 
+		// 幅が変わらないとき（既に 0 でアウトデントしたなど）は変更を作らない。呼び出し側は indentLess へ委譲する
 		if (nextWidth === currentWidth) {
 			return null;
 		}
 
+		// 移動先のインデント文字列。タブを使う文書ではタブを優先し、余りだけスペース
 		const nextIndent = buildIndent(nextWidth, tabSize, useTabs);
 		// Tab / Shift+Tab とも、移動先階層の直前兄弟から連番する（先頭なら 1）
-		const nextNumber = info.isOrdered
-			? nextOrderedNumberAtIndent(state, line.number, nextIndent)
-			: 0;
-		const marker     = info.isOrdered
-			? `${nextNumber}${info.separator}`
-			: info.bullet;
+		const nextNumber = info.isOrdered ? nextOrderedNumberAtIndent(state, line.number, nextIndent) : 0;
+		// 行頭に出すマーカー。番号付きは新しい番号と区切り、箇条書きは元の記号
+		const marker     = info.isOrdered ? `${nextNumber}${info.separator}` : info.bullet;
+		// 置換後の行テキスト。本文とタスクマーカーはそのまま
 		const nextText   = `${nextIndent}${marker}${info.after}${info.content}`;
 
+		// その行全体を、新しいインデントとマーカーで置き換える
 		changes.push({
-			from  : line.from,
-			to    : line.to,
-			insert: nextText,
+			// 行の開始（文字、含む）
+			from: line.from,
+			// 行の終了（文字、含まない）。改行は含めない
+			to: line.to,
+			// 置換後の 1 行
+			insert: nextText
 		});
 
+		// 番号付きのときだけ、旧階層と新階層の後続番号を振り直す。箇条書きは番号を持たない
 		if (info.isOrdered) {
 			// 旧階層の後続を詰める
-			renumberFollowingOrderedLines(
-				state,
-				line.number,
-				info.indent,
-				Number(info.numberText),
-				changes,
-			);
+			renumberFollowingOrderedLines(state, line.number, info.indent, Number(info.numberText), changes);
 			// 新階層の後続を挿入位置以降で振り直す
-			renumberFollowingOrderedLines(
-				state,
-				line.number,
-				nextIndent,
-				nextNumber + 1,
-				changes,
-			);
+			renumberFollowingOrderedLines(state, line.number, nextIndent, nextNumber + 1, changes);
 		}
 
-		const cursorCol = nextIndent.length
-			+ marker.length
-			+ info.after.length
-			+ taskMarkerPrefixLength(info.content);
+		// キャレットを置く、行頭からの文字数。タスクマーカーの直後。タスクでなければマーカーの直後
+		const cursorCol = nextIndent.length + marker.length + info.after.length + taskMarkerPrefixLength(info.content);
 		cursors.push(EditorSelection.cursor(line.from + cursorCol));
 	}
 
+	// 行の置換と、タスクマーカー直後のキャレット。範囲が空なら両方空
 	return {
+		// 行置換と番号の振り直し
 		changes,
-		selection: EditorSelection.create(cursors),
+		// 各範囲のキャレット。主選択の順は維持する
+		selection: EditorSelection.create(cursors)
 	};
 }
 
@@ -307,16 +340,24 @@ function buildListIndentUpdate(state: EditorState, forward: boolean) {
  * @returns リストとして処理した、または委譲先が処理したとき true
  */
 export const indentListItem: StateCommand = ({ state, dispatch }) => {
+	// リストとして 1 段深くする変更。範囲選択や非リストなら null
 	const update = buildListIndentUpdate(state, true);
+	// リストとして処理できないときは、CodeMirror のインデントへ委譲する
 	if (!update) {
 		return indentMore({ state, dispatch });
 	}
 
-	dispatch(state.update({
-		...update,
-		scrollIntoView: true,
-		userEvent     : 'input.indent',
-	}));
+	// リスト行の置換と、表示域へのスクロール。入力の種別はインデント
+	dispatch(
+		state.update({
+			// 行置換とキャレット。buildListIndentUpdate が作ったもの
+			...update,
+			// 移動した行を表示域へ入れる
+			scrollIntoView: true,
+			// インデント操作として記録する。通常の文字入力とは分ける
+			userEvent: 'input.indent'
+		})
+	);
 	return true;
 };
 
@@ -330,15 +371,23 @@ export const indentListItem: StateCommand = ({ state, dispatch }) => {
  * @returns リストとして処理した、または委譲先が処理したとき true
  */
 export const dedentListItem: StateCommand = ({ state, dispatch }) => {
+	// リストとして 1 段浅くする変更。幅が既に 0、範囲選択、非リストなら null
 	const update = buildListIndentUpdate(state, false);
+	// リストとして処理できないときは、CodeMirror のアウトデントへ委譲する
 	if (!update) {
 		return indentLess({ state, dispatch });
 	}
 
-	dispatch(state.update({
-		...update,
-		scrollIntoView: true,
-		userEvent     : 'input.indent',
-	}));
+	// リスト行の置換と、表示域へのスクロール。入力の種別はインデント
+	dispatch(
+		state.update({
+			// 行置換とキャレット。buildListIndentUpdate が作ったもの
+			...update,
+			// 移動した行を表示域へ入れる
+			scrollIntoView: true,
+			// インデント操作として記録する。通常の文字入力とは分ける
+			userEvent: 'input.indent'
+		})
+	);
 	return true;
 };

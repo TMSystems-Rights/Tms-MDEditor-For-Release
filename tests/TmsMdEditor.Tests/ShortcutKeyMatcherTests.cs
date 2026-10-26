@@ -27,6 +27,7 @@ public sealed class ShortcutKeyMatcherTests
 	[InlineData(Keys.U, "Ctrl+Shift+U")]
 	public void Matches_detects_split_shortcuts(Keys keyCode, string shortcut)
 	{
+		// Ctrl と Shift を対象キーへ足した入力。余分な Alt は含まない
 		var keyEvent = new KeyEventArgs(keyCode | Keys.Control | Keys.Shift);
 
 		Assert.True(ShortcutKeyMatcher.Matches(keyEvent, shortcut));
@@ -52,6 +53,7 @@ public sealed class ShortcutKeyMatcherTests
 	[Fact]
 	public void Matches_supports_custom_letter_shortcut()
 	{
+		// Ctrl と Alt と M を同時に押した入力
 		var keyEvent = new KeyEventArgs(Keys.M | Keys.Control | Keys.Alt);
 
 		Assert.True(ShortcutKeyMatcher.Matches(keyEvent, "Ctrl+Alt+M"));
@@ -63,6 +65,7 @@ public sealed class ShortcutKeyMatcherTests
 	[Fact]
 	public void Matches_supports_space_shortcut()
 	{
+		// Ctrl と Space を同時に押した入力
 		var keyEvent = new KeyEventArgs(Keys.Space | Keys.Control);
 
 		Assert.True(ShortcutKeyMatcher.Matches(keyEvent, "Ctrl+Space"));

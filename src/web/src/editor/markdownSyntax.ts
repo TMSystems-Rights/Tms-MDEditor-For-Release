@@ -21,13 +21,13 @@ const HighlightDelim = { resolve: 'Highlight', mark: 'HighlightMark' };
 export const Highlight: MarkdownConfig = {
 	defineNodes: [
 		{
-			name : 'Highlight',
-			style: { 'Highlight/...': tags.special(tags.content) },
+			name: 'Highlight',
+			style: { 'Highlight/...': tags.special(tags.content) }
 		},
 		{
-			name : 'HighlightMark',
-			style: tags.processingInstruction,
-		},
+			name: 'HighlightMark',
+			style: tags.processingInstruction
+		}
 	],
 	parseInline: [
 		{
@@ -41,28 +41,29 @@ export const Highlight: MarkdownConfig = {
 			 * @returns 区切りを登録したあとの終端。対象外は -1
 			 */
 			parse(cx, next, pos) {
+				// 現在が = でない、次も = でない、または 3 文字目も = なら区切りにしない。`==` ちょうど 2 つのときだけ続ける
 				if (next !== 61 /* '=' */ || cx.char(pos + 1) !== 61 || cx.char(pos + 2) === 61) {
 					return -1;
 				}
 
+				// 区切り直前の 1 文字。文書先頭では空文字で、境界として扱う
 				const before  = cx.slice(pos - 1, pos);
+				// `==` の直後の 1 文字。文末では空文字
 				const after   = cx.slice(pos + 2, pos + 3);
+				// 直前が空白、または文字が無い。開閉の判定に使う
 				const sBefore = /\s|^$/.test(before);
+				// 直後が空白、または文字が無い
 				const sAfter  = /\s|^$/.test(after);
+				// 直前が区切り記号。空白とは別に、記号に挟まれた `==` を区切りにできるか
 				const pBefore = Punctuation.test(before);
+				// 直後が区切り記号
 				const pAfter  = Punctuation.test(after);
 
-				return cx.addDelimiter(
-					HighlightDelim,
-					pos,
-					pos + 2,
-					!sAfter && (!pAfter || sBefore || pBefore),
-					!sBefore && (!pBefore || sAfter || pAfter),
-				);
+				return cx.addDelimiter(HighlightDelim, pos, pos + 2, !sAfter && (!pAfter || sBefore || pBefore), !sBefore && (!pBefore || sAfter || pAfter));
 			},
-			after: 'Emphasis',
-		},
-	],
+			after: 'Emphasis'
+		}
+	]
 };
 
 /**
@@ -73,7 +74,7 @@ export const YamlFrontMatter: MarkdownConfig = {
 	defineNodes: [
 		{ name: 'YamlFrontMatter', block: true, style: tags.meta },
 		{ name: 'YamlFrontMatterMark', style: tags.processingInstruction },
-		{ name: 'YamlFrontMatterContent', style: tags.content },
+		{ name: 'YamlFrontMatterContent', style: tags.content }
 	],
 	parseBlock: [
 		{
@@ -86,32 +87,30 @@ export const YamlFrontMatter: MarkdownConfig = {
 			 * @returns フロントマターとして取り込んだとき true
 			 */
 			parse(cx, line) {
-				if (
-					cx.lineStart !== 0
-					|| line.baseIndent !== 0
-					|| line.pos !== 0
-					|| !YAML_FRONT_MATTER_MARKER.test(line.text)
-				) {
+				// 文書先頭でない、インデントがある、行頭以外、または開始マーカーでない。一つでも当たればフロントマターにしない。四つとも欠けるときだけ続ける
+				if (cx.lineStart !== 0 || line.baseIndent !== 0 || line.pos !== 0 || !YAML_FRONT_MATTER_MARKER.test(line.text)) {
 					return false;
 				}
 
+				// 開始マーカーの文書上の位置（文字）。ブロックの開始
 				const from     = cx.lineStart + line.pos;
+				// 開始の --- をマークとして持つ子。本文と終了マーカーは後から足す
 				const children = [cx.elt('YamlFrontMatterMark', from, from + 3)];
 
 				while (cx.nextLine()) {
+					// この行の本文開始（文字）。行頭インデントは basePos に含まれる
 					const lineFrom = cx.lineStart + line.basePos;
+					// この行の末尾（文字）。改行は含めない。空行は開始と終了が同じ
 					const lineTo   = cx.lineStart + line.text.length;
 
-					if (
-						line.baseIndent === 0
-						&& line.pos === 0
-						&& YAML_FRONT_MATTER_MARKER.test(line.text)
-					) {
+					// 行頭で、インデントが無く、終了マーカーである。一つでも欠けると閉じずに本文として読む
+					if (line.baseIndent === 0 && line.pos === 0 && YAML_FRONT_MATTER_MARKER.test(line.text)) {
 						children.push(cx.elt('YamlFrontMatterMark', lineFrom, lineFrom + 3));
 						cx.nextLine();
 						break;
 					}
 
+					// 中身がある行だけ本文にする。空行は開始と終了が同じなので足さない
 					if (lineFrom < lineTo) {
 						children.push(cx.elt('YamlFrontMatterContent', lineFrom, lineTo));
 					}
@@ -120,9 +119,9 @@ export const YamlFrontMatter: MarkdownConfig = {
 				cx.addElement(cx.elt('YamlFrontMatter', from, cx.prevLineEnd(), children));
 				return true;
 			},
-			before: 'HorizontalRule',
-		},
-	],
+			before: 'HorizontalRule'
+		}
+	]
 };
 
 /**
@@ -133,7 +132,7 @@ export const WikiEmbed: MarkdownConfig = {
 	defineNodes: [
 		{ name: 'WikiEmbed', style: tags.link },
 		{ name: 'WikiEmbedMark', style: tags.processingInstruction },
-		{ name: 'WikiEmbedPath', style: tags.link },
+		{ name: 'WikiEmbedPath', style: tags.link }
 	],
 	parseInline: [
 		{
@@ -147,41 +146,40 @@ export const WikiEmbed: MarkdownConfig = {
 			 * @returns ノード終端。対象外は -1
 			 */
 			parse(cx, next, pos) {
-				if (
-					next !== 33 /* '!' */
-					|| cx.char(pos + 1) !== 91 /* '[' */
-					|| cx.char(pos + 2) !== 91 /* '[' */
-				) {
+				// 現在が ! でない、次が [ でない、またはその次が [ でない。一つでも欠けると埋め込みにしない。三つ揃ったときだけ続ける
+				if (next !== 33 /* '!' */ || cx.char(pos + 1) !== 91 /* '[' */ || cx.char(pos + 2) !== 91 /* '[' */) {
 					return -1;
 				}
 
+				// 閉じ ]] の終端（文字）。改行が先、または範囲内に閉じが無ければ -1 のまま
 				let end = -1;
 				for (let index = pos + 3; index < cx.end - 1; index += 1) {
+					// この位置の文字コード。改行なら行をまたぐので埋め込みを閉じない
 					const code = cx.char(index);
+					// 改行が閉じより先。行をまたぐ ![[ はノードにしない
 					if (code === 10 /* '\n' */) {
 						break;
 					}
 
+					// ] の次も ] のときだけ閉じ。片方だけでは閉じとみなさない
 					if (code === 93 /* ']' */ && cx.char(index + 1) === 93) {
+						// 閉じ ]] の直後（文字）
 						end = index + 2;
 						break;
 					}
 				}
 
 				// 空の ![[]] は対象外
+				// 閉じが見つからない、または中身が空（`![[]]` は 5 文字）ならノードにしない。どちらか一方でも対象外
 				if (end < 0 || end - pos <= 5) {
 					return -1;
 				}
 
-				return cx.addElement(cx.elt('WikiEmbed', pos, end, [
-					cx.elt('WikiEmbedMark', pos, pos + 3),
-					cx.elt('WikiEmbedPath', pos + 3, end - 2),
-					cx.elt('WikiEmbedMark', end - 2, end),
-				]));
+				return cx.addElement(cx.elt('WikiEmbed', pos, end, [cx.elt('WikiEmbedMark', pos, pos + 3), cx.elt('WikiEmbedPath', pos + 3, end - 2), cx.elt('WikiEmbedMark', end - 2, end)]));
 			},
-			before: 'Image',
-		},
-	],
+			before: 'Image'
+		}
+	]
 };
 
 /**
@@ -192,7 +190,7 @@ export const WikiLink: MarkdownConfig = {
 	defineNodes: [
 		{ name: 'WikiLink', style: tags.link },
 		{ name: 'WikiLinkMark', style: tags.processingInstruction },
-		{ name: 'WikiLinkPage', style: tags.link },
+		{ name: 'WikiLinkPage', style: tags.link }
 	],
 	parseInline: [
 		{
@@ -206,37 +204,40 @@ export const WikiLink: MarkdownConfig = {
 			 * @returns ノード終端。対象外は -1
 			 */
 			parse(cx, next, pos) {
+				// 現在が [ でない、または次が [ でない。どちらか一方でも内部リンクにしない。二つ揃ったときだけ続ける
 				if (next !== 91 /* '[' */ || cx.char(pos + 1) !== 91) {
 					return -1;
 				}
 
+				// 閉じ ]] の終端（文字）。改行が先、または範囲内に閉じが無ければ -1 のまま
 				let end = -1;
 				for (let index = pos + 2; index < cx.end - 1; index += 1) {
+					// この位置の文字コード。改行なら行をまたぐのでリンクを閉じない
 					const code = cx.char(index);
+					// 改行が閉じより先。行をまたぐ [[ はノードにしない
 					if (code === 10 /* '\n' */) {
 						break;
 					}
 
+					// ] の次も ] のときだけ閉じ。片方だけでは閉じとみなさない
 					if (code === 93 /* ']' */ && cx.char(index + 1) === 93) {
+						// 閉じ ]] の直後（文字）
 						end = index + 2;
 						break;
 					}
 				}
 
 				// 空の [[]] は対象外
+				// 閉じが見つからない、または中身が空（`[[]]` は 4 文字）ならノードにしない。どちらか一方でも対象外
 				if (end < 0 || end - pos <= 4) {
 					return -1;
 				}
 
-				return cx.addElement(cx.elt('WikiLink', pos, end, [
-					cx.elt('WikiLinkMark', pos, pos + 2),
-					cx.elt('WikiLinkPage', pos + 2, end - 2),
-					cx.elt('WikiLinkMark', end - 2, end),
-				]));
+				return cx.addElement(cx.elt('WikiLink', pos, end, [cx.elt('WikiLinkMark', pos, pos + 2), cx.elt('WikiLinkPage', pos + 2, end - 2), cx.elt('WikiLinkMark', end - 2, end)]));
 			},
-			before: 'Link',
-		},
-	],
+			before: 'Link'
+		}
+	]
 };
 
 /**
@@ -247,7 +248,7 @@ export const CalloutMark: MarkdownConfig = {
 	defineNodes: [
 		{ name: 'CalloutMark', style: tags.processingInstruction },
 		{ name: 'CalloutType', style: tags.labelName },
-		{ name: 'CalloutFoldMark', style: tags.processingInstruction },
+		{ name: 'CalloutFoldMark', style: tags.processingInstruction }
 	],
 	parseInline: [
 		{
@@ -260,23 +261,30 @@ export const CalloutMark: MarkdownConfig = {
 			 * @returns ノード終端。パターンに合わなければ -1
 			 */
 			parse(cx, next, pos) {
+				// 現在が [ でない、または次が ! でない。どちらか一方でもコールアウトにしない。二つ揃ったときだけ続ける
 				if (next !== 91 /* '[' */ || cx.char(pos + 1) !== 33 /* '!' */) {
 					return -1;
 				}
 
+				// 種別判定に使う断片。現在位置から最大 48 文字。文書末尾が近ければそこまで
 				const slice = cx.slice(pos, Math.min(cx.end, pos + 48));
+				// [!type] と、あれば折りたたみ記号 1 文字。形が違えば null
 				const match = /^\[!([A-Za-z][\w-]*)\]([+-])?/.exec(slice);
+				// 種別の形が合わない。ノードにせず、続くリンクの解釈へ返す
 				if (!match) {
 					return -1;
 				}
 
+				// マーカー全体の終端（文字）。折りたたみ記号があればその次、無ければ ] の次
 				const end      = pos + match[0].length;
+				// 種別の開始（文字）。[! の直後
 				const typeFrom = pos + 2;
+				// 種別の終端（文字）。] の手前
 				const typeTo   = typeFrom + match[1].length;
-				const children = [
-					cx.elt('CalloutType', typeFrom, typeTo),
-				];
+				// 子ノード。種別は必ず入れ、折りたたみ記号は後から足す。記号が無ければ種別だけ
+				const children = [cx.elt('CalloutType', typeFrom, typeTo)];
 
+				// 折りたたみ記号 + か - があるときだけ、記号のノードを足す。キャプチャが無いときは種別だけ
 				if (match[2]) {
 					const foldPos = typeTo + 1; // `]` の次
 					children.push(cx.elt('CalloutFoldMark', foldPos, foldPos + 1));
@@ -284,76 +292,56 @@ export const CalloutMark: MarkdownConfig = {
 
 				return cx.addElement(cx.elt('CalloutMark', pos, end, children));
 			},
-			before: 'Link',
-		},
-	],
+			before: 'Link'
+		}
+	]
 };
 
 /**
  * TMS-MDEditor 向けの Obsidian 独自記法拡張
  * この並びでパーサへ渡す。フロントマターをハイライトより先に解釈する
  */
-export const tmsMarkdownExtensions: MarkdownConfig[] = [
-	YamlFrontMatter,
-	Highlight,
-	WikiEmbed,
-	WikiLink,
-	CalloutMark,
-];
+export const tmsMarkdownExtensions: MarkdownConfig[] = [YamlFrontMatter, Highlight, WikiEmbed, WikiLink, CalloutMark];
 
 /** Obsidian 標準のコールアウト種別。正規化後の値だけを並べ、別名は含まない */
-export const CALLOUT_TYPES = [
-	'note',
-	'abstract',
-	'info',
-	'todo',
-	'tip',
-	'success',
-	'question',
-	'warning',
-	'failure',
-	'danger',
-	'bug',
-	'example',
-	'quote',
-] as const;
+export const CALLOUT_TYPES = ['note', 'abstract', 'info', 'todo', 'tip', 'success', 'question', 'warning', 'failure', 'danger', 'bug', 'example', 'quote'] as const;
 
 /**
  * 正規化後のコールアウト種別
  * 別名は CALLOUT_ALIASES を通したあと、このいずれかになる。未知は note
  */
-export type CalloutType = typeof CALLOUT_TYPES[number];
+export type CalloutType = (typeof CALLOUT_TYPES)[number];
 
 /** 別名から正規化種別への対応。Obsidian Help に合わせ、`fnq` も question として残す */
 const CALLOUT_ALIASES: Record<string, CalloutType> = {
-	note     : 'note',
-	abstract : 'abstract',
-	summary  : 'abstract',
-	tldr     : 'abstract',
-	info     : 'info',
-	todo     : 'todo',
-	tip      : 'tip',
-	hint     : 'tip',
+	note: 'note',
+	abstract: 'abstract',
+	summary: 'abstract',
+	tldr: 'abstract',
+	info: 'info',
+	todo: 'todo',
+	tip: 'tip',
+	hint: 'tip',
 	important: 'tip',
-	success  : 'success',
-	check    : 'success',
-	done     : 'success',
-	question : 'question',
-	help     : 'question',
-	faq      : 'question',
-	fnq      : 'question', // テスト文書の typo も question 扱い
-	warning  : 'warning',
-	caution  : 'warning',
+	success: 'success',
+	check: 'success',
+	done: 'success',
+	question: 'question',
+	help: 'question',
+	faq: 'question',
+	fnq: 'question', // テスト文書の typo も question 扱い
+	warning: 'warning',
+	caution: 'warning',
 	attention: 'warning',
-	failure  : 'failure',
-	fail     : 'failure',
-	missing  : 'failure',
-	danger   : 'danger',
-	error    : 'danger',
-	bug      : 'bug',
-	example  : 'example',
-	quote    : 'quote',
-	cite     : 'quote',
+	failure: 'failure',
+	fail: 'failure',
+	missing: 'failure',
+	danger: 'danger',
+	error: 'danger',
+	bug: 'bug',
+	example: 'example',
+	quote: 'quote',
+	cite: 'quote'
 };
 
 /**
@@ -385,6 +373,7 @@ export type CalloutInfo = {
  * @returns 正規化後の種別。別名も未知も、CALLOUT_TYPES のいずれか
  */
 export function normalizeCalloutType(raw: string): CalloutType {
+	// 比較用の小文字。大文字の種別も同じ別名に畳む。マップに無いときは note
 	const lower = raw.toLowerCase();
 	return CALLOUT_ALIASES[lower] ?? 'note';
 }
@@ -395,10 +384,12 @@ export function normalizeCalloutType(raw: string): CalloutType {
  * @returns `-` は collapsed、`+` は expanded、それ以外は none
  */
 export function foldDefaultFromMark(foldMark: string | undefined): CalloutFoldDefault {
+	// `-` は初期状態を折りたたみにする
 	if (foldMark === '-') {
 		return 'collapsed';
 	}
 
+	// `+` は初期状態を展開にする。記号が無い、または別の文字はこの分岐に入らない
 	if (foldMark === '+') {
 		return 'expanded';
 	}

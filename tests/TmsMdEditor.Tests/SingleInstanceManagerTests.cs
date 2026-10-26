@@ -20,15 +20,22 @@ public sealed class SingleInstanceManagerTests
 	[Fact]
 	public void Secondary_instance_forwards_startup_arguments_to_primary()
 	{
+		// 本番の単一インスタンスとぶつからない、このテストだけのスコープ
 		string scope = $"test-{Guid.NewGuid():N}";
+		// 両プロセスへ渡すログ。ファイルへは書かない
 		var logger = new Logger();
+		// 先にプライマリになる側。同じスコープの2つ目より前に作る
 		using var primary = new SingleInstanceManager(logger, scope);
+		// 後から同じスコープで起動した側。プライマリにはなれない
 		using var secondary = new SingleInstanceManager(logger, scope);
+		// 先のプロセスが受け取った起動引数。届く前は null
 		string[]? received = null;
+		// 受け取りを待つ合図。5秒以内にセットされなければ失敗する
 		using var receivedSignal = new ManualResetEventSlim();
 
 		Assert.True(primary.TryBecomePrimary());
 		Assert.False(secondary.TryBecomePrimary());
+		// 先のプロセスが受け取った引数を記録し、待ちを解く
 		primary.StartListening(args =>
 		{
 			received = args;

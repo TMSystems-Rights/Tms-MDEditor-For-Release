@@ -50,7 +50,9 @@ let notifyScheduled    = false;
  * @returns 先頭の言語名。言語名として読めないときは空文字
  */
 export function extractCodeLanguageName(info: string): string {
+	// 前後の空白を除いた CodeInfo。空白だけなら空文字で、言語名が無い
 	const trimmed = info.trim();
+	// 空なら言語名を読まない。パターンへ空文字を渡さない
 	if (!trimmed) {
 		return '';
 	}
@@ -65,17 +67,24 @@ export function extractCodeLanguageName(info: string): string {
  * @returns 言語名と隠す接頭辞の長さ。パターンに一致しないときは null
  */
 export function parseInlineCodeLanguagePrefix(content: string): InlineCodeLanguagePrefix | null {
+	// `{言語名}` に一致した先頭。形が違えば null
 	const match = INLINE_CODE_LANGUAGE_PATTERN.exec(content);
+	// 言語指定の形でなければ、隠す接頭辞は無い
 	if (!match) {
 		return null;
 	}
 
+	// 言語指定の直後。ここから空白だけを隠す対象にする。無ければ空文字
 	const afterLang = content.slice(match[0].length);
+	// 直後の半角スペースとタブの文字数。空白が無ければ 0 で、隠す長さは言語指定だけ
 	const spaces    = INLINE_CODE_PREFIX_SPACE_PATTERN.exec(afterLang)?.[0].length ?? 0;
 
+	// 言語名と、プレビューが隠す文字数
 	return {
-		language    : match[1],
-		prefixLength: match[0].length + spaces,
+		// 波括弧を除いた言語名。大文字小文字は本文のまま
+		language: match[1],
+		// 本文先頭から隠す文字数。言語指定と、その直後の空白を含む
+		prefixLength: match[0].length + spaces
 	};
 }
 
@@ -90,34 +99,58 @@ export function parseInlineCodeLanguagePrefix(content: string): InlineCodeLangua
  * @returns 本文の半開区間。CodeText が無いときは最初の CodeMark の直後から最後の CodeMark の直前まで。取れないときは空配列
  */
 export function collectInlineCodeContentRanges(node: SyntaxNode): Array<{ from: number; to: number }> {
+	// 開始側バッククォートの終端。まだ見ていなければ null で、本文の開始が決まらない
 	let firstMarkEnd: number | null                           = null;
+	// 最後に見たバッククォートの開始。終了マークが無ければ null
 	let lastMarkStart: number | null                          = null;
+	// CodeText 子の本文範囲。1 つでもあれば、マークからの推定は使わない
 	const codeTextRanges: Array<{ from: number; to: number }> = [];
 
 	node.cursor().iterate((child) => {
+		// バッククォート。最初の一つだけ終端を覚え、最後に見たものの開始を終了側にする
 		if (child.name === 'CodeMark') {
+			// まだ開始マークを見ていないときだけ終端を記録する。2 つ目以降は終了側の開始だけを更新する
 			if (firstMarkEnd === null) {
+				// 開始のバッククォートの直後。本文はこの位置から
 				firstMarkEnd = child.to;
 			}
 
+			// いま見たマークの先頭。最後に見たものが終了マークの開始になる
 			lastMarkStart = child.from;
 			return;
 		}
 
+		// 本文ノード。単純なインラインコードでは現れないことがある
 		if (child.name === 'CodeText') {
-			codeTextRanges.push({ from: child.from, to: child.to });
+			// CodeText の半開区間。文書オフセット
+			codeTextRanges.push({
+				// 本文先頭（文書オフセット、含む）
+				from: child.from,
+				// 本文末尾（文書オフセット、含まない）
+				to: child.to
+			});
 		}
 	});
 
+	// CodeText が 1 つでもあれば、その範囲だけを本文にする。マークからの推定は使わない
 	if (codeTextRanges.length > 0) {
 		return codeTextRanges;
 	}
 
+	// 開始か終了のマークが無い、または開始直後が終了マーク以上なら本文が空。いずれか一つでも空配列
 	if (firstMarkEnd === null || lastMarkStart === null || firstMarkEnd >= lastMarkStart) {
 		return [];
 	}
 
-	return [{ from: firstMarkEnd, to: lastMarkStart }];
+	// 開始マークの直後から、終了マークの直前まで
+	return [
+		{
+			// 本文先頭（文書オフセット、含む）
+			from: firstMarkEnd,
+			// 本文末尾（文書オフセット、含まない）
+			to: lastMarkStart
+		}
+	];
 }
 
 // ==============================================
@@ -131,7 +164,9 @@ export function collectInlineCodeContentRanges(node: SyntaxNode): Array<{ from: 
  * @returns カタログ上の説明。mermaid と未知の名前は null
  */
 export function resolveCodeLanguage(name: string): LanguageDescription | null {
+	// 前後の空白を除いた言語名。空なら解決しない
 	const trimmed = name.trim();
+	// 空、または mermaid なら入れ子言語にしない。mermaid は図描画の対象。どちらか一方でも null
 	if (!trimmed || trimmed.toLowerCase() === 'mermaid') {
 		return null;
 	}
@@ -146,17 +181,24 @@ export function resolveCodeLanguage(name: string): LanguageDescription | null {
  * @returns 読み込み済みの Language、または未ロードの LanguageDescription。言語が無いときは null
  */
 export function resolveFencedCodeLanguage(info: string): Language | LanguageDescription | null {
+	// カタログ上の説明。未知の名前や mermaid は null
 	const description = resolveCodeLanguage(extractCodeLanguageName(info));
+	// 言語が無ければ読み込みも始めない
 	if (!description) {
 		return null;
 	}
 
+	// 未ロードのときだけ動的 import を始める。済みなら読み込みを重ねない
 	if (!description.support) {
-		void description.load().then(() => {
-			scheduleCodeLanguageReady();
-		}).catch(() => {
-			// 未対応チャンクや動的 import 失敗では単色のままにする
-		});
+		// 読み込みが終わったら再描画を予約する。失敗時は通知せず単色のまま
+		void description
+			.load()
+			.then(() => {
+				scheduleCodeLanguageReady();
+			})
+			.catch(() => {
+				// 未対応チャンクや動的 import 失敗では単色のままにする
+			});
 	}
 
 	return description.support?.language ?? description;
@@ -177,20 +219,27 @@ export function getLoadedCodeLanguage(name: string): Language | null {
  * @returns 既にロードされていれば Language。読み込みを開始しただけのとき、または未知の名前は null
  */
 export function requestCodeLanguage(name: string): Language | null {
+	// カタログ上の説明。未知の名前や mermaid は null
 	const description = resolveCodeLanguage(name);
+	// 言語が無ければ読み込みを始めず、null を返す
 	if (!description) {
 		return null;
 	}
 
+	// 既にロード済みなら、その Language を返す。読み込みは始めない
 	if (description.support) {
 		return description.support.language;
 	}
 
-	void description.load().then(() => {
-		scheduleCodeLanguageReady();
-	}).catch(() => {
-		// 未対応チャンクや動的 import 失敗では単色のままにする
-	});
+	// 未ロードなら読み込みを始め、この場では null。成功したときだけ再描画を予約する
+	void description
+		.load()
+		.then(() => {
+			scheduleCodeLanguageReady();
+		})
+		.catch(() => {
+			// 未対応チャンクや動的 import 失敗では単色のままにする
+		});
 
 	return null;
 }
@@ -214,6 +263,7 @@ export function getCodeLanguageGeneration(): number {
  * @returns 購読を解除する関数。同じ listener だけを外す
  */
 export function subscribeCodeLanguageReady(listener: CodeLanguageReadyListener): () => void {
+	// 完了のたびにこの listener を呼ぶ。解除まで集合に残す
 	readyListeners.add(listener);
 	return () => {
 		readyListeners.delete(listener);
@@ -225,13 +275,18 @@ export function subscribeCodeLanguageReady(listener: CodeLanguageReadyListener):
  * 同じマイクロタスク内の複数完了は 1 回にまとめ、世代番号を 1 だけ増やす
  */
 function scheduleCodeLanguageReady(): void {
+	// 同じマイクロタスクで既に予約済みなら、世代を二重に増やさない
 	if (notifyScheduled) {
 		return;
 	}
 
+	// この予約が走るまで、追加の完了は通知を足さない
 	notifyScheduled = true;
+	// このマイクロタスクの終わりに、購読者へ 1 回だけ通知する
 	queueMicrotask(() => {
+		// 予約を消化した。次の完了は改めて予約できる
 		notifyScheduled     = false;
+		// 購読側が前回描画と比較する世代。この通知で 1 だけ増やす
 		languageGeneration += 1;
 		for (const listener of [...readyListeners]) {
 			listener();

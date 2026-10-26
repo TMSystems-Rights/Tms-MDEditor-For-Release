@@ -56,6 +56,7 @@ public sealed class PortableConfigStoreTests : IDisposable
 	public void Dispose()
 	{
 		PortableRuntime.ResetForTests();
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_exeDir))
 		{
 			Directory.Delete(_exeDir, recursive: true);
@@ -68,6 +69,7 @@ public sealed class PortableConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_uses_flattened_data_dir_next_to_exe()
 	{
+		// 初回読込の成否。失敗時は Success が false で Message に理由がある
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -84,6 +86,7 @@ public sealed class PortableConfigStoreTests : IDisposable
 	[Fact]
 	public void Load_ignores_non_portable_data_dir_in_bootstrap()
 	{
+		// ブートストラップが指す、exe 隣ではない data。ポータブル中は使わない
 		string foreign = Path.Combine(_exeDir, "foreign-data");
 		Directory.CreateDirectory(foreign);
 		Directory.CreateDirectory(AppPaths.AppDataRoot);
@@ -93,6 +96,7 @@ public sealed class PortableConfigStoreTests : IDisposable
 			{"schemaVersion":1,"dataDir":"{{foreign.Replace("\\", "\\\\")}}"}
 			""");
 
+		// 別ディレクトリを指すブートストラップを無視した読込結果
 		LoadConfigResult result = _configStore.Load();
 
 		Assert.True(result.Success, result.Message);
@@ -108,6 +112,7 @@ public sealed class PortableConfigStoreTests : IDisposable
 	public void MigrateDataDir_is_rejected()
 	{
 		_configStore.Load();
+		// 別ディレクトリへの移動結果。ポータブル中は Success が false
 		MigrateDataDirResult result = _configStore.MigrateDataDir(Path.Combine(_exeDir, "elsewhere"));
 
 		Assert.False(result.Success);

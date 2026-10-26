@@ -36,12 +36,15 @@ internal static class WindowIcon
 	{
 		try
 		{
+			// exe 隣の icon.ico。実在しなければ exe の関連アイコンへ落ちる
 			string iconPath = Path.Combine(baseDirectory, FileName);
+			// 隣のファイルがあるときだけそれを読む。壊れていれば catch で null
 			if (File.Exists(iconPath))
 			{
 				return new Icon(iconPath);
 			}
 
+			// パスが空白でなく、exe が実在するときだけ関連アイコンを読む。どちらかが欠けても入らない
 			if (!string.IsNullOrWhiteSpace(executablePath) && File.Exists(executablePath))
 			{
 				return Icon.ExtractAssociatedIcon(executablePath);

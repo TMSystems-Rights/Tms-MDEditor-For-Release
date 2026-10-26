@@ -24,6 +24,7 @@ internal static class LaunchArguments
 	/// <returns>本体へ渡す引数。入力と同じ件数で、存在しないパスとフラグは元の文字列</returns>
 	public static IReadOnlyList<string> Normalize(IReadOnlyList<string> args)
 	{
+		// 本体へ渡す引数。件数は入力と同じ。要素は絶対パスか、変換しなかった元の文字列
 		var forwarded = new List<string>(args.Count);
 		foreach (string arg in args)
 		{
@@ -40,7 +41,9 @@ internal static class LaunchArguments
 	/// <returns>本体へ渡す 1 件。ファイルでなければ <paramref name="arg"/> のまま</returns>
 	private static string NormalizeOne(string arg)
 	{
+		// 前後の引用符を外した判定用。空なら元の引数を返す
 		string trimmed = arg.Trim('"');
+		// 引用符を外すと空になるとき。空文字はファイルではないので受け取った文字列を残す
 		if (trimmed.Length == 0)
 		{
 			return arg;
@@ -48,6 +51,7 @@ internal static class LaunchArguments
 
 		try
 		{
+			// 実在するファイルのときだけ絶対パスにする。無いときは元の文字列を残す
 			if (File.Exists(trimmed))
 			{
 				return Path.GetFullPath(trimmed);

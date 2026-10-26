@@ -61,6 +61,7 @@ describe('ペインエディタのスクロールレイアウト', () => {
 	});
 
 	it('空行の行末記号をBRの次行へ流さない', () => {
+		// 空行の行末記号。BR だけの行と、その ::after の両方が対象
 		const emptyEolLine = '.cm-eol-marker-line:has(> br:only-child)';
 		expect(shellCss).toContain(`${emptyEolLine} {`);
 		expect(shellCss).toContain(`${emptyEolLine}::after {`);

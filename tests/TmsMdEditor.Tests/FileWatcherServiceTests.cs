@@ -21,15 +21,21 @@ public sealed class FileWatcherServiceTests
 	[Fact]
 	public void Deleted_file_is_reported_as_deleted()
 	{
+		// 監視対象を置く一時ディレクトリ。テストの最後に残っていれば削除する
 		string directory = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-watch-{Guid.NewGuid():N}");
 		Directory.CreateDirectory(directory);
+		// 監視へ載せる sample.md。最初の中身は before
 		string filePath = Path.Combine(directory, "sample.md");
 		File.WriteAllText(filePath, "before");
 		try
 		{
+			// このファイルだけを追跡する監視。ログ文面は見ない
 			using var watcher = new FileWatcherService(new Logger());
+			// 削除通知を待つ合図。5秒でセットされなければ失敗する
 			using var signal = new ManualResetEventSlim();
+			// 届いた通知。届く前は null
 			ExternalFileChange? received = null;
+			// 届いた通知を記録して待ちを解く。1件も来なければ received は null のまま
 			watcher.FileChanged += change =>
 			{
 				received = change;
@@ -46,6 +52,7 @@ public sealed class FileWatcherServiceTests
 		}
 		finally
 		{
+			// 監視ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 			if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
 		}
 	}
@@ -56,19 +63,26 @@ public sealed class FileWatcherServiceTests
 	[Fact]
 	public void Save_does_not_report_deleted_for_watched_file()
 	{
+		// 監視対象を置く一時ディレクトリ。テストの最後に残っていれば削除する
 		string directory = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-watch-{Guid.NewGuid():N}");
 		Directory.CreateDirectory(directory);
+		// 抑止中に上書きする sample.md。最初の中身は before
 		string filePath = Path.Combine(directory, "sample.md");
 		File.WriteAllText(filePath, "before");
 		try
 		{
+			// このファイルだけを追跡する監視。ログ文面は見ない
 			using var watcher = new FileWatcherService(new Logger());
+			// 届いた通知の蓄積。抑止が効けば空のまま
 			var received = new List<ExternalFileChange>();
+			// 届いた通知を捨てずに貯める
 			watcher.FileChanged += received.Add;
 			watcher.Track(filePath);
 			watcher.SuppressNextChange(filePath);
 
+			// 抑止中に上書きする保存。ログ文面は見ない
 			var fileService = new FileService(new Logger());
+			// 上書きの成否。失敗すると Success が false で、通知の有無は見ない
 			SaveFileResult saved = fileService.Save(filePath, "after", TextEncodingKind.Utf8, unifyEol: null);
 
 			Assert.True(saved.Success);
@@ -79,6 +93,7 @@ public sealed class FileWatcherServiceTests
 		}
 		finally
 		{
+			// 監視ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 			if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
 		}
 	}
@@ -89,14 +104,19 @@ public sealed class FileWatcherServiceTests
 	[Fact]
 	public void SuppressNextChange_covers_delete_and_recreate_in_window()
 	{
+		// 監視対象を置く一時ディレクトリ。テストの最後に残っていれば削除する
 		string directory = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-watch-{Guid.NewGuid():N}");
 		Directory.CreateDirectory(directory);
+		// 抑止中に削除して作り直す sample.md。最初の中身は before
 		string filePath = Path.Combine(directory, "sample.md");
 		File.WriteAllText(filePath, "before");
 		try
 		{
+			// このファイルだけを追跡する監視。ログ文面は見ない
 			using var watcher = new FileWatcherService(new Logger());
+			// 届いた通知の蓄積。抑止が効けば空のまま
 			var received = new List<ExternalFileChange>();
+			// 届いた通知を捨てずに貯める
 			watcher.FileChanged += received.Add;
 			watcher.Track(filePath);
 			watcher.SuppressNextChange(filePath);
@@ -110,6 +130,7 @@ public sealed class FileWatcherServiceTests
 		}
 		finally
 		{
+			// 監視ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 			if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
 		}
 	}
@@ -120,15 +141,21 @@ public sealed class FileWatcherServiceTests
 	[Fact]
 	public void Recreated_file_is_reported_as_changed_not_deleted()
 	{
+		// 監視対象を置く一時ディレクトリ。テストの最後に残っていれば削除する
 		string directory = Path.Combine(Path.GetTempPath(), $"tms-mdeditor-watch-{Guid.NewGuid():N}");
 		Directory.CreateDirectory(directory);
+		// 抑止せずに削除して作り直す sample.md。最初の中身は before
 		string filePath = Path.Combine(directory, "sample.md");
 		File.WriteAllText(filePath, "before");
 		try
 		{
+			// このファイルだけを追跡する監視。ログ文面は見ない
 			using var watcher = new FileWatcherService(new Logger());
+			// 変更通知を待つ合図。5秒でセットされなければ失敗する
 			using var signal = new ManualResetEventSlim();
+			// 届いた通知。届く前は null
 			ExternalFileChange? received = null;
+			// 届いた通知を記録して待ちを解く。1件も来なければ received は null のまま
 			watcher.FileChanged += change =>
 			{
 				received = change;
@@ -146,6 +173,7 @@ public sealed class FileWatcherServiceTests
 		}
 		finally
 		{
+			// 監視ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 			if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
 		}
 	}

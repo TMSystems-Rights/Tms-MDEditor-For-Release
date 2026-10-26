@@ -13,6 +13,7 @@ import type { EolKind } from '../types/app';
  * @returns `CRLF` または `LF(混在)` のようなラベル
  */
 export function formatEolLabel(eol: EolKind, eolMixed: boolean): string {
+	// 大文字の種別名。混在のときだけこの後に印を足す
 	const base = eol.toUpperCase();
 	return eolMixed ? `${base}(混在)` : base;
 }
@@ -25,12 +26,15 @@ export function formatEolLabel(eol: EolKind, eolMixed: boolean): string {
  * @returns 改行を統一した全文。本文の文字は変えない
  */
 export function normalizeEol(text: string, target: EolKind): string {
+	// CR と CRLF をいったん LF に揃えた全文。この後の置換の入力になる
 	const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
+	// 統一先が CRLF のときだけ、LF を 2 文字の改行へ戻す
 	if (target === 'crlf') {
 		return normalized.replace(/\n/g, '\r\n');
 	}
 
+	// 統一先が CR のときだけ、LF を CR へ戻す。LF 指定は下でそのまま返す
 	if (target === 'cr') {
 		return normalized.replace(/\n/g, '\r');
 	}
@@ -45,14 +49,20 @@ export function normalizeEol(text: string, target: EolKind): string {
  * @returns `primary` は主要改行、`mixed` は複数種があるか
  */
 export function analyzeEol(text: string): { primary: EolKind; mixed: boolean } {
+	// CRLF の個数。CR の直後が LF のときだけ増やす
 	let crlfCount = 0;
+	// LF 単独の個数。CRLF の LF は数えない
 	let lfCount   = 0;
+	// CR 単独の個数。次が LF の CR は数えない
 	let crCount   = 0;
 
 	for (let index = 0; index < text.length; index += 1) {
+		// いま見ている文字。改行以外はこの周回では数えない
 		const current = text[index];
 
+		// CR の開始。直後が LF なら CRLF、そうでなければ CR 単独
 		if (current === '\r') {
+			// 範囲内かつ次が LF のときだけ CRLF。末尾の CR や次が LF でないときは入らない
 			if (index + 1 < text.length && text[index + 1] === '\n') {
 				crlfCount += 1;
 				index     += 1;
@@ -63,25 +73,48 @@ export function analyzeEol(text: string): { primary: EolKind; mixed: boolean } {
 			continue;
 		}
 
+		// LF 単独。CRLF の LF は直前の CR 側で消費済み
 		if (current === '\n') {
 			lfCount += 1;
 		}
 	}
 
+	// 種別ごとの件数。0 件の種別は主要候補から外す
 	const counts = [
-		{ kind: 'crlf' as const, count: crlfCount },
-		{ kind: 'lf' as const, count: lfCount },
-		{ kind: 'cr' as const, count: crCount },
+		// CRLF の集計
+		{
+			// 比較する改行種別
+			kind: 'crlf' as const,
+			// 本文中の CRLF の数。0 なら候補から外す
+			count: crlfCount
+		},
+		// LF 単独の集計
+		{
+			// 比較する改行種別
+			kind: 'lf' as const,
+			// 本文中の LF 単独の数。0 なら候補から外す
+			count: lfCount
+		},
+		// CR 単独の集計
+		{
+			// 比較する改行種別
+			kind: 'cr' as const,
+			// 本文中の CR 単独の数。0 なら候補から外す
+			count: crCount
+		}
 	];
 
+	// 1 件以上ある種別。空なら改行が無く、主要は CRLF にする
 	const present = counts.filter((entry) => entry.count > 0);
-	const primary = present.length === 0
-		? 'crlf'
-		: present.sort((left, right) => right.count - left.count)[0].kind;
+	// 件数が最大の種別。改行が無いときは使わず CRLF
+	const primary = present.length === 0 ? 'crlf' : present.sort((left, right) => right.count - left.count)[0].kind;
 
+	// 主要改行と、混在しているか
 	return {
+		// 最も多い改行。1 件も無いときは CRLF
 		primary,
-		mixed: present.length > 1,
+		// 2 種以上あるときだけ true。1 種や 0 種は false
+		mixed: present.length > 1
 	};
 }
 
@@ -93,14 +126,19 @@ export function analyzeEol(text: string): { primary: EolKind; mixed: boolean } {
  */
 export function formatEncodingLabel(encoding: string): string {
 	switch (encoding) {
+		// BOM の無い UTF-8
 		case 'utf8':
 			return 'UTF-8';
+		// BOM 付き UTF-8。BOM 無しとは表示を分ける
 		case 'utf8Bom':
 			return 'UTF-8(BOM)';
+		// リトルエンディアンの UTF-16
 		case 'utf16Le':
 			return 'UTF-16LE';
+		// ビッグエンディアンの UTF-16
 		case 'utf16Be':
 			return 'UTF-16BE';
+		// Windows の日本語コードページ
 		case 'cp932':
 			return 'CP932';
 		default:
@@ -116,6 +154,7 @@ export function formatEncodingLabel(encoding: string): string {
  * @returns 閾値以上なら true
  */
 export function isLargeFile(fileSizeBytes: number | undefined, thresholdBytes: number): boolean {
+	// サイズが数値でない、または NaN。未取得を大ファイルにしない
 	if (typeof fileSizeBytes !== 'number' || Number.isNaN(fileSizeBytes)) {
 		return false;
 	}
@@ -130,10 +169,12 @@ export function isLargeFile(fileSizeBytes: number | undefined, thresholdBytes: n
  * @returns タブに出すファイル名。未保存は `無題`
  */
 export function buildTabTitle(filePath: string | null): string {
+	// パスが無い未保存は、ファイル名を取れない
 	if (!filePath) {
 		return '無題';
 	}
 
+	// 区切りで分けたパス要素。空の末尾ならファイル名にならない
 	const segments = filePath.split(/[/\\]/);
 	return segments[segments.length - 1] || '無題';
 }
@@ -147,7 +188,9 @@ export function buildTabTitle(filePath: string | null): string {
  * @returns `*パス - TMS-MDEditor` の形のウィンドウタイトル
  */
 export function buildWindowTitle(tabTitle: string, dirty: boolean, filePath: string | null = null): string {
+	// 未保存なら先頭の *。保存済みは空文字
 	const prefix = dirty ? '*' : '';
+	// パスがあればパス。null または空ならタブ名へ落とす
 	const title  = filePath || tabTitle;
 	return `${prefix}${title} - TMS-MDEditor`;
 }

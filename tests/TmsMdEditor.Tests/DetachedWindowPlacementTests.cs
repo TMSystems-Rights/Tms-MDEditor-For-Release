@@ -20,6 +20,7 @@ public sealed class DetachedWindowPlacementTests
 	[Fact]
 	public void CalculateLocation_places_tab_near_drop_point()
 	{
+		// ドロップ (900, 500)、ウィンドウ 800×600、作業領域 1920×1080 から決めた左上。単位はピクセル
 		Point location = DetachedWindowPlacement.CalculateLocation(
 			new Point(900, 500),
 			new Size(800, 600),
@@ -40,6 +41,7 @@ public sealed class DetachedWindowPlacementTests
 	[InlineData(2500, 1400, 1120, 480)]
 	public void CalculateLocation_clamps_window_to_working_area(int dropX, int dropY, int expectedX, int expectedY)
 	{
+		// 画面外のドロップを、1920×1080 の作業領域内へ収めた左上。単位はピクセル。ウィンドウは 800×600
 		Point location = DetachedWindowPlacement.CalculateLocation(
 			new Point(dropX, dropY),
 			new Size(800, 600),

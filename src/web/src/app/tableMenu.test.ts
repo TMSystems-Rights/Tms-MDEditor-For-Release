@@ -8,12 +8,12 @@ import { buildTableMenuEnabledState, type TableMenuRuntimeContext } from './tabl
 
 /** 表の外にいるライブプレビューのカーソル。各テストが必要な項目だけ上書きする */
 const base: TableMenuRuntimeContext = {
-	hasView       : true,
-	viewMode      : 'live-preview',
-	readOnly      : false,
+	hasView: true,
+	viewMode: 'live-preview',
+	readOnly: false,
 	inMarkdownTable: false,
-	structure     : null,
-	cells         : null,
+	structure: null,
+	cells: null
 };
 
 describe('buildTableMenuEnabledState', () => {
@@ -29,11 +29,11 @@ describe('buildTableMenuEnabledState', () => {
 			...base,
 			inMarkdownTable: true,
 			structure: {
-				axis            : 'row',
-				canDelete       : true,
-				canMovePrevious : false,
-				canMoveNext     : true,
-			},
+				axis: 'row',
+				canDelete: true,
+				canMovePrevious: false,
+				canMoveNext: true
+			}
 		});
 		expect(state.insertTable).toBe(false);
 		expect(state.insertTableRowsBefore).toBe(true);
@@ -47,7 +47,7 @@ describe('buildTableMenuEnabledState', () => {
 		const state = buildTableMenuEnabledState({
 			...base,
 			inMarkdownTable: true,
-			cells: { canMerge: true, canUnmerge: false },
+			cells: { canMerge: true, canUnmerge: false }
 		});
 		expect(state.mergeTableCells).toBe(true);
 		expect(state.unmergeTableCells).toBe(false);
@@ -57,14 +57,14 @@ describe('buildTableMenuEnabledState', () => {
 
 	it.each([
 		{ viewMode: 'source' as const, readOnly: false },
-		{ viewMode: 'live-preview' as const, readOnly: true },
+		{ viewMode: 'live-preview' as const, readOnly: true }
 	])('編集不能時は全項目を無効にする: $viewMode readOnly=$readOnly', ({ viewMode, readOnly }) => {
 		const state = buildTableMenuEnabledState({
 			...base,
 			viewMode,
 			readOnly,
 			structure: { axis: 'column', canDelete: true, canMovePrevious: true, canMoveNext: true },
-			cells    : { canMerge: true, canUnmerge: true },
+			cells: { canMerge: true, canUnmerge: true }
 		});
 		expect(Object.values(state).every((enabled) => !enabled)).toBe(true);
 	});

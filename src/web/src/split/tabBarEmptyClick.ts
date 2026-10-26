@@ -52,18 +52,13 @@ export function shouldOpenUntitledTabOnTabBarDoubleClick(hit: TabBarDoubleClickH
  * @param clientY - 判定するビューポート Y
  * @returns 横スクロールバー上なら true
  */
-export function isPointInHorizontalScrollbar(
-	box: HorizontalScrollbarBoxLike,
-	clientX: number,
-	clientY: number
-): boolean {
+export function isPointInHorizontalScrollbar(box: HorizontalScrollbarBoxLike, clientX: number, clientY: number): boolean {
+	// 可視領域の下端。ここから容器下端までが横バーの帯。単位は CSS ピクセル
 	const scrollbarTop = box.top + box.clientHeight;
+	// 帯の高さが 0.5px 未満。端の丸めでバーがあることにしない
 	if (scrollbarTop >= box.bottom - 0.5) {
 		return false;
 	}
 
-	return clientX >= box.left
-		&& clientX <= box.right
-		&& clientY >= scrollbarTop
-		&& clientY <= box.bottom;
+	return clientX >= box.left && clientX <= box.right && clientY >= scrollbarTop && clientY <= box.bottom;
 }

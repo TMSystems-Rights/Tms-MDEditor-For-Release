@@ -5,13 +5,13 @@
  */
 
 /** アウトラインの初期幅。単位は CSS ピクセル */
-export const DEFAULT_OUTLINE_WIDTH        = 300;
+export const DEFAULT_OUTLINE_WIDTH = 300;
 
 /** アウトライン幅の下限。単位は CSS ピクセル */
-export const MIN_OUTLINE_WIDTH            = 180;
+export const MIN_OUTLINE_WIDTH = 180;
 
 /** リサイズ後も本文側に残す最低幅。単位は CSS ピクセル */
-export const MIN_EDITOR_WIDTH             = 240;
+export const MIN_EDITOR_WIDTH = 240;
 
 /** キーボードで幅を変えるときの 1 ステップ。単位は CSS ピクセル */
 export const OUTLINE_KEYBOARD_RESIZE_STEP = 10;
@@ -31,15 +31,9 @@ export type OutlineResizeSide = 'left' | 'right';
  * @param side - アウトラインの配置。左端起点か右端起点かを決める
  * @returns 下限と本文の最低幅を満たすアウトライン幅。単位は CSS ピクセル
  */
-export function calculateOutlineWidth(
-	pointerClientX: number,
-	containerLeft: number,
-	containerWidth: number,
-	side: OutlineResizeSide,
-): number {
-	const rawWidth = side === 'left'
-		? pointerClientX - containerLeft
-		: containerLeft + containerWidth - pointerClientX;
+export function calculateOutlineWidth(pointerClientX: number, containerLeft: number, containerWidth: number, side: OutlineResizeSide): number {
+	// 左配置はポインターまでの幅、右配置は右端からポインターまでの幅。単位は CSS ピクセル
+	const rawWidth = side === 'left' ? pointerClientX - containerLeft : containerLeft + containerWidth - pointerClientX;
 	return clampOutlineWidth(rawWidth, containerWidth);
 }
 
@@ -51,6 +45,7 @@ export function calculateOutlineWidth(
  * @returns 整数に丸めた幅。単位は CSS ピクセル
  */
 export function clampOutlineWidth(width: number, containerWidth: number): number {
+	// 本文の最低幅を残した上限。容器が狭くても下限より小さくしない。単位は CSS ピクセル
 	const maxWidth = Math.max(MIN_OUTLINE_WIDTH, Math.floor(containerWidth - MIN_EDITOR_WIDTH));
 	return Math.round(Math.min(maxWidth, Math.max(MIN_OUTLINE_WIDTH, width)));
 }

@@ -70,10 +70,12 @@ internal sealed class ClipboardApi
 	/// <returns>書けたときの ok。クリップボードが使えないときの例外はそのまま出る</returns>
 	public object WriteText(JsonElement paramsElement)
 	{
+		// 書き込む Unicode テキスト。プロパティが無い、または null のときは空文字で、クリップボードを空にする
 		string text = paramsElement.TryGetProperty(BridgeProperty.Text, out JsonElement textElement)
 			? textElement.GetString() ?? string.Empty
 			: string.Empty;
 
+		// 空文字のとき。テキストを残さずクリップボードを空にする
 		if (text.Length == 0)
 		{
 			Clipboard.Clear();
@@ -103,10 +105,12 @@ internal sealed class ClipboardApi
 			// ----------------------------------------------
 			// プレーンモードの貼り付け
 			// ---------------------------------------------
+			// true のとき Unicode テキストだけを返す。mode がオブジェクトとして無く、plain でなければ false。条件が一つでも欠けると false
 			bool plain = paramsElement.ValueKind == JsonValueKind.Object
 				&& paramsElement.TryGetProperty(BridgeProperty.Mode, out JsonElement modeElement)
 				&& string.Equals(modeElement.GetString(), "plain", StringComparison.OrdinalIgnoreCase);
 
+			// プレーン指定のとき。HTML と画像は解釈せず、Unicode テキストを返す
 			if (plain)
 			{
 				// プレーン貼り付けではHTML・画像の解釈を一切行わず、Unicodeテキストを優先する
@@ -116,26 +120,34 @@ internal sealed class ClipboardApi
 			// ----------------------------------------------
 			// HTML・画像・表の貼り付け
 			// ---------------------------------------------
+			// 既知の形式から読んだ HTML。どれも取れなければ空文字で、表判定は形式名だけに頼る
 			string html        = ReadHtml();
+			// true なら表計算のクリップボード。同時に載る画像ファイルより表を先に扱う
 			bool spreadsheet   = IsSpreadsheetClipboard(html);
 			// Excelは画像形式も同時に載せるため、表と判定した場合はファイル貼り付けを先取りしない
+			// 表計算ではなく、かつ画像ファイルを取り込めたとき。fileResult はその埋め込み。片方でも欠けると表とテキストへ進む
 			if (!spreadsheet && TryPasteImageFiles(out PasteForEditorResult fileResult))
 			{
 				return fileResult;
 			}
 
 			// ----- HTML の表の貼り付け -----
+			// HTML に表があるとき。無ければ表計算の代替かテキストへ進む
 			if (ClipboardHtmlTableConverter.ContainsTable(html))
 			{
 				// 表内画像は先に添付先へ保存し、セル内容をローカルWiki埋め込みへ置き換える
+				// 失敗理由。null のあいだはセルの置換を続ける。入ったあとは表全体を失敗にする
 				string? imageError = null;
+				// セル画像を Wiki 埋め込みへ置き換えた Markdown。空なら表としては使わない
 				string markdown    = ClipboardHtmlTableConverter.ToMarkdown(html, src =>
 				{
+					// 先のセルで保存に失敗しているとき。以降のセルは取り込まない
 					if (imageError is not null)
 					{
 						return null;
 					}
 
+					// このセルの画像を保存できないとき。markup は null、error は理由。保存できたときは埋め込みを返す
 					if (!TrySaveHtmlImage(src, out string? markup, out string? error))
 					{
 						imageError = error;
@@ -144,11 +156,13 @@ internal sealed class ClipboardApi
 
 					return markup;
 				});
+				// 表内画像の保存に失敗したとき。表の Markdown は返さない
 				if (imageError is not null)
 				{
 					return Fail(imageError);
 				}
 
+				// 表の Markdown が 1 文字以上あるとき。空なら次の手段へ進む
 				if (markdown.Length > 0)
 				{
 					return TextResult(markdown, "table");
@@ -156,6 +170,7 @@ internal sealed class ClipboardApi
 			}
 
 			// ----- 表計算形式の貼り付け -----
+			// 表計算で、かつ HTML 表から Markdown を作れなかったときの代替。sheetResult は TSV か画像の表
 			if (spreadsheet && TryPasteSpreadsheetFallback(out PasteForEditorResult sheetResult))
 			{
 				// HTML表を取得できないExcelデータは、TSVまたは画像から可能な限り表を復元する
@@ -163,25 +178,31 @@ internal sealed class ClipboardApi
 			}
 
 			// ----- 特殊形式を処理できなかった場合は、一般テキストを最も安全なフォールバックにする -----
+			// Unicode テキスト。空白だけなら画像へ進む
 			string text = ReadText();
+			// 空白でないテキストがあるとき。表や画像よりこちらを挿入する
 			if (!string.IsNullOrWhiteSpace(text))
 			{
 				return TextResult(text, "text");
 			}
 
+			// 添付フォルダを解決できないとき。folder は空、folderError は理由。解決できたときは画像の保存へ進む
 			if (!TryResolveAttachmentFolder(out string folder, out string? folderError))
 			{
 				return Fail(folderError ?? "貼り付け画像の保存先が不正です。");
 			}
 
+			// PNG バイトを取れたとき。imageBytes が空なら empty を返す
 			if (TryReadClipboardImage(out byte[] imageBytes))
 			{
 				// 生画像は添付ファイルとして保存し、本文には実体を埋め込まず参照だけを挿入する
+				// 上限バイトを超えるとき。MB 単位のメッセージにして保存しない
 				if (imageBytes.LongLength > FileService.MaxImageBytes)
 				{
 					return Fail($"画像サイズが上限（{FileService.MaxImageBytes / (1024 * 1024)}MB）を超えています。");
 				}
 
+				// 上限内の PNG。保存したパスは Wiki 埋め込みにする
 				string saved = _appContext.FileService.SaveImageCopy(
 					folder,
 					imageBytes,
@@ -212,17 +233,21 @@ internal sealed class ClipboardApi
 	/// <returns>HTML 文字列。無ければ空文字</returns>
 	private static string ReadHtml()
 	{
+		// クリップボードの生データ。取得できないときは null で、Unicode の HTML テキストへ落ちる
 		IDataObject? data = Clipboard.GetDataObject();
+		// 生データがあるとき。形式名を自動変換させず、既知の HTML 形式を順に試す
 		if (data is not null)
 		{
 			// Officeやブラウザで形式名が異なるため、自動変換させず既知のHTML形式を順に試す
 			foreach (string format in new[] { DataFormats.Html, "HTML Format", "text/html" })
 			{
+				// その形式が自動変換なしで存在するときだけ読む。無い形式は次へ進む
 				if (!data.GetDataPresent(format, autoConvert: false))
 				{
 					continue;
 				}
 
+				// 1 文字以上の HTML を取り出せたとき。空や別の型は次の形式を試す
 				if (TryReadHtmlPayload(data.GetData(format), out string html) && html.Length > 0)
 				{
 					return html;
@@ -245,12 +270,14 @@ internal sealed class ClipboardApi
 	private static bool TryReadHtmlPayload(object? raw, out string html)
 	{
 		html = string.Empty;
+		// 文字列のとき。末尾の NUL を除き、1 文字以上なら成功
 		if (raw is string text)
 		{
 			html = text.TrimEnd('\0');
 			return html.Length > 0;
 		}
 
+		// ストリームかバイト列で、かつ長さが 1 以上のときだけ復号する。どちらかが欠けると失敗
 		if (!TryCopyStreamBytes(raw, out byte[] bytes) || bytes.Length == 0)
 		{
 			return false;
@@ -268,13 +295,16 @@ internal sealed class ClipboardApi
 	/// <returns>末尾の NUL を除いた HTML</returns>
 	private static string DecodeClipboardHtmlBytes(byte[] bytes)
 	{
+		// 復号を始める位置。バイト。BOM があるときは 3
 		int offset = 0;
+		// 長さが 3 以上で、かつ先頭が EF BB BF のとき。一つでも欠けると offset は 0 のまま
 		if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
 		{
 			offset = 3;
 		}
 
 		// 一部アプリはHTMLをUTF-16LEストリームで渡すため、先頭文字のゼロ交互配置で判定する
+		// BOM の後ろに Version の V と e が UTF-16LE で並ぶとき。長さが足りない、または並びが違うと UTF-8 として読む
 		if (offset + 3 < bytes.Length
 			&& bytes[offset] == (byte)'V'
 			&& bytes[offset + 1] == 0
@@ -295,11 +325,14 @@ internal sealed class ClipboardApi
 	/// <returns>表計算のクリップボードなら true</returns>
 	private static bool IsSpreadsheetClipboard(string html)
 	{
+		// 形式名の一覧を取る生データ。無いときは HTML の見た目だけで判定する
 		IDataObject? data = Clipboard.GetDataObject();
+		// 生データがあるとき。自動変換で増えた形式名は見ない
 		if (data is not null)
 		{
 			foreach (string format in data.GetFormats(autoConvert: false))
 			{
+				// 表計算の形式名のとき。HTML が空でも true
 				if (IsSpreadsheetFormat(format))
 				{
 					return true;
@@ -334,12 +367,23 @@ internal sealed class ClipboardApi
 	/// <returns>表かエラーを結果に入れたとき true</returns>
 	private bool TryPasteSpreadsheetFallback(out PasteForEditorResult result)
 	{
-		result = new PasteForEditorResult { Ok = true, Kind = "empty" };
+		// まだ中身が無い成功の初期値。画像も表も作れなければこの空のまま false を返す
+		result = new PasteForEditorResult
+		{
+			// true は例外ではない。中身が無いだけの初期値
+			Ok = true,
+			// empty は未確定。表や画像ができたときに差し替える
+			Kind = "empty",
+		};
 		// まずセル構造を保持しやすいタブ区切りテキストを使う
+		// Unicode テキスト。空白だけなら画像の 1 セル表へ進む
 		string text = ReadText();
+		// 空白でないテキストがあるとき。TSV として表にできるか見る
 		if (!string.IsNullOrWhiteSpace(text))
 		{
+			// タブ区切りから作った表。空なら画像へ進む
 			string markdown = ClipboardHtmlTableConverter.TsvToMarkdown(text);
+			// 表が 1 文字以上あるとき。結果を表にして true
 			if (markdown.Length > 0)
 			{
 				result = TextResult(markdown, "table");
@@ -348,23 +392,27 @@ internal sealed class ClipboardApi
 		}
 
 		// テキストがない場合だけ、Excelが提供する表の画像表現を1セル表として残す
+		// 画像バイトを取れないとき。表もエラーも作らず false
 		if (!TryReadClipboardImage(out byte[] imageBytes))
 		{
 			return false;
 		}
 
+		// 添付フォルダを解決できないとき。エラー結果にして true。folder は空、folderError は理由
 		if (!TryResolveAttachmentFolder(out string folder, out string? folderError))
 		{
 			result = Fail(folderError ?? "貼り付け画像の保存先が不正です。");
 			return true;
 		}
 
+		// 上限バイトを超えるとき。保存せずエラー結果で true
 		if (imageBytes.LongLength > FileService.MaxImageBytes)
 		{
 			result = Fail($"画像サイズが上限（{FileService.MaxImageBytes / (1024 * 1024)}MB）を超えています。");
 			return true;
 		}
 
+		// 上限内の表画像。1 セルの表にして返す
 		string saved = _appContext.FileService.SaveImageCopy(
 			folder,
 			imageBytes,
@@ -397,48 +445,68 @@ internal sealed class ClipboardApi
 	/// <returns>埋め込みかエラーを結果に入れたとき true</returns>
 	private bool TryPasteImageFiles(out PasteForEditorResult result)
 	{
-		result = new PasteForEditorResult { Ok = true, Kind = "empty" };
+		// まだ中身が無い成功の初期値。画像が 1 つも無ければこの空のまま false を返す
+		result = new PasteForEditorResult
+		{
+			// true は例外ではない。中身が無いだけの初期値
+			Ok = true,
+			// empty は未確定。画像をまとめたときに image へ差し替える
+			Kind = "empty",
+		};
+		// ファイルドロップが無いとき。画像ファイルとしては扱わない
 		if (!Clipboard.ContainsFileDropList())
 		{
 			return false;
 		}
 
+		// 添付フォルダを解決できないとき。エラー結果で true。folder は空、folderError は理由
 		if (!TryResolveAttachmentFolder(out string folder, out string? folderError))
 		{
 			result = Fail(folderError ?? "貼り付け画像の保存先が不正です。");
 			return true;
 		}
 
+		// ドロップされたパス一覧。空の要素は無視する
 		StringCollection files = Clipboard.GetFileDropList();
+		// 保存できた画像の Wiki 埋め込み。0 件なら画像貼り付けではない
 		List<string> embeds    = [];
 		foreach (string? filePath in files)
 		{
 			// 複数ファイル中の非画像は無視し、貼り付け可能な画像だけをまとめて処理する
+			// パスが空、ファイルが無い、または対応画像でないとき。一つでも欠けるとこのファイルは飛ばす
 			if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath) || !FileService.IsSupportedImagePath(filePath))
 			{
 				continue;
 			}
 
+			// そのファイルの全バイト。上限超過なら表や続きのファイルは保存しない
 			byte[] bytes = File.ReadAllBytes(filePath);
+			// 上限バイトを超えるとき。エラー結果で true
 			if (bytes.LongLength > FileService.MaxImageBytes)
 			{
 				result = Fail($"画像サイズが上限（{FileService.MaxImageBytes / (1024 * 1024)}MB）を超えています。");
 				return true;
 			}
 
+			// 上限内の画像を添付フォルダへコピーしたパス
 			string saved = _appContext.FileService.SaveImageCopy(folder, bytes, Path.GetFileName(filePath));
 			embeds.Add(FormatWikiEmbed(saved));
 		}
 
+		// 対応画像が 1 つも無かったとき。false で次の貼り付け手段へ譲る
 		if (embeds.Count == 0)
 		{
 			return false;
 		}
 
+		// 取り込んだ画像を空白区切りで並べた成功結果
 		result = new PasteForEditorResult
 		{
+			// true は挿入してよい
 			Ok   = true,
+			// image は Wiki 埋め込みの並び
 			Kind = "image",
+			// 埋め込みを空白でつないだ本文。0 件ではこの分岐に来ない
 			Text = string.Join(" ", embeds),
 		};
 		return true;
@@ -453,17 +521,21 @@ internal sealed class ClipboardApi
 	private static bool TryReadClipboardImage(out byte[] bytes)
 	{
 		bytes = [];
+		// 形式を順に見る生データ。無いときは GDI+ の画像へ落ちる
 		IDataObject? data = Clipboard.GetDataObject();
+		// 生データがあるとき。PNG ストリームを自動変換させずに先に取る
 		if (data is not null)
 		{
 			// GetImageは透過情報を落とすことがあるため、PNGストリームがあれば先にそのまま取得する
 			foreach (string format in new[] { "PNG", "image/png" })
 			{
+				// その PNG 形式が自動変換なしであるときだけ読む
 				if (!data.GetDataPresent(format, autoConvert: false))
 				{
 					continue;
 				}
 
+				// バイトを取り出せ、かつ長さが 1 以上のとき。どちらかが欠けると次の形式を試す
 				if (!TryCopyStreamBytes(data.GetData(format), out byte[] pngBytes) || pngBytes.Length == 0)
 				{
 					continue;
@@ -475,24 +547,29 @@ internal sealed class ClipboardApi
 		}
 
 		// PNG形式がないアプリ向けに、GDI+画像をPNGへ再エンコードしてフォールバックする
+		// ビットマップ画像が無いとき。PNG バイトは空のまま false
 		if (!Clipboard.ContainsImage())
 		{
 			return false;
 		}
 
+		// GDI+ の画像。null なら符号化しない
 		Image? image = Clipboard.GetImage();
+		// 画像を取得できなかったとき
 		if (image is null)
 		{
 			return false;
 		}
 
 		using (image)
+		// PNG へ符号化する先。使い終わったら閉じる
 		using (var stream = new MemoryStream())
 		{
 			image.Save(stream, ImageFormat.Png);
 			bytes = stream.ToArray();
 		}
 
+		// 符号化した PNG が 1 バイト以上あるときだけ成功。0 バイトは失敗
 		return bytes.Length > 0;
 	}
 
@@ -506,20 +583,24 @@ internal sealed class ClipboardApi
 	private static bool TryCopyStreamBytes(object? data, out byte[] bytes)
 	{
 		bytes = [];
+		// MemoryStream のとき。位置を動かさず配列にする
 		if (data is MemoryStream memory)
 		{
 			bytes = memory.ToArray();
 			return true;
 		}
 
+		// その他の Stream のとき。現在位置から末尾までコピーする
 		if (data is Stream stream)
 		{
+			// コピー先。元のストリームは閉じない
 			using var copy = new MemoryStream();
 			stream.CopyTo(copy);
 			bytes = copy.ToArray();
 			return true;
 		}
 
+		// すでにバイト配列のとき。コピーせずそのまま返す。長さ 0 でも true
 		if (data is byte[] raw)
 		{
 			bytes = raw;
@@ -541,11 +622,13 @@ internal sealed class ClipboardApi
 	{
 		markup = null;
 		error  = null;
+		// 参照が空白のとき。無視して貼り付けを続ける。markup は null
 		if (string.IsNullOrWhiteSpace(source))
 		{
 			return true;
 		}
 
+		// 添付フォルダを解決できないとき。error に理由を入れ、表全体を止める
 		if (!TryResolveAttachmentFolder(out string folder, out string? folderError))
 		{
 			error = folderError ?? "貼り付け画像の保存先が不正です。";
@@ -555,37 +638,49 @@ internal sealed class ClipboardApi
 		try
 		{
 			// 自己完結data URL、ローカルファイル、リモートURLの順に実体を添付フォルダへ取り込む
+			// data URL の画像を復号できたとき。dataBytes は本体、dataName は保存ファイル名
 			if (TryReadDataUrlImage(source, out byte[] dataBytes, out string dataName))
 			{
+				// 添付フォルダへ保存した data URL 画像のパス
 				string savedData = _appContext.FileService.SaveImageCopy(folder, dataBytes, dataName);
 				markup = FormatWikiEmbed(savedData);
 				return true;
 			}
 
+			// ローカルパスへ解決できたとき。localPath は絶対パス。file 以外は次の手段へ進む
 			if (TryResolveLocalImagePath(source, out string localPath))
 			{
+				// ファイルが無い、または対応画像でないとき。どちらか一方でもセルは無視して表は続ける
 				if (!File.Exists(localPath) || !FileService.IsSupportedImagePath(localPath))
 				{
 					return true;
 				}
 
+				// ローカル画像の全バイト
 				byte[] fileBytes = File.ReadAllBytes(localPath);
+				// 添付フォルダへコピーしたパス
 				string savedFile = _appContext.FileService.SaveImageCopy(folder, fileBytes, Path.GetFileName(localPath));
 				markup           = FormatWikiEmbed(savedFile);
 				return true;
 			}
 
+			// 絶対 URL にできないとき。セルは無視して表は続ける
 			if (!Uri.TryCreate(source, UriKind.Absolute, out Uri? uri))
 			{
 				return true;
 			}
 
+			// http または https のとき。それ以外のスキームは取り込まない
 			if (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
 			{
+				// 取得した応答。失敗は catch がリモートだけ元 URL を残す
 				using HttpResponseMessage response = ImageHttpClient.GetAsync(uri).GetAwaiter().GetResult();
 				response.EnsureSuccessStatusCode();
+				// 応答本文のバイト。空でも保存は FileService に任せる
 				byte[] remoteBytes = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+				// URL か Content-Type から決めた拡張子。未知なら .png
 				string extension   = ExtensionFromImageSource(uri, response);
+				// 添付フォルダへ保存したリモート画像のパス
 				string savedRemote = _appContext.FileService.SaveImageCopy(
 					folder,
 					remoteBytes,
@@ -600,9 +695,9 @@ internal sealed class ClipboardApi
 			{
 				[LogProperty.Error] = ex.Message,
 			});
+			// http で始まる参照のとき。取得に失敗しても元 URL を残し、表全体は続ける
 			if (source.StartsWith("http", StringComparison.OrdinalIgnoreCase))
 			{
-				// リモート画像だけは取得失敗時も元URL参照を残し、表全体の貼り付けを継続する
 				markup = $"![]({source})";
 				return true;
 			}
@@ -624,17 +719,20 @@ internal sealed class ClipboardApi
 	private static bool TryResolveLocalImagePath(string source, out string localPath)
 	{
 		localPath = string.Empty;
+		// 絶対 URI で、かつ file スキームのとき。両方揃ったときだけ LocalPath を使う
 		if (Uri.TryCreate(source, UriKind.Absolute, out Uri? uri) && uri.IsFile)
 		{
 			localPath = uri.LocalPath;
 			return localPath.Length > 0;
 		}
 
+		// file: で始まらないとき。ローカルパスにはしない
 		if (!source.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
 		{
 			return false;
 		}
 
+		// file: の後ろ。スラッシュを外してパスにする
 		string rest = source[5..];
 		while (rest.StartsWith('/'))
 		{
@@ -642,11 +740,13 @@ internal sealed class ClipboardApi
 		}
 
 		rest = Uri.UnescapeDataString(rest.Replace('/', Path.DirectorySeparatorChar));
+		// localhost プレフィックスが残っているとき。ドライブ文字の前から外す
 		if (rest.StartsWith(@"localhost\", StringComparison.OrdinalIgnoreCase))
 		{
 			rest = rest["localhost\\".Length..];
 		}
 
+		// 2 文字目がドライブ区切りのとき。Windows のローカルパスとして使える
 		if (rest.Length >= 2 && rest[1] == ':')
 		{
 			localPath = rest;
@@ -668,32 +768,45 @@ internal sealed class ClipboardApi
 	private static bool TryReadDataUrlImage(string source, out byte[] bytes, out string fileName)
 	{
 		bytes    = [];
+		// 保存ファイル名。サブタイプが対応画像なら拡張子を差し替える。既定は png
 		fileName = $"Pasted image {DateTime.Now:yyyyMMddHHmmss}.png";
+		// data:image/ で始まらないとき。base64 画像としては扱わない
 		if (!source.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
 		{
 			return false;
 		}
 
+		// メタデータと本体の区切り。0 未満は data URL として壊れている
 		int comma = source.IndexOf(',');
+		// カンマが無いとき。本体を取り出せない
 		if (comma < 0)
 		{
 			return false;
 		}
 
+		// カンマより前。メディア型と base64 指定
 		string meta   = source[..comma];
+		// カンマより後ろの本体。base64 でなければ失敗
 		string base64 = source[(comma + 1)..];
+		// base64 指定が無いとき。URL エンコード画像は扱わない
 		if (!meta.Contains("base64", StringComparison.OrdinalIgnoreCase))
 		{
 			return false;
 		}
 
 		bytes = Convert.FromBase64String(base64);
+		// メディア型のスラッシュ。0 未満なら拡張子は png のまま
 		int slash = meta.IndexOf('/');
+		// パラメータの始まり。スラッシュより後ろにあるときだけサブタイプをそこで切る
 		int plus  = meta.IndexOf(';');
+		// スラッシュがあるとき。サブタイプから拡張子を決める
 		if (slash >= 0)
 		{
+			// image/ の後ろから、セミコロンか末尾まで。jpeg は jpg にする
 			string subtype = plus > slash ? meta[(slash + 1)..plus] : meta[(slash + 1)..];
+			// ドット付き拡張子。jpeg だけ jpg に揃える
 			string ext     = subtype.Equals("jpeg", StringComparison.OrdinalIgnoreCase) ? ".jpg" : $".{subtype}";
+			// 対応画像の拡張子のときだけファイル名を差し替える。未知のサブタイプは png のまま
 			if (FileService.IsSupportedImagePath("x" + ext))
 			{
 				fileName = $"Pasted image {DateTime.Now:yyyyMMddHHmmss}{ext}";
@@ -713,18 +826,25 @@ internal sealed class ClipboardApi
 	private static string ExtensionFromImageSource(Uri uri, HttpResponseMessage response)
 	{
 		// URL拡張子を優先し、動的URLの場合だけContent-Typeから安全な既知拡張子を選ぶ
+		// パスから取った拡張子。クエリは含めない。対応画像ならそれを返す
 		string fromPath = Path.GetExtension(uri.AbsolutePath);
+		// 対応画像の拡張子のとき。Content-Type は見ない
 		if (FileService.IsSupportedImagePath("x" + fromPath))
 		{
 			return fromPath;
 		}
 
+		// Content-Type のメディア型。無いときは null で .png になる
 		string? contentType = response.Content.Headers.ContentType?.MediaType;
 		return contentType switch
 		{
+			// JPEG。拡張子は jpg
 			"image/jpeg" => ".jpg",
+			// GIF
 			"image/gif"  => ".gif",
+			// WebP
 			"image/webp" => ".webp",
+			// BMP
 			"image/bmp"  => ".bmp",
 			_            => ".png",
 		};
@@ -742,10 +862,14 @@ internal sealed class ClipboardApi
 	/// <returns>Ok が true の結果</returns>
 	private static PasteForEditorResult TextResult(string text, string kind)
 	{
+		// テキストの成功結果。本文が空のときは種別を empty にする
 		return new PasteForEditorResult
 		{
+			// true は挿入してよい。空文字でも成功
 			Ok   = true,
+			// 空なら empty。1 文字以上なら呼び出し側の text または table
 			Kind = text.Length == 0 ? "empty" : kind,
+			// 挿入する本文。空でも成功
 			Text = text,
 		};
 	}
@@ -757,10 +881,14 @@ internal sealed class ClipboardApi
 	/// <returns>Kind が image の結果</returns>
 	private static PasteForEditorResult ImageResult(string savedPath)
 	{
+		// 保存済み画像の成功結果。本文は Wiki 埋め込みだけ
 		return new PasteForEditorResult
 		{
+			// true は挿入してよい
 			Ok   = true,
+			// image は添付ファイルへの参照
 			Kind = "image",
+			// 保存先パスの Wiki 埋め込み。存在確認はしない
 			Text = FormatWikiEmbed(savedPath),
 		};
 	}
@@ -782,11 +910,16 @@ internal sealed class ClipboardApi
 	/// <returns>Kind が empty の失敗結果</returns>
 	private static PasteForEditorResult Fail(string message)
 	{
+		// 挿入しない失敗結果。理由は Error に入れる
 		return new PasteForEditorResult
 		{
+			// false は挿入しない
 			Ok    = false,
+			// 失敗時の種別は empty
 			Kind  = "empty",
+			// 本文は空。失敗理由は Error
 			Text  = string.Empty,
+			// Web 層へ返す失敗理由。空でも Ok は false
 			Error = message,
 		};
 	}

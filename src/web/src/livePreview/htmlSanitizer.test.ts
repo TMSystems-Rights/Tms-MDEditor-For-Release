@@ -7,13 +7,7 @@ import { EditorSelection, EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { collectHtmlDecorationEntries } from './htmlInline';
-import {
-	isAllowedHtmlTagName,
-	parseHtmlTag,
-	sanitizeClassValue,
-	sanitizeHtmlAttributes,
-	sanitizeStyleValue,
-} from './htmlSanitizer';
+import { isAllowedHtmlTagName, parseHtmlTag, sanitizeClassValue, sanitizeHtmlAttributes, sanitizeStyleValue } from './htmlSanitizer';
 
 /**
  * カーソルを1つ持つ、Markdown 対応済みのテスト用状態を作る
@@ -23,9 +17,12 @@ import {
  */
 function createState(doc: string, cursor: number = 0): EditorState {
 	return EditorState.create({
+		// 判定する HTML を含む本文
 		doc,
-		selection  : EditorSelection.cursor(cursor),
-		extensions : [createTmsMarkdownSupport()],
+		// 空のキャレット。省略時は文書先頭
+		selection: EditorSelection.cursor(cursor),
+		// インライン HTML のノードを得る Markdown サポート
+		extensions: [createTmsMarkdownSupport()]
 	});
 }
 
@@ -43,16 +40,14 @@ describe('htmlSanitizer', () => {
 	});
 
 	it('許可属性以外と javascript: を除去する', () => {
-		const parsed = parseHtmlTag(
-			'<span style="color:red; expression(alert(1))" class="ok bad!" onclick="x" href="javascript:alert(1)">',
-		);
+		// style、class、onclick、javascript: の href を持つ開始タグ
+		const parsed = parseHtmlTag('<span style="color:red; expression(alert(1))" class="ok bad!" onclick="x" href="javascript:alert(1)">');
 		expect(parsed).not.toBeNull();
+		// 危険な記述と未知の属性を落とした結果。style と class だけ残る
 		const sanitized = sanitizeHtmlAttributes(parsed!.attributes);
 		expect(sanitized.style).toBe('color:red');
 		expect(sanitized.className).toBe('ok');
-		expect(Object.keys(parsed!.attributes)).toEqual(
-			expect.arrayContaining(['style', 'class', 'onclick', 'href']),
-		);
+		expect(Object.keys(parsed!.attributes)).toEqual(expect.arrayContaining(['style', 'class', 'onclick', 'href']));
 	});
 
 	it('sanitizeStyleValue は危険な記述を落とす', () => {
@@ -70,21 +65,28 @@ describe('htmlSanitizer', () => {
 
 describe('htmlInline', () => {
 	it('許可タグのマークアップを隠し、内容に mark を付ける', () => {
+		// 許可タグ u。カーソルは別の行に置き、プレビュー側を装飾する
 		const doc     = 'hello <u>world</u> end\n\ncursor';
+		// カーソルは最終行。対象の u はソース行にしない
 		const state   = createState(doc, doc.length - 1);
+		// 隠すタグと、内容へ付ける mark
 		const entries = collectHtmlDecorationEntries(state);
 
 		expect(entries.some((entry) => state.doc.sliceString(entry.from, entry.to) === '<u>')).toBe(true);
 		expect(entries.some((entry) => state.doc.sliceString(entry.from, entry.to) === '</u>')).toBe(true);
 
+		// 内容へ付けた u の mark。タグ文字列自体は含まない
 		const marks = entries.filter((entry) => entry.decoration.spec.tagName === 'u');
 		expect(marks).toHaveLength(1);
 		expect(state.doc.sliceString(marks[0]!.from, marks[0]!.to)).toBe('world');
 	});
 
 	it('br は改行 widget にする', () => {
+		// 改行 widget にする br。カーソルは別の行
 		const doc     = 'a<br>b\n\ncursor';
+		// カーソルは最終行。br の行はプレビュー
 		const state   = createState(doc, doc.length - 1);
+		// br の装飾。1 件だけになる
 		const entries = collectHtmlDecorationEntries(state);
 		expect(entries).toHaveLength(1);
 		expect(state.doc.sliceString(entries[0]!.from, entries[0]!.to)).toBe('<br>');
@@ -92,16 +94,23 @@ describe('htmlInline', () => {
 	});
 
 	it('非許可タグは装飾しない（ソースのまま）', () => {
+		// 許可しない script。装飾は空になる
 		const doc     = 'a <script>x</script> b\n\ncursor';
+		// カーソルは最終行
 		const state   = createState(doc, doc.length - 1);
+		// script を含む文書の装飾。1 件も無い
 		const entries = collectHtmlDecorationEntries(state);
 		expect(entries).toHaveLength(0);
 	});
 
 	it('onclick 等は落とし、style/class のみ mark に載せる', () => {
+		// style と class と onclick を持つ span。onclick は mark に残さない
 		const doc     = 'a <span style="color:red" class="note" onclick="evil()">x</span> b\n\ncursor';
+		// カーソルは最終行。span の行はプレビュー
 		const state   = createState(doc, doc.length - 1);
+		// span の装飾
 		const entries = collectHtmlDecorationEntries(state);
+		// 内容へ付けた span の mark。無ければ属性は見ない
 		const mark    = entries.find((entry) => entry.decoration.spec.tagName === 'span');
 		expect(mark).toBeDefined();
 		expect(mark!.decoration.spec.attributes?.style).toBe('color:red');
@@ -110,20 +119,25 @@ describe('htmlInline', () => {
 	});
 
 	it('インラインコード内の br は対象外', () => {
+		// コード外の br と、インラインコード内の br。対象は外だけ
 		const doc     = 'hello<br>world and `code<br>here`\n\ncursor';
+		// カーソルは最終行
 		const state   = createState(doc, doc.length - 1);
+		// br の装飾。コード内は含まないので 1 件
 		const entries = collectHtmlDecorationEntries(state);
 		expect(entries).toHaveLength(1);
 		expect(state.doc.sliceString(entries[0]!.from, entries[0]!.to)).toBe('<br>');
 	});
 
 	it('ネストした許可タグを処理する', () => {
+		// u の中に b がある。両方の内容へ mark を付ける
 		const doc     = 'a <u>one <b>two</b> three</u> b\n\ncursor';
+		// カーソルは最終行
 		const state   = createState(doc, doc.length - 1);
+		// ネストした許可タグの装飾
 		const entries = collectHtmlDecorationEntries(state);
-		const tags    = entries
-			.filter((entry) => typeof entry.decoration.spec.tagName === 'string')
-			.map((entry) => entry.decoration.spec.tagName);
+		// mark に載ったタグ名。u と b の両方が入る
+		const tags    = entries.filter((entry) => typeof entry.decoration.spec.tagName === 'string').map((entry) => entry.decoration.spec.tagName);
 		expect(tags).toContain('u');
 		expect(tags).toContain('b');
 	});

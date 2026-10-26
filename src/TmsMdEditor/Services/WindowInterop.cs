@@ -67,18 +67,25 @@ internal static class WindowInterop
 	public static bool TryFindOtherEditorWindow(Point screenPoint, IntPtr currentWindow, string executablePath, out IntPtr targetWindow)
 	{
 		// 子コントロール上へドロップされても、比較・転送対象はトップレベルウィンドウに揃える
+		// 座標直下のウィンドウ。無ければ Zero で対象にしない
 		IntPtr child = WindowFromPoint(new NativePoint(screenPoint.X, screenPoint.Y));
+		// トップレベル。直下が Zero なら Zero のまま
 		IntPtr root  = child == IntPtr.Zero ? IntPtr.Zero : GetAncestor(child, GetAncestorRoot);
 		targetWindow = IntPtr.Zero;
+		// ウィンドウが無い、またはドラッグ元自身なら転送しない。どちらか一方でも入る
 		if (root == IntPtr.Zero || root == currentWindow) return false;
 
 		GetWindowThreadProcessId(root, out uint processId);
+		// プロセス ID が取れないウィンドウは相手を判定できないので対象にしない
 		if (processId == 0) return false;
 		try
 		{
 			// タイトルやクラス名ではなく実行ファイルを照合し、別アプリへのWM_COPYDATA送信を防ぐ
+			// 相手プロセス。終了済みなら catch で対象外
 			using Process process = Process.GetProcessById((int)processId);
+			// 相手 exe。モジュールが読めなければ null で不一致
 			string? targetPath = process.MainModule?.FileName;
+			// 自プロセスの exe と大文字小文字を無視して違うときは別アプリとして送らない
 			if (!string.Equals(Path.GetFullPath(targetPath ?? string.Empty), Path.GetFullPath(executablePath), StringComparison.OrdinalIgnoreCase)) return false;
 		}
 		catch
@@ -99,18 +106,24 @@ internal static class WindowInterop
 	/// <returns>相手が 1 を返したら true。タイムアウトや未受理は false</returns>
 	public static bool SendDetachedTab(IntPtr targetWindow, IntPtr sourceWindow, DetachedTabTransferRequest request)
 	{
+		// 状態ファイルのパスと座標を UTF-16 で送る JSON
 		string json = JsonSerializer.Serialize(request, BridgeJson.Options);
+		// 終端 null を含むアンマネージ文字列。finally で解放する
 		IntPtr data = Marshal.StringToHGlobalUni(json);
 		try
 		{
 			// 受信側が自アプリの転送データだけを識別できるよう、固定シグネチャを付ける
 			var copyData = new CopyDataStruct
 			{
+				// 自アプリの固定値。これ以外は受信側が読まない
 				DataIdentifier = new IntPtr(DetachedTabSignature),
+				// 終端 null を含むバイト数。単位はバイト
 				ByteCount      = (json.Length + 1) * sizeof(char),
+				// UTF-16 のポインタ。所有は送信側
 				DataPointer    = data,
 			};
 			// 相手ウィンドウが応答不能でも、ドラッグ元UIを無期限に止めない
+			// タイムアウト前に処理されたか。false は未送信
 			bool sent = SendMessageTimeout(
 				targetWindow,
 				CopyDataMessage,
@@ -136,13 +149,19 @@ internal static class WindowInterop
 	public static bool TryReadDetachedTab(Message message, out DetachedTabTransferRequest? request)
 	{
 		request = null;
+		// 転送メッセージでない、またはペイロードが無いときは読まない。どちらか一方でも入る
 		if (message.Msg != CopyDataMessage || message.LParam == IntPtr.Zero) return false;
+		// 受信した COPYDATASTRUCT。ポインタは相手が所有する
 		CopyDataStruct data = Marshal.PtrToStructure<CopyDataStruct>(message.LParam);
 		// メッセージ種別に加えてシグネチャとバッファ長を検証してからポインターを読む
+		// シグネチャ不一致、ポインタ無し、終端 1 文字以下のどれかでも読まない
 		if (data.DataIdentifier.ToInt64() != DetachedTabSignature || data.DataPointer == IntPtr.Zero || data.ByteCount <= sizeof(char)) return false;
 
+		// 終端 null を除いた JSON。空なら要求として使わない
 		string? json = Marshal.PtrToStringUni(data.DataPointer, data.ByteCount / sizeof(char) - 1);
+		// 空白だけの本文は復元しない
 		if (string.IsNullOrWhiteSpace(json)) return false;
+		// 復元した要求。形が違えば null で、パスが空なら受理しない
 		request = JsonSerializer.Deserialize<DetachedTabTransferRequest>(json, BridgeJson.Options);
 		return request is not null && !string.IsNullOrWhiteSpace(request.TransferPath);
 	}
@@ -301,10 +320,15 @@ internal static class DetachedWindowPlacement
 	/// <returns>作業領域内の左上。単位は px</returns>
 	public static Point CalculateLocation(Point dropPoint, Size windowSize, Rectangle workingArea)
 	{
+		// 左へずらす量。単位は px。幅の 1/4 と 120 の小さい方で、負にはしない
 		int offsetX = Math.Min(120, Math.Max(0, windowSize.Width / 4));
+		// ずらした左端。作業領域の外にはみ出し得る
 		int desiredX = dropPoint.X - offsetX;
+		// タブ付近へ 40px 上げた上端。単位は px
 		int desiredY = dropPoint.Y - 40;
+		// 右にはみ出さない左端の上限。ウィンドウが作業領域より広いときは左端に揃える
 		int maxX = Math.Max(workingArea.Left, workingArea.Right - windowSize.Width);
+		// 下にはみ出さない上端の上限。高いウィンドウは上端に揃える
 		int maxY = Math.Max(workingArea.Top, workingArea.Bottom - windowSize.Height);
 		return new Point(
 			Math.Clamp(desiredX, workingArea.Left, maxX),

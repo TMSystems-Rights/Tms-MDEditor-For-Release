@@ -38,15 +38,21 @@ internal static class PortableRuntime
 	/// <returns>ポータブルとして適用したら true。判定ファイルが無ければ false。書き込めないときはプロセスを終了する</returns>
 	public static bool ApplyIfNeeded()
 	{
+		// 現プロセスの実行ファイル。ProcessPath が空のときだけ WinForms のパスになる
 		string execPath = ResolveExecPath();
+		// 判定ファイルが無いときはインストーラの保存先のまま起動する
 		if (!PortableMode.DetectPortableMode(execPath))
 		{
 			return false;
 		}
 
+		// ポータブル exe のディレクトリ。相対パスは絶対パスになる
 		string exeDir = PortableMode.ResolveExeDir(execPath);
+		// exe 隣の data と配下。この時点ではまだ作っていない
 		PortableDataPaths paths = PortableMode.ResolvePortableDataPaths(exeDir);
+		// data へ書いて消せるかの結果。失敗時は Error に理由が入る
 		WritableProbeResult probe = PortableMode.ProbeWritableDirectory(paths.UserData);
+		// 書き込めないときはメッセージを出してプロセスを終了する。探針成功では入らない
 		if (!probe.Ok)
 		{
 			ExitBecauseDataDirIsNotWritable(probe.Error ?? "data フォルダへ書き込めません。");
@@ -66,6 +72,7 @@ internal static class PortableRuntime
 	/// <param name="exeDir">ポータブル exe のディレクトリ。サブフォルダをこの配下の data に作る</param>
 	public static void EnableForTests(string exeDir)
 	{
+		// テストが指定した exe 隣の data。書き込み探針はしない
 		PortableDataPaths paths = PortableMode.ResolvePortableDataPaths(exeDir);
 		EnsurePortableSubdirectories(paths);
 		AppPaths.EnablePortable(exeDir);
@@ -89,7 +96,9 @@ internal static class PortableRuntime
 	/// <returns>実行ファイルのパス。相対のままのことがある</returns>
 	public static string ResolveExecPath()
 	{
+		// OS が返す実行ファイル。単体テストや特殊ホストでは空のことがある
 		string? processPath = Environment.ProcessPath;
+		// 空でないときだけ ProcessPath を使う。空なら WinForms のパスへ落とす
 		if (!string.IsNullOrWhiteSpace(processPath))
 		{
 			return processPath;
@@ -104,6 +113,7 @@ internal static class PortableRuntime
 	/// <param name="paths">作成する保存先。ExeDir 自体は作らない</param>
 	private static void EnsurePortableSubdirectories(PortableDataPaths paths)
 	{
+		// 起動前に作る data 配下。ExeDir 自体は含めない
 		string[] directories =
 		[
 			paths.UserData,

@@ -61,6 +61,7 @@ public class RecentFilesServiceTests : IDisposable
 	{
 		AppPaths.SetOverrideAppDataRoot(null);
 
+		// 一時ディレクトリが残っているときだけ削除する。無いときは何もしない
 		if (Directory.Exists(_tempRoot))
 		{
 			Directory.Delete(_tempRoot, recursive: true);
@@ -73,10 +74,12 @@ public class RecentFilesServiceTests : IDisposable
 	[Fact]
 	public void Add_prepends_path_and_limits_to_15_items()
 	{
+		// 空の最近使ったファイルから始める設定。16件追加して15件に収まることを見る
 		AppConfigDocument config = _configStore.Load().Config;
 
 		for (int index = 0; index < 16; index += 1)
 		{
+			// 1件追加した保存結果。失敗すると Success が false で、以降の config は更新前のまま
 			SaveConfigResult result = _recentFilesService.Add(_configStore, config, $"C:\\files\\file-{index}.md");
 			Assert.True(result.Success, result.Message);
 			config = result.Config ?? config;
@@ -93,16 +96,20 @@ public class RecentFilesServiceTests : IDisposable
 	[Fact]
 	public void Add_moves_existing_path_to_front()
 	{
+		// まだパスが無い設定
 		AppConfigDocument config = _configStore.Load().Config;
 
+		// 先に追加する older.md。あとから先頭へ戻す
 		SaveConfigResult addOlder = _recentFilesService.Add(_configStore, config, "C:\\files\\older.md");
 		Assert.True(addOlder.Success, addOlder.Message);
 		config = addOlder.Config ?? config;
 
+		// older の次に追加する newer.md。再追加のあと2番目になる
 		SaveConfigResult addNewer = _recentFilesService.Add(_configStore, config, "C:\\files\\newer.md");
 		Assert.True(addNewer.Success, addNewer.Message);
 		config = addNewer.Config ?? config;
 
+		// 既存の older を再度追加した保存結果。件数は2のまま先頭が older
 		SaveConfigResult reopenOlder = _recentFilesService.Add(_configStore, config, "C:\\files\\older.md");
 		Assert.True(reopenOlder.Success, reopenOlder.Message);
 
@@ -117,16 +124,20 @@ public class RecentFilesServiceTests : IDisposable
 	[Fact]
 	public void Remove_deletes_path_from_recent_files()
 	{
+		// 削除前の設定。keep と remove をこの順で足す
 		AppConfigDocument config = _configStore.Load().Config;
 
+		// 残す keep.md を追加した保存結果
 		SaveConfigResult addKeep = _recentFilesService.Add(_configStore, config, "C:\\files\\keep.md");
 		Assert.True(addKeep.Success, addKeep.Message);
 		config = addKeep.Config ?? config;
 
+		// 消す remove.md を追加した保存結果。先頭は remove になる
 		SaveConfigResult addRemove = _recentFilesService.Add(_configStore, config, "C:\\files\\remove.md");
 		Assert.True(addRemove.Success, addRemove.Message);
 		config = addRemove.Config ?? config;
 
+		// remove.md だけを消した保存結果。残るのは keep
 		SaveConfigResult result = _recentFilesService.Remove(_configStore, config, "C:\\files\\remove.md");
 
 		Assert.True(result.Success, result.Message);

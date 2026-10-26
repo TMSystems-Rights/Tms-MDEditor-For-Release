@@ -31,15 +31,13 @@ const MAX_SPLIT_RATIO = 0.8;
  * @param containerSize - 容器の寸法。0 以下や非数は中央比率になる
  * @returns 0.2〜0.8 の分割比率。先のペインが占める割合
  */
-export function calculateSplitRatio(
-	pointerPosition: number,
-	containerStart: number,
-	containerSize: number,
-): number {
+export function calculateSplitRatio(pointerPosition: number, containerStart: number, containerSize: number): number {
+	// 寸法が有限でない、または 0 以下。比率が定義できないので中央にする
 	if (!Number.isFinite(containerSize) || containerSize <= 0) {
 		return 0.5;
 	}
 
+	// 容器開始からの位置を寸法で割った割合。この直後で 0.2〜0.8 に切る
 	const ratio = (pointerPosition - containerStart) / containerSize;
 	return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, ratio));
 }
@@ -51,19 +49,17 @@ export function calculateSplitRatio(
  * @param targetState - 同期先の現在状態。この状態に対する更新を返す
  * @returns 本文変更を写したトランザクション。本文変更が無いときは null
  */
-export function createSynchronizedTransaction(
-	source: Transaction,
-	targetState: EditorState,
-): Transaction | null {
+export function createSynchronizedTransaction(source: Transaction, targetState: EditorState): Transaction | null {
+	// 本文が変わっていない同期は、相手ペインへ写さない
 	if (!source.docChanged) {
 		return null;
 	}
 
+	// 相手ペインの本文だけを更新する。選択は写さない
 	return targetState.update({
+		// 同期元と同じ本文差分
 		changes: source.changes,
-		annotations: [
-			splitSynchronization.of(true),
-			Transaction.addToHistory.of(false),
-		],
+		// 再送を止める印と、履歴へ残さない印。片方だけだと分割がループするか undo に載る
+		annotations: [splitSynchronization.of(true), Transaction.addToHistory.of(false)]
 	});
 }

@@ -6,12 +6,7 @@
 import { Decoration, type DecorationSet, EditorView, ViewPlugin } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
-import {
-	type EditorState,
-	type Extension,
-	StateEffect,
-	StateField,
-} from '@codemirror/state';
+import { type EditorState, type Extension, StateEffect, StateField } from '@codemirror/state';
 import type { ViewMode } from '../types/app';
 import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import { buildToggleTaskMarkerTransaction } from '../editor/checkboxToggle';
@@ -21,17 +16,8 @@ import { collectBlockDecorationEntries } from './blockWidgets';
 import { calloutFoldField, setCalloutFoldEffect } from './calloutFold';
 import { filterEntriesOutsideCollapseRanges } from './calloutFoldWidget';
 import { collectSourceLineNumbers, isPreviewLineNumber } from './cursorLine';
-import {
-	createDocumentContextExtensions,
-	setDocumentContextEffect,
-	type DocumentContext,
-} from './documentContext';
-import {
-	collectCustomDecorationEntries,
-	createCustomDecorationsExtensions,
-	setCustomDecorationsEffect,
-	type CompiledCustomDecorationRule,
-} from './customDecorations';
+import { createDocumentContextExtensions, setDocumentContextEffect, type DocumentContext } from './documentContext';
+import { collectCustomDecorationEntries, createCustomDecorationsExtensions, setCustomDecorationsEffect, type CompiledCustomDecorationRule } from './customDecorations';
 import { collectHtmlDecorationEntries } from './htmlInline';
 import { buildDecorationSet, collectInlineDecorationEntries, collectLinkLabelRanges, extractLinkUrl } from './inlineDecorations';
 import { collectLineDecorationEntries } from './lineDecorations';
@@ -77,18 +63,20 @@ const hoveredExternalLinkDecorationsField = StateField.define<DecorationSet>({
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
+			// ホバー範囲の Effect だけ mark を組み直す
 			if (effect.is(setHoveredExternalLinkRangeEffect)) {
+				// ホバー中の範囲。ホバーが無ければ null
 				const range = effect.value;
+				// 範囲が無い、または空のときは mark を消す。どちらか一方でも none
 				if (!range || range.from >= range.to) {
 					return Decoration.none;
 				}
 
-				return Decoration.set([
-					Decoration.mark({ class: 'cm-md-link cm-md-link-hovered' }).range(range.from, range.to),
-				]);
+				return Decoration.set([Decoration.mark({ class: 'cm-md-link cm-md-link-hovered' }).range(range.from, range.to)]);
 			}
 		}
 
+		// 本文が変わったホバー範囲は、位置がずれるので消す
 		if (transaction.docChanged) {
 			return Decoration.none;
 		}
@@ -100,7 +88,7 @@ const hoveredExternalLinkDecorationsField = StateField.define<DecorationSet>({
 	 * @param field - フィールド
 	 * @returns エディタへ Decoration を提供する
 	 */
-	provide: (field) => EditorView.decorations.from(field),
+	provide: (field) => EditorView.decorations.from(field)
 });
 
 /**
@@ -122,13 +110,14 @@ export const viewModeField = StateField.define<ViewMode>({
 	 */
 	update(value, transaction) {
 		for (const effect of transaction.effects) {
+			// 表示モード Effect があるときだけ、その値へ切り替える
 			if (effect.is(setViewModeEffect)) {
 				return effect.value;
 			}
 		}
 
 		return value;
-	},
+	}
 });
 
 /**
@@ -138,32 +127,35 @@ export const viewModeField = StateField.define<ViewMode>({
  * @returns ライブプレビュー用 Decoration
  */
 function buildLivePreviewDecorations(state: EditorState): DecorationSet {
+	// 現在の表示モード。フィールドが無ければソース表示
 	const viewMode = state.field(viewModeField, false) ?? 'source';
+	// ライブプレビュー以外では行装飾を作らない
 	if (viewMode !== 'live-preview') {
 		return Decoration.none;
 	}
 
 	try {
+		// ソース表示のまま残す行。プレビュー行だけ記法を隠す
 		const sourceLines = collectSourceLineNumbers(state);
-		const entries     = [
-			...collectInlineDecorationEntries(state),
-			...collectTagDecorationEntries(state, new Set()),
-			...collectHtmlDecorationEntries(state),
-			...collectCustomDecorationEntries(state, sourceLines),
-			...collectLineDecorationEntries(state, sourceLines),
-			...collectBlockDecorationEntries(state, sourceLines),
-		];
+		// 各コレクタの装飾。プレビュー行クラスは後から足す
+		const entries     = [...collectInlineDecorationEntries(state), ...collectTagDecorationEntries(state, new Set()), ...collectHtmlDecorationEntries(state), ...collectCustomDecorationEntries(state, sourceLines), ...collectLineDecorationEntries(state, sourceLines), ...collectBlockDecorationEntries(state, sourceLines)];
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			// ソース行にはプレビュー用の行クラスを付けない
 			if (!isPreviewLineNumber(lineNumber, sourceLines)) {
 				continue;
 			}
 
+			// クラスを付ける行。ポイント装飾なので位置は行頭
 			const line = state.doc.line(lineNumber);
+			// プレビュー行の行クラス
 			entries.push({
-				from      : line.from,
-				to        : line.from,
-				decoration: Decoration.line({ class: 'cm-live-preview-line' }),
+				// 行頭。ポイント装飾なので to と同じ
+				from: line.from,
+				// 行頭。ポイント装飾なので from と同じ
+				to: line.from,
+				// プレビュー行の見た目
+				decoration: Decoration.line({ class: 'cm-live-preview-line' })
 			});
 		}
 
@@ -193,19 +185,16 @@ const livePreviewDecorationsField = StateField.define<DecorationSet>({
 	 * @returns ドキュメント・選択・モード・折りたたみ変更時に再構築する
 	 */
 	update(value, transaction) {
+		// 表示モードが切り替わったか
 		const viewModeChanged = transaction.effects.some((effect) => effect.is(setViewModeEffect));
+		// コールアウトの折りたたみが変わったか
 		const foldChanged     = transaction.effects.some((effect) => effect.is(setCalloutFoldEffect));
+		// 文書パスや画像読み込みの文脈が変わったか
 		const contextChanged  = transaction.effects.some((effect) => effect.is(setDocumentContextEffect));
+		// カスタム装飾ルールが変わったか
 		const customChanged   = transaction.effects.some((effect) => effect.is(setCustomDecorationsEffect));
-		if (
-			transaction.docChanged
-			|| transaction.selection
-			|| viewModeChanged
-			|| foldChanged
-			|| contextChanged
-			|| customChanged
-			|| transaction.effects.some((effect) => effect.is(codeLanguageReadyEffect))
-		) {
+		// 本文、選択、モード、折りたたみ、文脈、装飾、言語のどれかが変わったとき再構築する
+		if (transaction.docChanged || transaction.selection || viewModeChanged || foldChanged || contextChanged || customChanged || transaction.effects.some((effect) => effect.is(codeLanguageReadyEffect))) {
 			return buildLivePreviewDecorations(transaction.state);
 		}
 
@@ -216,7 +205,7 @@ const livePreviewDecorationsField = StateField.define<DecorationSet>({
 	 * @param field - フィールド
 	 * @returns エディタへ Decoration を提供する
 	 */
-	provide: (field) => EditorView.decorations.from(field),
+	provide: (field) => EditorView.decorations.from(field)
 });
 
 /**
@@ -226,11 +215,7 @@ const livePreviewDecorationsField = StateField.define<DecorationSet>({
  * @param compositionStarted - IME composition 開始中か
  * @returns 補正可能な場合 true
  */
-export function shouldNormalizeCaretAfterUpdate(
-	docChanged: boolean,
-	selectionSet: boolean,
-	compositionStarted: boolean,
-): boolean {
+export function shouldNormalizeCaretAfterUpdate(docChanged: boolean, selectionSet: boolean, compositionStarted: boolean): boolean {
 	return !docChanged && selectionSet && !compositionStarted;
 }
 
@@ -251,14 +236,19 @@ const caretNormalizeListener = EditorView.updateListener.of((update) => {
 	}
 
 	// composition DOM の途中で選択を再設定すると、行頭の最初のローマ字が重複する
+	// 行末はみ出しを直した選択。直す必要が無ければ null
 	const normalized = normalizeCaretSelection(update.state);
+	// 補正が無い更新では選択を再設定しない
 	if (!normalized) {
 		return;
 	}
 
+	// 補正した選択だけを置き換える。本文は変えない
 	update.view.dispatch({
-		selection : normalized,
-		userEvent: 'select.normalize',
+		// 行末へ収めた選択
+		selection: normalized,
+		// この正規化自身では再入しないための印
+		userEvent: 'select.normalize'
 	});
 });
 
@@ -268,15 +258,19 @@ const caretNormalizeListener = EditorView.updateListener.of((update) => {
  * @returns イベントターゲットから最寄りの HTMLElement 。無ければ null
  */
 export function getElementFromEventTarget(target: EventTarget | null): HTMLElement | null {
+	// 実行環境に HTMLElement があり、かつターゲット自身が要素のときだけそれを返す。どちらか一方では次の判定へ進む
 	if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
 		return target;
 	}
 
+	// ノードなら親要素を返す。親が無ければ null
 	if (typeof Node !== 'undefined' && target instanceof Node) {
 		return target.parentElement;
 	}
 
+	// 要素でないターゲットが持つ親。無ければ undefined
 	const parentElement = (target as { parentElement?: unknown } | null)?.parentElement;
+	// 親があり、かつ HTMLElement が無い環境か親が要素のとき返す。親が無いときは返さない
 	if (parentElement && (typeof HTMLElement === 'undefined' || parentElement instanceof HTMLElement)) {
 		return parentElement as HTMLElement;
 	}
@@ -290,12 +284,16 @@ export function getElementFromEventTarget(target: EventTarget | null): HTMLEleme
  * @returns イベントターゲットから標準 Markdown リンク要素。無ければ null
  */
 export function findMarkdownLinkElement(target: EventTarget | null): HTMLElement | null {
+	// イベントから辿った要素。取れなければ以降は null
 	const element = getElementFromEventTarget(target);
+	// 最寄りの標準リンク要素。closest が無ければ undefined
 	const link    = element?.closest?.('.cm-md-link');
+	// リンク要素まで辿れなければ null
 	if (!link) {
 		return null;
 	}
 
+	// HTMLElement が無い環境か、リンクが要素ならそれを返す。どちらでもなければ null
 	if (typeof HTMLElement === 'undefined' || link instanceof HTMLElement) {
 		return link as HTMLElement;
 	}
@@ -310,6 +308,7 @@ export function findMarkdownLinkElement(target: EventTarget | null): HTMLElement
  */
 export function isSupportedExternalLinkUrl(href: string): boolean {
 	try {
+		// パースできた URL。相対パスや不正な文字列は catch へ落ちる
 		const url = new URL(href);
 		return url.protocol === 'http:' || url.protocol === 'https:';
 	} catch {
@@ -333,25 +332,35 @@ export function findMarkdownLinkUrlAtPosition(state: EditorState, pos: number): 
  * @param pos - 文書位置
  * @returns 文書位置から標準 Markdown リンク情報。無ければ null
  */
-export function findMarkdownLinkAtPosition(
-	state: EditorState,
-	pos: number,
-): { href: string; from: number; to: number } | null {
+export function findMarkdownLinkAtPosition(state: EditorState, pos: number): { href: string; from: number; to: number } | null {
+	// 位置の内側のノード。リンクまで辿れなければ null
 	let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1);
 	while (node) {
+		// リンクノードに当たったときだけ URL と表示範囲を返す
 		if (node.name === 'Link') {
+			// リンク先。URL ノードが無ければ空文字
 			const href = extractLinkUrl(state, node);
+			// リンク先が空なら、位置がリンクの中でも情報は返さない
 			if (!href) {
 				return null;
 			}
 
-			const labelRange = collectLinkLabelRanges(node).find((range) => pos >= range.from && pos <= range.to)
-				?? collectLinkLabelRanges(node)[0];
+			// 位置を含む表示範囲。無ければ最初のラベル。ラベル自体が無ければ undefined
+			const labelRange = collectLinkLabelRanges(node).find((range) => pos >= range.from && pos <= range.to) ?? collectLinkLabelRanges(node)[0];
+			// 表示範囲が取れなければリンク情報にしない
 			if (!labelRange) {
 				return null;
 			}
 
-			return { href, from: labelRange.from, to: labelRange.to };
+			// 外部起動とホバーに使うリンク
+			return {
+				// リンク先。空ではここに来ない
+				href,
+				// 表示ラベルの開始
+				from: labelRange.from,
+				// 表示ラベルの終端
+				to: labelRange.to
+			};
 		}
 
 		node = node.parent;
@@ -367,12 +376,21 @@ export function findMarkdownLinkAtPosition(
  * @returns マウスイベントから標準 Markdown リンクの URL 。無ければ null
  */
 export function findMarkdownLinkUrlFromMouseEvent(view: EditorView, event: MouseEvent): string | null {
+	// クリック位置のリンク要素。無ければ undefined
 	const linkElement = findMarkdownLinkElement(event.target);
+	// 要素に data-href があるときは構文木を見ない
 	if (linkElement?.dataset.href) {
 		return linkElement.dataset.href;
 	}
 
-	const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+	// 座標から求めた文書位置。座標がエディタ外なら null
+	const pos = view.posAtCoords({
+		// 画面上の横位置
+		x: event.clientX,
+		// 画面上の縦位置
+		y: event.clientY
+	});
+	// 文書位置が取れなければ URL も取れない
 	if (pos === null) {
 		return null;
 	}
@@ -386,11 +404,15 @@ export function findMarkdownLinkUrlFromMouseEvent(view: EditorView, event: Mouse
  * @param event - マウスイベント
  * @returns マウスイベントから標準 Markdown リンク情報。無ければ null
  */
-export function findMarkdownLinkFromMouseEvent(
-	view: EditorView,
-	event: MouseEvent,
-): { href: string; from: number; to: number } | null {
-	const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+export function findMarkdownLinkFromMouseEvent(view: EditorView, event: MouseEvent): { href: string; from: number; to: number } | null {
+	// 座標から求めた文書位置。座標がエディタ外なら null
+	const pos = view.posAtCoords({
+		// 画面上の横位置
+		x: event.clientX,
+		// 画面上の縦位置
+		y: event.clientY
+	});
+	// 文書位置が取れなければリンク情報も取れない
 	if (pos === null) {
 		return null;
 	}
@@ -405,11 +427,14 @@ export function findMarkdownLinkFromMouseEvent(
  * @returns Ctrl+クリックで外部リンクを開き、CodeMirrorの選択移動より先にイベントを止めるなら true
  */
 export function handleExternalLinkMouseDown(view: EditorView, event: MouseEvent): boolean {
+	// 左ボタンでない、または Ctrl が無いときは開かない。どちらか一方でも false
 	if (event.button !== 0 || !event.ctrlKey) {
 		return false;
 	}
 
+	// クリック位置のリンク先。リンクでなければ null
 	const href = findMarkdownLinkUrlFromMouseEvent(view, event);
+	// リンク先が無い、または http(s) でないときは開かない。どちらか一方でも false
 	if (!href || !isSupportedExternalLinkUrl(href)) {
 		return false;
 	}
@@ -427,11 +452,24 @@ export function handleExternalLinkMouseDown(view: EditorView, event: MouseEvent)
  * @returns マウス位置が外部リンク上なら pointer 用クラスなら true
  */
 export function updateExternalLinkHoverCursor(view: EditorView, event: MouseEvent): boolean {
+	// マウス位置のリンク。無ければ null
 	const link       = findMarkdownLinkFromMouseEvent(view, event);
+	// リンクがあり、かつ http(s) のときだけホバーを付ける。どちらか一方が欠けても false
 	const linkActive = link !== null && isSupportedExternalLinkUrl(link.href);
 	view.dom.classList.toggle(EXTERNAL_LINK_HOVER_CLASS, linkActive);
+	// ホバー範囲を置き換える。外部リンクでなければ null で消す
 	view.dispatch({
-		effects: setHoveredExternalLinkRangeEffect.of(linkActive ? { from: link.from, to: link.to } : null),
+		// ホバー mark 用の Effect。リンクでなければ範囲を消す
+		effects: setHoveredExternalLinkRangeEffect.of(
+			linkActive
+				? {
+					// 表示ラベルの開始
+					from: link.from,
+					// 表示ラベルの終端
+					to: link.to
+				}
+				: null
+		)
 	});
 	return linkActive;
 }
@@ -462,8 +500,11 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 		view.dispatch({ effects: setHoveredExternalLinkRangeEffect.of(null) });
 	};
 
+	// 左ボタンの Ctrl+クリックで外部リンクを開く。capture なので選択移動より先に止める
 	view.dom.addEventListener('mousedown', onMouseDown, true);
+	// 移動のたびに、外部リンク上ならポインタ用クラスを切り替える
 	view.dom.addEventListener('mousemove', onMouseMove);
+	// エディタから出たらホバークラスと範囲を消す
 	view.dom.addEventListener('mouseleave', onMouseLeave);
 
 	return {
@@ -475,7 +516,7 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
 			view.dom.removeEventListener('mousemove', onMouseMove);
 			view.dom.removeEventListener('mouseleave', onMouseLeave);
 			view.dom.classList.remove(EXTERNAL_LINK_HOVER_CLASS);
-		},
+		}
 	};
 });
 
@@ -489,22 +530,24 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
  * @param customDecorations - カスタム装飾ルール。省略可
  * @returns ライブプレビュー拡張
  */
-export function createLivePreviewExtensions(
-	initialViewMode: ViewMode,
-	documentContext?: DocumentContext,
-	customDecorations: CompiledCustomDecorationRule[] = [],
-): Extension[] {
+export function createLivePreviewExtensions(initialViewMode: ViewMode, documentContext?: DocumentContext, customDecorations: CompiledCustomDecorationRule[] = []): Extension[] {
 	return [
 		viewModeField.init(() => initialViewMode),
 		hoveredExternalLinkDecorationsField,
-		...createDocumentContextExtensions(documentContext ?? {
-			filePath         : null,
-			loadRemoteImages : true,
-		}),
+		...createDocumentContextExtensions(
+			documentContext ?? {
+				// 文脈が渡されないときのパス。未保存と同じ
+				filePath: null,
+				// 文脈が渡されないときはリモート画像の読み込みを許可する
+				loadRemoteImages: true
+			}
+		),
 		...createCustomDecorationsExtensions(customDecorations),
 		calloutFoldField,
 		EditorView.editorAttributes.compute([viewModeField], (state): Record<string, string> => {
+			// 現在の表示モード。フィールドが無ければソース表示
 			const mode = state.field(viewModeField, false) ?? 'source';
+			// ライブプレビュー以外ではエディタ根にクラスを付けない
 			if (mode !== 'live-preview') {
 				return {};
 			}
@@ -522,42 +565,60 @@ export function createLivePreviewExtensions(
 			 * @returns チェックボックストグル / コールアウト折りたたみなら true
 			 */
 			mousedown(event, view) {
+				// 左ボタン以外の押下は、折りたたみもチェックも扱わない
 				if (event.button !== 0) {
 					return false;
 				}
 
+				// 押下位置の要素。取れなければ何もしない
 				const target = getElementFromEventTarget(event.target);
+				// 要素が無ければエディタの選択へ返す
 				if (!target) {
 					return false;
 				}
 
+				// 最寄りの折りたたみボタン。無ければ null
 				const foldButton = target.closest('.cm-md-callout-fold');
+				// 折りたたみボタンのときだけ、上書きを反転する
 				if (foldButton instanceof HTMLElement) {
+					// dataset の開始位置。未設定なら undefined
 					const fromText = foldButton.dataset.calloutFrom;
+					// 開始位置。文字列が無ければ NaN で、有限チェックに落ちる
 					const from     = fromText ? Number(fromText) : Number.NaN;
+					// 開始位置が数値でないボタンは折りたたみを変えない
 					if (!Number.isFinite(from)) {
 						return false;
 					}
 
+					// 開始位置から折りたたみ上書き。フィールドが無ければ空
 					const overrides = view.state.field(calloutFoldField, false) ?? new Map();
+					// この位置の上書き。無ければ undefined で、ボタンの aria を見る
 					const current   = overrides.get(from);
-					const collapsed = current === undefined
-						? foldButton.getAttribute('aria-expanded') === 'false'
-						: current;
+					// 次に書く折りたたみ。上書きが無ければ、いま折りたたみ中なら true
+					const collapsed = current === undefined ? foldButton.getAttribute('aria-expanded') === 'false' : current;
 					event.preventDefault();
+					// このコールアウトの折りたたみを反転する
 					view.dispatch({
+						// 折りたたみ上書き。位置と次の状態
 						effects: setCalloutFoldEffect.of({
+							// blockquote の開始位置
 							from,
-							collapsed: !collapsed,
-						}),
+							// いまの状態の反転。上書きが無いときは aria の反転
+							collapsed: !collapsed
+						})
 					});
 					return true;
 				}
 
+				// 最寄りのチェックボックス。無ければ null
 				const checkbox = target.closest('.cm-md-checkbox');
+				// チェックボックスのときだけタスク記法を反転する
 				if (checkbox instanceof HTMLElement) {
+					// チェックボックスに対応する文書位置
 					const pos  = view.posAtDOM(checkbox);
+					// タスク記法を反転する変更。記法が無ければ null
 					const spec = buildToggleTaskMarkerTransaction(view.state, pos);
+					// 反転する記法が無ければ選択へ返す
 					if (!spec) {
 						return false;
 					}
@@ -568,7 +629,7 @@ export function createLivePreviewExtensions(
 				}
 
 				return false;
-			},
-		}),
+			}
+		})
 	];
 }

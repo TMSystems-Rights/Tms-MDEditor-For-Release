@@ -55,10 +55,12 @@ internal sealed class RecentApi
 	/// <returns>保存結果。失敗時は Config が null で、メニューは変えない</returns>
 	public SaveConfigResult Add(JsonElement paramsElement)
 	{
+		// 一覧の先頭へ加えるパス。プロパティが無い、null、空白のときは空文字で、保存せず失敗になる
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 
+		// 保存結果。失敗時は Config が null で、メニューは変えない
 		SaveConfigResult result = _appContext.RecentFilesService.Add(_appContext.ConfigStore, _appContext.Config, filePath);
 		ApplySavedConfig(result);
 		return result;
@@ -71,10 +73,12 @@ internal sealed class RecentApi
 	/// <returns>保存結果。失敗時はメニューを変えない</returns>
 	public SaveConfigResult Remove(JsonElement paramsElement)
 	{
+		// 一覧から外すパス。プロパティが無い、または null のときは空文字で、保存せず失敗になる
 		string filePath = paramsElement.TryGetProperty(BridgeProperty.FilePath, out JsonElement filePathElement)
 			? filePathElement.GetString() ?? string.Empty
 			: string.Empty;
 
+		// 保存結果。失敗時は Config が null で、メニューは変えない
 		SaveConfigResult result = _appContext.RecentFilesService.Remove(_appContext.ConfigStore, _appContext.Config, filePath);
 		ApplySavedConfig(result);
 		return result;
@@ -87,6 +91,7 @@ internal sealed class RecentApi
 	/// <param name="result">Add または Remove の保存結果</param>
 	private void ApplySavedConfig(SaveConfigResult result)
 	{
+		// 保存に成功し、かつ文書があるときだけメモリとメニューを更新する。片方でも欠けるとメニューは変えない
 		if (result.Success && result.Config is not null)
 		{
 			_appContext.Config = result.Config;

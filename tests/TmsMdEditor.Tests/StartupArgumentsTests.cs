@@ -32,11 +32,14 @@ public sealed class StartupArgumentsTests : IDisposable
 	[Fact]
 	public void ResolveFilePaths_excludes_detach_transfer_file_and_options()
 	{
+		// 開く対象として残す実在の Markdown。中身は読まない
 		string markdownPath = Path.Combine(_directory, "表示対象.md");
+		// 開く対象から除く、切り離し用の転送ファイル。中身は空の JSON
 		string transferPath = Path.Combine(_directory, "transfer.json");
 		File.WriteAllText(markdownPath, "本文");
 		File.WriteAllText(transferPath, "{}");
 
+		// オプションと転送ファイルを除いた、開くパス。Markdown だけが残る
 		string[] paths = StartupArguments.ResolveFilePaths(["--force-new-window", "--detached-tab", transferPath, "--window-x", "123", "--window-y", "456", markdownPath]);
 
 		Assert.Equal([Path.GetFullPath(markdownPath)], paths);
@@ -50,6 +53,7 @@ public sealed class StartupArgumentsTests : IDisposable
 	/// </summary>
 	public void Dispose()
 	{
+		// 一時ディレクトリが残っているときだけ中身ごと削除する。無いときは何もしない
 		if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
 	}
 }

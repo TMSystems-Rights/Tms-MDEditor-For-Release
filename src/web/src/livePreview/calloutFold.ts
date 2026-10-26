@@ -31,8 +31,11 @@ export const calloutFoldField = StateField.define<Map<number, boolean>>({
 	 * @returns 追従と上書きを反映した Map。変化が無ければ value
 	 */
 	update(value, transaction) {
+		// 追従または上書きを反映する対応表。変化が無ければ null のままで、元の Map を返す
 		let next: Map<number, boolean> | null = null;
 
+		// ----- 文書変更の位置追従 -----
+		// 文書が変わったときだけ開始位置を追従する。変わっていなければ既存のキーを維持する
 		if (transaction.docChanged) {
 			next = new Map();
 			for (const [from, collapsed] of value) {
@@ -40,11 +43,14 @@ export const calloutFoldField = StateField.define<Map<number, boolean>>({
 			}
 		}
 
+		// ----- 折りたたみ上書きの反映 -----
 		for (const effect of transaction.effects) {
+			// 折りたたみ上書き以外の Effect は対応表を変えない
 			if (!effect.is(setCalloutFoldEffect)) {
 				continue;
 			}
 
+			// 文書変更が無く、最初の上書きを受けるときだけ元の Map をコピーする。既にコピー済みなら作り直さない
 			if (!next) {
 				next = new Map(value);
 			}
@@ -53,7 +59,7 @@ export const calloutFoldField = StateField.define<Map<number, boolean>>({
 		}
 
 		return next ?? value;
-	},
+	}
 });
 
 /**
@@ -64,15 +70,13 @@ export const calloutFoldField = StateField.define<Map<number, boolean>>({
  * @param foldDefault - 記法上の既定。none は折りたためない
  * @returns 折りたたみ中なら true。none は常に false
  */
-export function isCalloutCollapsed(
-	overrides: Map<number, boolean>,
-	calloutFrom: number,
-	foldDefault: 'none' | 'collapsed' | 'expanded',
-): boolean {
+export function isCalloutCollapsed(overrides: Map<number, boolean>, calloutFrom: number, foldDefault: 'none' | 'collapsed' | 'expanded'): boolean {
+	// 記法が折りたたみ不可なら上書きを見ない。常に展開とする
 	if (foldDefault === 'none') {
 		return false;
 	}
 
+	// ユーザ上書きがある位置だけその値を使う。無い位置は記法の既定へ進む
 	if (overrides.has(calloutFrom)) {
 		return overrides.get(calloutFrom) === true;
 	}
