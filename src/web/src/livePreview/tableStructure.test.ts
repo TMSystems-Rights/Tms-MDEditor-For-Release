@@ -8,7 +8,7 @@ import { syntaxTree } from '@codemirror/language';
 import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { extractTableData, type TableData } from './tableWidget';
-import { buildTableStructureChange, buildTableStructureGroups, buildTableInsertionChange, createMarkdownTable, resolveTableStructureContextSelection, shouldHideTableStructureControls } from './tableStructure';
+import { buildTableStructureChange, buildTableStructureGroups, buildTableInsertionChange, createMarkdownTable, resolveTableStructureContextSelection, shouldHideTableStructureControls, structureSelectionAfterAction } from './tableStructure';
 
 /**
  * Markdown 対応済みのテスト用状態を作る。選択は付けない
@@ -297,5 +297,39 @@ describe('tableStructure', () => {
 		// 見出し 1 列、データ行なしの表を、前後が改行で分かれるように入れる変更
 		const change = buildTableInsertionChange(state, 1, createMarkdownTable(1, 0));
 		expect(applyChange(state, change)).toBe('前\n| 見出し 1 |\n| --- |\n後');
+	});
+
+	it('列の追加と移動のあとも、選んでいた列を指す', () => {
+		// 3 列の表。末列を選んで操作する
+		const state = createState('| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |');
+		// 最初の表
+		const data  = tableData(state);
+		// 末列。0 始まりで 2
+		const last  = {
+			// 列選択
+			axis: 'column' as const,
+			// 末列
+			start: 2,
+			// 1 列だけ
+			end: 2
+		};
+		expect(structureSelectionAfterAction(data, last, 'insert-after')).toEqual(last);
+		expect(structureSelectionAfterAction(data, last, 'insert-before')).toEqual({
+			// 列選択のまま
+			axis: 'column',
+			// 前に 1 列入ったので末列は 3
+			start: 3,
+			// 1 列のまま
+			end: 3
+		});
+		expect(structureSelectionAfterAction(data, last, 'move-previous')).toEqual({
+			// 列選択のまま
+			axis: 'column',
+			// 左の列と入れ替わって 1
+			start: 1,
+			// 1 列のまま
+			end: 1
+		});
+		expect(structureSelectionAfterAction(data, last, 'delete')).toBeNull();
 	});
 });

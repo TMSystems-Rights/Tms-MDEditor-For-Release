@@ -4,9 +4,9 @@
  * @file
  */
 import { redo, undo } from '@codemirror/commands';
-import { Decoration, EditorView, WidgetType } from '@codemirror/view';
+import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from '@codemirror/view';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import { EditorSelection, Transaction, type EditorState } from '@codemirror/state';
+import { EditorSelection, Transaction, type ChangeSet, type EditorState } from '@codemirror/state';
 import type { SyntaxNode, SyntaxNodeRef } from '@lezer/common';
 import { applySanitizedAttributes, isBreakHtmlTag, parseHtmlTag, sanitizeHtmlAttributes, type SanitizedHtmlAttributes } from './htmlSanitizer';
 import { appendHighlightedCodeText, appendHighlightedInlineCode } from '../editor/codeHighlight';
@@ -20,7 +20,7 @@ import { forgetCellImageWidth, recallCellImageWidth, rememberCellImageWidth } fr
 import { applyImageDisplayWidth, applyImageWidthByPath, applyImageWidthOnDocumentLine, replaceImageWidthInCellText } from './imageResize';
 import { attachTableHorizontalOverflow, attachTableResize, collectTableCellBoxes, computeColumnRightEdges, forgetTableLayout, getTableLayoutKey, rememberTableScroll, resolveTableRelativeOffset, type TableLayout, type TableResizeHit } from './tableResize';
 import { buildAlignTableCellsChanges, buildMergeTableCellsChanges, buildTableLayoutChange, buildTableOccupancy, buildUnmergeTableCellsChanges, cellAlignmentClassNames, describeTableCellSelection, formatCellSpan, getTableMergeActionState, getVisibleAdjacentTableCellPosition, isCoveredTableCell, isMultiCellTableSelectionRect, normalizeTableSelectionRect, parseCellSpan, readTableLayout, resolveTableMergeRect, stripCellSpanFromNodes, type TableAlignPatch, type TableMergeActionState, type TableSelectionRect, type TableSizeLayout } from './tableMerge';
-import { buildTableStructureChange, buildTableStructureGroups, getTableStructureActionState, resolveTableStructureContextSelection, shouldHideTableStructureControls, type TableStructureAction, type TableStructureAxis, type TableStructureRange, type TableStructureSelection } from './tableStructure';
+import { buildTableStructureChange, buildTableStructureGroups, getTableStructureActionState, resolveTableStructureContextSelection, shouldHideTableStructureControls, structureSelectionAfterAction, type TableStructureAction, type TableStructureAxis, type TableStructureRange, type TableStructureSelection } from './tableStructure';
 
 export { clearCellImageWidths, forgetCellImageWidth, recallCellImageWidth, rememberCellImageWidth } from './cellImageWidthMemory';
 
@@ -3508,48 +3508,114 @@ function syncEditingCellFromDocument(view: EditorView, cell: HTMLElement, tableF
 }
 
 /**
+ * 表示更新の文書差分を、表 DOM の再利用判定より前に残す
+ * 更新リスナは DOM 更新の後なので、別の表へ選択が乗り移ったかの判定には使わない
+ */
+const latestTableDocChanges = ViewPlugin.fromClass(
+	/** 直前の表示更新が持つ文書差分。表 DOM を別の表へ使い回さない判定に使う */ class {
+		/** この表示更新の文書差分。文書が変わっていなければ null */
+		public changes: ChangeSet | null = null;
+
+		/**
+		 * 表示更新の文書差分を残す
+		 * DOM の再利用は、このメソッドのあとに走る
+		 * @param update - 今回のビュー更新
+		 */
+		update(update: ViewUpdate): void {
+			// 文書が変わった更新だけ差分を残す。選択だけなら、前の差分で別の表を同じ表と見ない
+			this.changes = update.docChanged ? update.changes : null;
+		}
+	}
+);
+
+/**
+ * 以前の表開始が、文書差分を経て今の表開始と同じ表を指すか返す
+ * 別の表の DOM を、形が同じという理由で再利用しないために使う
+ * @param state - 差分適用後の状態
+ * @param changes - その表示更新の文書差分。無ければ null
+ * @param oldFrom - 再利用しようとする DOM が持っていた表開始
+ * @param newFrom - 今描く表の開始
+ * @returns 同じ表なら true
+ */
+export function tableStartNamesSameTable(state: EditorState, changes: ChangeSet | null, oldFrom: number, newFrom: number): boolean {
+	// 開始が動いていない表は、差分を見なくても同じ表
+	if (oldFrom === newFrom) {
+		return true;
+	}
+
+	// 差分が無いずれは、別の表として扱う
+	if (!changes) {
+		return false;
+	}
+
+	// 置換の開始側。表全体の置換では、同じ表の先頭に残る
+	const before     = changes.mapPos(oldFrom, -1);
+	// 開始側の位置を含む表。隙間や本文なら null
+	const beforeNode = findTableNodeAt(state, before);
+	// 開始側が今の表なら、同じ表
+	if (beforeNode?.from === newFrom) {
+		return true;
+	}
+
+	// 開始側が別の表なら、終端側が次の表に重なってもそちらへは移さない
+	if (beforeNode) {
+		return false;
+	}
+
+	// 表の直前への挿入。開始側は隙間に残り、終端側がずれた表の先頭になる
+	const after     = changes.mapPos(oldFrom, 1);
+	// 終端側の位置を含む表。隙間なら null
+	const afterNode = findTableNodeAt(state, after);
+	return afterNode?.from === newFrom;
+}
+
+/**
  * 表の外からの取り消しでは、キャレットを操作前の位置へ戻す
  * セルが常時編集可能だと、選択の復元で次の Ctrl+Z がセルに吸われる
  */
-export const tableHistoryFocusExtension = EditorView.updateListener.of((update) => {
-	// 取り消しかやり直しの更新か
-	const historyNavigation = update.transactions.some((transaction) => transaction.isUserEvent('undo') || transaction.isUserEvent('redo'));
-	// セル内の取り消し、本文が変わらない更新、もともと表の中にいたキャレットは動かさない
-	if (!shouldKeepSelectionOutsideTable(tableCellHistoryDepth > 0, update.docChanged, findTableNodeAt(update.startState, update.startState.selection.main.head) !== null, historyNavigation)) {
-		return;
-	}
-
-	// 操作前のキャレットを、取り消した文書の位置へ移したもの
-	const mapped = update.startState.selection.map(update.changes);
-	// すでにその位置なら、選択を置き換えない
-	if (mapped.eq(update.state.selection)) {
-		return;
-	}
-
-	// 更新の途中では dispatch できない。直後に、表をクリックしていなければ戻す
-	const view      = update.view;
-	// この取り消し直後の文書長。次の操作が先に入ったら、古い位置は使わない
-	const docLength = update.state.doc.length;
-	queueMicrotask(() => {
-		// セル編集の取り消しに入ったあと、文書が続きで変わった、または選択がすでに同じなら戻さない
-		if (tableCellHistoryDepth > 0 || view.state.doc.length !== docLength || mapped.eq(view.state.selection)) {
+export const tableHistoryFocusExtension = [
+	// 表 DOM を別の表へ使い回さないための、表示更新の文書差分
+	latestTableDocChanges,
+	EditorView.updateListener.of((update) => {
+		// 取り消しかやり直しの更新か
+		const historyNavigation = update.transactions.some((transaction) => transaction.isUserEvent('undo') || transaction.isUserEvent('redo'));
+		// セル内の取り消し、本文が変わらない更新、もともと表の中にいたキャレットは動かさない
+		if (!shouldKeepSelectionOutsideTable(tableCellHistoryDepth > 0, update.docChanged, findTableNodeAt(update.startState, update.startState.selection.main.head) !== null, historyNavigation)) {
 			return;
 		}
 
-		// 待ちのあいだにセルをクリックしていたら、その編集を奪わない
-		const active = view.dom.ownerDocument.activeElement;
-		if (active instanceof Element && active.closest('[data-table-row]')) {
+		// 操作前のキャレットを、取り消した文書の位置へ移したもの
+		const mapped = update.startState.selection.map(update.changes);
+		// すでにその位置なら、選択を置き換えない
+		if (mapped.eq(update.state.selection)) {
 			return;
 		}
 
-		view.dispatch({
-			// 表の外にいたキャレット
-			selection: mapped,
-			// 選択の戻しは、次の Ctrl+Z で取り消さない
-			annotations: Transaction.addToHistory.of(false)
+		// 更新の途中では dispatch できない。直後に、表をクリックしていなければ戻す
+		const view      = update.view;
+		// この取り消し直後の文書長。次の操作が先に入ったら、古い位置は使わない
+		const docLength = update.state.doc.length;
+		queueMicrotask(() => {
+			// セル編集の取り消しに入ったあと、文書が続きで変わった、または選択がすでに同じなら戻さない
+			if (tableCellHistoryDepth > 0 || view.state.doc.length !== docLength || mapped.eq(view.state.selection)) {
+				return;
+			}
+
+			// 待ちのあいだにセルをクリックしていたら、その編集を奪わない
+			const active = view.dom.ownerDocument.activeElement;
+			if (active instanceof Element && active.closest('[data-table-row]')) {
+				return;
+			}
+
+			view.dispatch({
+				// 表の外にいたキャレット
+				selection: mapped,
+				// 選択の戻しは、次の Ctrl+Z で取り消さない
+				annotations: Transaction.addToHistory.of(false)
+			});
 		});
-	});
-});
+	})
+];
 
 /**
  * 編集中でないセルを、文書の文字が変わったときだけ埋め直すか
@@ -4092,6 +4158,8 @@ type ActiveTableMenuTarget = {
 	tableFrom: number;
 	/** メニューが覚えるセル。セルが無ければ null */
 	cell: TableCellPosition | null;
+	/** 行または列の選択。セル選択中や未選択なら null */
+	structure: TableStructureSelection | null;
 };
 
 /** EditorView から、上部メニューの操作対象。ビューが捨てられるまで */
@@ -4110,13 +4178,18 @@ function activateTableMenuTarget(view: EditorView, wrap: HTMLElement, cell?: Tab
 	// dataset の表開始。数値でなければ NaN
 	const tableFrom = Number(wrap.dataset.tableFrom);
 	// 整数の開始だけ、このビューの操作対象として覚える
-	if (Number.isInteger(tableFrom))
+	if (Number.isInteger(tableFrom)) {
+		// 同じ表を覚えているときだけ残す行・列選択。別の表へ移ったときは null
+		const structure = activeTableMenuTargets.get(view)?.tableFrom === tableFrom ? (activeTableMenuTargets.get(view)?.structure ?? null) : null;
 		activeTableMenuTargets.set(view, {
 			// 表の開始。文書上の文字位置
 			tableFrom,
 			// 渡されたセル。無ければ null
-			cell: cell ?? null
+			cell: cell ?? null,
+			// 同じ表の行・列選択。別の表では null
+			structure
 		});
+	}
 	wrap.dispatchEvent(new CustomEvent(TABLE_MENU_STATE_CHANGE_EVENT, { bubbles: true }));
 }
 
@@ -4423,8 +4496,64 @@ function notifyTableGeometryChange(cell: HTMLElement): void {
 	wrap.dispatchEvent(new Event(TABLE_GEOMETRY_CHANGE_EVENT));
 }
 
-/** 表構造選択ヘッダーを表の外周へ追加する */
-function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement, data: TableData, view: EditorView, onGeometryChange: () => void): void {
+/**
+ * 作り直す表に戻す、覚えていた行・列選択を返す
+ * 別の表の選択は戻さない
+ * @param view - エディタ
+ * @param data - 今描く表
+ * @returns この表の選択。無ければ null
+ */
+function rememberedTableStructureSelection(view: EditorView, data: TableData): TableStructureSelection | null {
+	// 上部メニューが覚えている表と選択。未操作なら null
+	const target = activeTableMenuTargets.get(view);
+	// 行・列を覚えていないときは、新しい DOM に選択を戻さない
+	if (!target?.structure) {
+		return null;
+	}
+
+	// この表示更新の文書差分。プラグインが無い、または文書が変わっていなければ null
+	const changes = typeof view.plugin === 'function' ? (view.plugin(latestTableDocChanges)?.changes ?? null) : null;
+	// 覚えた開始が別の表を指すときは、その選択をこの表へ戻さない
+	if (!tableStartNamesSameTable(view.state, changes, target.tableFrom, data.tableFrom)) {
+		return null;
+	}
+
+	// 今の表の選択単位。操作後に無くなった範囲は戻せない
+	const groups    = buildTableStructureGroups(data, target.structure.axis);
+	// 開始が今の単位に残っているか
+	const fitsStart = groups.some((group) => group.start === target.structure!.start);
+	// 終了が今の単位に残っているか
+	const fitsEnd   = groups.some((group) => group.end === target.structure!.end);
+	// 開始か終了が単位から外れた選択は戻さない。どちらか一方が欠けても null
+	if (!fitsStart || !fitsEnd) {
+		return null;
+	}
+
+	// 手前の編集で開始位置だけが動いたときは、覚えた位置を今の表へ直す
+	if (target.tableFrom !== data.tableFrom) {
+		activeTableMenuTargets.set(view, {
+			// 今描く表の開始
+			tableFrom: data.tableFrom,
+			// 覚えていたセル。無ければ null
+			cell: target.cell,
+			// 戻す行・列選択
+			structure: target.structure
+		});
+	}
+
+	return target.structure;
+}
+
+/**
+ * 表構造選択ヘッダーを表の外周へ追加する
+ * @param wrap - 選択ヘッダーを置く表の枠
+ * @param table - 選択クラスを付ける表要素
+ * @param data - 選択単位を作る表
+ * @param view - メニュー対象を覚えるエディタ
+ * @param onGeometryChange - ヘッダーの表示が変わったときに呼ぶ
+ * @param initialSelection - 作り直した DOM に戻す選択。無ければ null
+ */
+function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement, data: TableData, view: EditorView, onGeometryChange: () => void, initialSelection: TableStructureSelection | null = null): void {
 	// 列の選択単位。結合でまとまった列
 	const columnGroups = buildTableStructureGroups(data, 'column');
 	// 行の選択単位。見出しを除いた行
@@ -4754,6 +4883,13 @@ function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement
 	// セル DOM の差し替え後に、ボタン位置を表へ合わせ直す
 	wrap.addEventListener(TABLE_GEOMETRY_CHANGE_EVENT, syncAfterGeometryChange);
 
+	// 作り直した DOM には、操作した表の選択だけを戻す。別の表の選択はここに来ない
+	if (initialSelection) {
+		writeTableStructureSelection(wrap, table, initialSelection);
+		setVisible(true);
+		wrap.dataset.tableMenuActive = 'true';
+	}
+
 	sync();
 	requestAnimationFrame(sync);
 	// 表かラッパーの寸法が変わったらボタン位置を合わせる。表が外れたら監視を止める
@@ -4906,12 +5042,12 @@ export function snapshotTableStructureActionFromEvent(view: EditorView, event: M
 	const wrap   = button?.closest<HTMLElement>('.cm-md-table-wrap');
 	// ボタンが無い、表が無い、このビューの外、のどれかでは操作対象を固定しない
 	if (!button || !wrap || !view.dom.contains(wrap)) return null;
-	// dataset の表開始。数値でなければ NaN
-	const tableFrom = Number(wrap.dataset.tableFrom);
+	// 見えている枠の現在の開始。dataset の古い位置より優先する。取れなければ null
+	const tableFrom = resolveTableFromForPersist(view, wrap);
 	// 記録済みの行または列の選択。未選択なら null
 	const selection = readTableStructureSelection(wrap);
-	// 開始が整数でない、または選択が無いときは固定しない。どちらか一方でも null
-	if (!Number.isInteger(tableFrom) || !selection) return null;
+	// 表が取れない、または選択が無いときは固定しない。どちらか一方でも null
+	if (tableFrom === null || !selection) return null;
 	// 開始位置を含む表。無ければ null
 	const tableNode = findTableNodeAt(view.state, tableFrom);
 	// 表が文書に無いときは操作可否を作れない
@@ -4945,6 +5081,18 @@ export function applyTableStructureSnapshot(view: EditorView, snapshot: Pick<Tab
 	const change = buildTableStructureChange(view.state, data, snapshot, action);
 	// 変更を作れない操作は文書を変えない
 	if (!change) return false;
+	// 操作後も同じ行や列を指す選択。削除したときは null
+	const nextSelection = structureSelectionAfterAction(data, snapshot, action);
+	// 作り直す DOM へ戻すため、適用より前に覚える
+	const menuTarget    = activeTableMenuTargets.get(view);
+	activeTableMenuTargets.set(view, {
+		// 操作した表の開始。表全体の置換では開始は動かない
+		tableFrom: data.tableFrom,
+		// 覚えていたセル。無ければ null
+		cell: menuTarget?.cell ?? null,
+		// 操作後の行・列選択。削除なら null
+		structure: nextSelection
+	});
 	// 表全体を 1 区間で置き換える入力
 	view.dispatch({
 		// 表範囲の置換
@@ -4976,12 +5124,53 @@ export type TableMenuSnapshot = {
 	merge: TableMergeMenuSnapshot | null;
 };
 
-/** 上部メニュー用に、最後に操作した表と現在の行・列・セル選択を取得する */
+/**
+ * メニュー操作の表開始を、見えている枠の位置から決める
+ * クリック時に覚えた文字位置は、枠から表が取れないときだけ使う
+ * @param view - エディタ
+ * @param wrap - 操作中の表枠
+ * @param rememberedFrom - クリック時に覚えた開始。無ければ null
+ * @returns 操作する表の開始と、見えている枠から取れたか。表が無ければ null
+ */
+function resolveActiveMenuTableFrom(view: EditorView, wrap: HTMLElement, rememberedFrom: number | null): { tableFrom: number; fromLiveWrap: boolean } | null {
+	// 見えている枠から取れた表。DOM から取れなければ null
+	const liveFrom = resolveTableFromForPersist(view, wrap);
+	// 枠の位置が別の表の中にあっても、覚えた文字位置よりこちらを使う
+	if (liveFrom !== null) {
+		return {
+			// 今の文書での表開始
+			tableFrom: liveFrom,
+			// 見えている枠から取れた
+			fromLiveWrap: true
+		};
+	}
+
+	// 覚えた開始が整数でないときは予備にしない
+	if (rememberedFrom === null || !Number.isInteger(rememberedFrom)) {
+		return null;
+	}
+
+	// 覚えた位置を含む表。枠がエディタ外のときだけ使う
+	const tableNode = findTableNodeAt(view.state, rememberedFrom);
+	// 文書に表が無い覚えた位置は操作先にしない
+	if (!tableNode) {
+		return null;
+	}
+
+	return {
+		// その表の開始。覚えた位置が表の途中でも開始へ揃える
+		tableFrom: tableNode.from,
+		// 枠からは取れず、覚えた位置を使った
+		fromLiveWrap: false
+	};
+}
+
+/** 上部メニュー用に、見えている表の現在位置と、その行・列・セル選択を取得する */
 export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
 	// このビューが覚えている表とセル。未操作なら null
 	const target = activeTableMenuTargets.get(view) ?? null;
-	// 表示中の操作対象。dataset が無いときは覚えた開始位置の表
-	const wrap   = view.dom.querySelector<HTMLElement>('.cm-md-table-wrap[data-table-menu-active="true"]') ?? Array.from(view.dom.querySelectorAll<HTMLElement>('.cm-md-table-wrap')).find((candidate) => Number(candidate.dataset.tableFrom) === target?.tableFrom) ?? null;
+	// 選択の印が付いた表。印が無いときは、覚えた位置で別の表を拾わない
+	const wrap   = view.dom.querySelector<HTMLElement>('.cm-md-table-wrap[data-table-menu-active="true"]') ?? null;
 	// 操作中の表が無いときは、表の外として空の状態を返す
 	if (!wrap)
 		return {
@@ -4993,10 +5182,10 @@ export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
 			merge: null
 		};
 
-	// 覚えた開始。無ければ dataset の開始。数値でなければ NaN
-	const tableFrom = target?.tableFrom ?? Number(wrap.dataset.tableFrom);
-	// 開始が整数でない表はメニュー対象にしない
-	if (!Number.isInteger(tableFrom))
+	// 見えている枠の開始。枠から取れないときだけ、覚えた位置を含む表
+	const menuTable = resolveActiveMenuTableFrom(view, wrap, target?.tableFrom ?? null);
+	// 表の開始が取れないときはメニュー対象にしない
+	if (!menuTable)
 		return {
 			// 表の外
 			inMarkdownTable: false,
@@ -5005,6 +5194,20 @@ export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
 			// 結合操作は無い
 			merge: null
 		};
+
+	// 操作する表の開始。見えている枠を優先した値
+	const tableFrom = menuTable.tableFrom;
+	// 枠から取れた開始が覚えている位置と違うときは、次のメニューも同じ表を見るよう更新する
+	if (menuTable.fromLiveWrap && (!target || target.tableFrom !== tableFrom)) {
+		activeTableMenuTargets.set(view, {
+			// 今の文書での表開始
+			tableFrom,
+			// 枠に属するセル。無ければ null
+			cell: target?.cell ?? null,
+			// 同じ表の行・列選択。未選択なら null
+			structure: target?.structure ?? null
+		});
+	}
 	// 開始位置を含む表。無ければ null
 	const tableNode = findTableNodeAt(view.state, tableFrom);
 	// 文書に表が無いときはメニュー対象にしない
@@ -5041,8 +5244,8 @@ export function snapshotActiveTableMenu(view: EditorView): TableMenuSnapshot {
 		};
 	}
 
-	// 覚えたセル。別の表を覚えているときは null
-	const storedCell          = target?.tableFrom === tableFrom ? target.cell : null;
+	// 覚えたセル。開始位置がずれても、この枠の行と列として使う。無ければ null
+	const storedCell          = target?.cell ?? null;
 	// dataset の行と列。未設定なら空文字
 	const [rawRow, rawColumn] = (wrap.dataset.tableMenuCell ?? '').split(',');
 	// 行番号。数値でなければ NaN
@@ -5486,30 +5689,36 @@ export function persistTableLayout(view: EditorView, tableFrom: number, layout: 
  * @returns 表データと結合可否。表の外なら null
  */
 function resolveTableMergeTarget(view: EditorView, event: MouseEvent): { data: TableData; state: TableMergeActionState } | null {
-	// 右クリック先の表位置とセル。表の外は null
+	// 右クリック先の枠とセル。表の外は null
 	const parts = readTableMergeEventParts(event);
 	// 表の外では結合対象を決められない
 	if (!parts) {
 		return null;
 	}
 
-	return resolveTableMergeTargetFromParts(view.state, parts.tableFrom, parts.selected, parts.clicked);
+	// 見えている枠の現在の開始。dataset の古い位置より優先する。取れなければ null
+	const tableFrom = resolveTableFromForPersist(view, parts.wrap);
+	// 枠から表が取れないときは結合対象にしない
+	if (tableFrom === null) {
+		return null;
+	}
+
+	return resolveTableMergeTargetFromParts(view.state, tableFrom, parts.selected, parts.clicked);
 }
 
 /**
- * 右クリック先が DOM から外れても、表位置とセル位置を読む
+ * 右クリック先の表枠とセル位置を読む
+ * 表の開始位置は、呼び出し側が見えている枠から取り直す
  * @param event - マウス
- * @returns 右クリック先が DOM から外れても、表位置とセル位置
+ * @returns 右クリック先の表枠とセル位置。表の外なら null
  */
-function readTableMergeEventParts(event: MouseEvent): { tableFrom: number; selected: TableSelectionRect | null; clicked: TableCellPosition | null } | null {
+function readTableMergeEventParts(event: MouseEvent): { wrap: HTMLElement; selected: TableSelectionRect | null; clicked: TableCellPosition | null } | null {
 	// クリック対象の要素。テキストノードなら親。それ以外は null
-	const start     = event.target instanceof Element ? event.target : event.target instanceof Node ? event.target.parentElement : null;
+	const start = event.target instanceof Element ? event.target : event.target instanceof Node ? event.target.parentElement : null;
 	// 対象が属する表。表の外は null
-	const wrap      = start?.closest<HTMLElement>('.cm-md-table-wrap') ?? null;
-	// dataset の表開始。数値でなければ NaN
-	const tableFrom = Number(wrap?.dataset.tableFrom);
-	// 表が無い、または開始が整数でないときは位置を返さない。どちらか一方でも null
-	if (!wrap || !Number.isInteger(tableFrom)) {
+	const wrap  = start?.closest<HTMLElement>('.cm-md-table-wrap') ?? null;
+	// 表が無いときは位置を返さない
+	if (!wrap) {
 		return null;
 	}
 
@@ -5525,10 +5734,10 @@ function readTableMergeEventParts(event: MouseEvent): { tableFrom: number; selec
 				column: Number(cell.dataset.tableColumn)
 			}
 			: null;
-	// 表の開始、矩形選択、クリックしたセル
+	// 表枠、矩形選択、クリックしたセル
 	return {
-		// 表の開始
-		tableFrom,
+		// 見えている表。開始位置は呼び出し側が取り直す
+		wrap,
 		// ドラッグ選択。無ければ null
 		selected: readTableSelectionRect(wrap),
 		// クリックしたセル。セルの外は null
@@ -5699,12 +5908,27 @@ export class TableWidget extends WidgetType {
 	 * 編集中セルは IME / 改行用に DOM を維持する
 	 * @param dom - 既存 DOM
 	 * @param view - エディタ
+	 * @param previous - この DOM を作った表ウィジェット。別の表なら再利用しない
 	 * @returns 同じ表として再利用するとき、位置と非編集セルだけ更新するなら true
 	 */
-	updateDOM(dom: HTMLElement, view: EditorView): boolean {
+	updateDOM(dom: HTMLElement, view: EditorView, previous?: WidgetType): boolean {
 		// 表ラッパーでない DOM は再利用しない
 		if (!dom?.classList?.contains('cm-md-table-wrap')) {
 			return false;
+		}
+
+		// この DOM を作った表。別種のウィジェットなら null
+		const previousTable = previous instanceof TableWidget ? previous : null;
+		// この DOM を作った表の開始。表でなければ undefined
+		const previousFrom  = previousTable?.data.tableFrom;
+		// 別の表の DOM は、選択ハイライトごと乗り移るので使わない。テストの仮ビューは plugin を持たない
+		if (typeof previousFrom === 'number' && typeof view.plugin === 'function') {
+			// この表示更新の文書差分。文書が変わっていなければ null
+			const changes = view.plugin(latestTableDocChanges)?.changes ?? null;
+			// 差分を経ても同じ表でなければ、この DOM は使わない
+			if (!tableStartNamesSameTable(view.state, changes, previousFrom, this.data.tableFrom)) {
+				return false;
+			}
 		}
 
 		// 開始位置を含む表。無ければ null
@@ -6467,10 +6691,19 @@ export class TableWidget extends WidgetType {
 		}
 		// 横にはみ出す表のスクロール同期
 		const syncHorizontalOverflow = attachTableHorizontalOverflow(wrap, table);
-		attachTableStructureControls(wrap, table, this.data, view, () => {
-			syncResizeHandles();
-			syncHorizontalOverflow();
-		});
+		// 操作した表の選択。別の表や、もう無い範囲なら null
+		const initialSelection       = rememberedTableStructureSelection(view, this.data);
+		attachTableStructureControls(
+			wrap,
+			table,
+			this.data,
+			view,
+			() => {
+				syncResizeHandles();
+				syncHorizontalOverflow();
+			},
+			initialSelection
+		);
 
 		return wrap;
 	}

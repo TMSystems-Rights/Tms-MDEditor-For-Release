@@ -4,7 +4,7 @@
  * @file
  */
 import { syntaxTree } from '@codemirror/language';
-import { EditorSelection, EditorState } from '@codemirror/state';
+import { ChangeSet, EditorSelection, EditorState } from '@codemirror/state';
 import { history, undo } from '@codemirror/commands';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
@@ -55,6 +55,8 @@ import {
 	observeTableStructureGeometry,
 	resolveTableStructureOffset,
 	restoreTableCellFocus,
+	snapshotActiveTableMenu,
+	tableStartNamesSameTable,
 	shouldPreserveTableCellSelectionOnMouseDown,
 	shouldSyncTableCellEditorOnMouseDown,
 	syncTableCellEditorSelection,
@@ -2456,5 +2458,112 @@ describe('blockWidgets', () => {
 
 		expect(collectHtmlDecorationEntries(previewState)).toHaveLength(3);
 		expect(collectHtmlDecorationEntries(sourceState)).toHaveLength(0);
+	});
+
+	it('上部メニューの表操作は、覚えた文字位置より見えている表を使う', () => {
+		// 手前と後ろに表がある。手前を編集すると後ろの開始がずれる
+		const doc    = ['| a | b |', '| --- | --- |', '| 1 | 2 |', '', '| c | d |', '| --- | --- |', '| 3 | 4 |'].join('\n');
+		// カーソルは先頭。両方の表を構文木から取る
+		const state  = createState(doc, 0);
+		// 先頭の表。無ければ null
+		const first  = findTableNodeAt(state, 0);
+		// 後ろの表。隙間では次の表を拾わないので、見出しの文字位置から取る
+		const second = findTableNodeAt(state, doc.lastIndexOf('| c |'));
+		expect(first).not.toBeNull();
+		expect(second).not.toBeNull();
+		expect(second!.from).toBeGreaterThan(first!.to);
+
+		// posAtDOM が返す位置。最初は手前の表の開始
+		let domPos = first!.from;
+		// 選択の印が付いた枠。dataset の開始は手前の表のまま
+		const wrap = {
+			// クリック時の表開始と、先頭列の選択
+			dataset: {
+				// クリック時に覚えた、手前の表の開始
+				tableFrom: String(first!.from),
+				// 上部メニューの操作対象
+				tableMenuActive: 'true',
+				// 先頭列を選んでいる
+				tableStructureSelection: 'column,0,0'
+			}
+		};
+		// 文書と、枠の現在位置だけを持つビュー
+		const view = {
+			// 二つの表がある文書
+			state,
+			/**
+			 * 見えている枠の文書位置を返す
+			 * @returns テストが切り替える表の開始
+			 */
+			posAtDOM() {
+				return domPos;
+			},
+			// 操作対象の枠を探す DOM
+			dom: {
+				/**
+				 * 選択中の表枠を返す
+				 * @param selector - 検索するセレクタ
+				 * @returns 操作対象の枠。印の検索以外は null
+				 */
+				querySelector(selector: string) {
+					// 選択の印が付いた枠だけを返す
+					if (selector.includes('data-table-menu-active')) {
+						return wrap;
+					}
+
+					return null;
+				}
+			}
+		} as unknown as import('@codemirror/view').EditorView;
+
+		// クリック直後は、覚えた位置と見えている表が同じ
+		const remembered = snapshotActiveTableMenu(view);
+		expect(remembered.structure?.tableFrom).toBe(first!.from);
+		expect(remembered.structure?.axis).toBe('column');
+
+		// 手前の編集で後ろの表が動いたあと。枠の見た目は後ろの表にあり、dataset は古いまま
+		domPos      = second!.from;
+		// 同じ枠のまま取り直したメニュー対象
+		const moved = snapshotActiveTableMenu(view);
+		expect(moved.structure?.tableFrom).toBe(second!.from);
+		expect(moved.structure?.axis).toBe('column');
+		expect(moved.structure?.start).toBe(0);
+	});
+
+	it('手前の挿入後も、表の開始位置は元の表を指す', () => {
+		// 手前と後ろに表がある。手前へ文字を足すと後ろの開始がずれる
+		const doc         = ['| a | b |', '| --- | --- |', '| 1 | 2 |', '', '| c | d |', '| --- | --- |', '| 3 | 4 |'].join('\n');
+		// 挿入前の状態
+		const before      = createState(doc, 0);
+		// 先頭の表
+		const first       = findTableNodeAt(before, 0);
+		// 後ろの表
+		const second      = findTableNodeAt(before, doc.lastIndexOf('| c |'));
+		// 文書の先頭へ 1 行足す差分。両方の表が後ろへずれる
+		const changes     = ChangeSet.of(
+			[
+				{
+					// 文書の先頭
+					from: 0,
+					// 置き換え幅は 0
+					to: 0,
+					// 手前に足す 1 行
+					insert: 'note\n'
+				}
+			],
+			before.doc.length
+		);
+		// 差分を適用した状態
+		const after       = before.update({ changes }).state;
+		// ずれたあとの先頭の表
+		const firstAfter  = findTableNodeAt(after, 'note\n'.length);
+		// ずれたあとの後ろの表
+		const secondAfter = findTableNodeAt(after, after.doc.toString().lastIndexOf('| c |'));
+		expect(first).not.toBeNull();
+		expect(second).not.toBeNull();
+		expect(tableStartNamesSameTable(after, changes, first!.from, firstAfter!.from)).toBe(true);
+		expect(tableStartNamesSameTable(after, changes, second!.from, secondAfter!.from)).toBe(true);
+		expect(tableStartNamesSameTable(after, changes, first!.from, secondAfter!.from)).toBe(false);
+		expect(tableStartNamesSameTable(after, changes, second!.from, firstAfter!.from)).toBe(false);
 	});
 });

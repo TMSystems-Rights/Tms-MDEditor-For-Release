@@ -231,6 +231,71 @@ export function buildTableStructureChange(state: EditorState, data: TableData, s
 }
 
 /**
+ * 構造操作のあとに残す行・列選択を返す
+ * 削除した範囲は選択を残さない。挿入と移動は、操作後の同じ行や列を指す
+ * @param data - 操作前の表
+ * @param selection - 操作した範囲
+ * @param action - 挿入、削除、移動
+ * @returns 操作後の選択。削除したとき、または範囲が単位に乗らないときは null
+ */
+export function structureSelectionAfterAction(data: TableData, selection: TableStructureSelection, action: TableStructureAction): TableStructureSelection | null {
+	// 削除した行や列は、もう選択できない
+	if (action === 'delete') {
+		return null;
+	}
+
+	// 選択軸の単位。移動先の隣を引く
+	const groups = buildTableStructureGroups(data, selection.axis);
+	// 選択開始の単位番号。無ければ -1
+	const first  = groups.findIndex((group) => group.start === selection.start);
+	// 選択終了の単位番号。無ければ -1
+	const last   = groups.findIndex((group) => group.end === selection.end);
+	// 開始単位が無い、または終了が開始より前なら選択を残せない。どちらか一方でも null
+	if (first < 0 || last < first) {
+		return null;
+	}
+
+	// 選択の幅。挿入で同じ数だけずれる
+	const width = selection.end - selection.start + 1;
+	// 前へ挿入すると、元の行や列は挿入した数だけ後ろへずれる
+	if (action === 'insert-before') {
+		return {
+			// 操作した軸
+			axis: selection.axis,
+			// 挿入した数だけ後ろへずれた開始
+			start: selection.start + width,
+			// 挿入した数だけ後ろへずれた終了
+			end: selection.end + width
+		};
+	}
+
+	// 後ろへ挿入しても、選んでいた行や列の番号は変わらない
+	if (action === 'insert-after') {
+		return selection;
+	}
+
+	// 移動先の隣単位。前移動は直前、後移動は直後。端なら undefined
+	const adjacent = action === 'move-previous' ? groups[first - 1] : groups[last + 1];
+	// 隣が無い移動は、選択位置を変えない
+	if (!adjacent) {
+		return selection;
+	}
+
+	// 隣単位の幅。選択はこの幅だけ入れ替わる
+	const shift = adjacent.end - adjacent.start + 1;
+	// 前移動は負、後移動は正
+	const delta = action === 'move-previous' ? -shift : shift;
+	return {
+		// 操作した軸
+		axis: selection.axis,
+		// 隣と入れ替わったあとの開始
+		start: selection.start + delta,
+		// 隣と入れ替わったあとの終了
+		end: selection.end + delta
+	};
+}
+
+/**
  * 新規 Markdown 表を作る
  * @param columnCount - 列数
  * @param dataRowCount - データ行数
