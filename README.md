@@ -4,9 +4,17 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.13.3](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.3)
+最新リリース: [v1.13.4](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.4)
 
 ## 変更内容
+
+### v1.13.4 の主な変更
+
+- 空の表セルが潰れてクリックできないのを防ぐ
+- セルの文字を消して Tab したとき、ブラウザが足す改行タグをソースへ残さない
+- 表セルの Ctrl+Z で、取り消した文字があったセルへフォーカスを戻す
+- 行・列の追加、削除、移動、結合、配置を、いま見えている表へ入れる
+- 列を追加したとき、選択のハイライトが別の表の同じ列へ移らない
 
 ### v1.13.3 の主な変更
 
