@@ -102,8 +102,8 @@ body.tms-mde-body {
 body.tms-mde-theme-dark,
 html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
 	/* アプリ全体の背景・文字・アクセント */
-	--tms-bg: #101010;
-	--tms-fg: #f0f0f0;
+	--tms-bg: #202020;
+	--tms-fg: #dedec8;
 	--tms-accent: #3b82f6;
 	--tms-mde-color-bg: var(--tms-bg);
 
