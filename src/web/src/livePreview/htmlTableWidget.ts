@@ -6,6 +6,7 @@
 import { Decoration, WidgetType } from '@codemirror/view';
 import type { DecorationEntry } from './inlineDecorations';
 import { sanitizeHtmlTable } from './htmlTable';
+import { attachTableHorizontalOverflow } from './tableResize';
 
 /**
  * フェンス無し HTML 表を描くウィジェット
@@ -47,8 +48,10 @@ export class HtmlTableWidget extends WidgetType {
 		// ラッパー内の最初の table。サニタイズ結果に表が無ければ null
 		const table    = wrap.querySelector('table');
 		// 表要素があるときだけ Markdown 表と HTML 表のクラスを付ける。無ければクラスは足さない
-		if (table) {
+		if (table instanceof HTMLTableElement) {
 			table.classList.add('cm-md-table', 'cm-md-html-table');
+			// 高さ制限で見切れた行を、枠の中でスクロールできるようにする
+			attachTableHorizontalOverflow(wrap, table);
 		}
 
 		return wrap;

@@ -406,7 +406,7 @@ html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
  * 基本スタイル
  * --------------------------------------------------- */
 
-/* 大きい表は高さ制限して縦スクロール。横は表示領域を超えたとき表内でスクロールする */
+/* 大きい表の高さ上限。超えた行はアプリが枠内の縦スクロールにする */
 .tms-mde-editor-host .cm-md-table-wrap {
 	max-height: var(--mde-snippet-table-max-height);
 	margin: 0.55em 0;

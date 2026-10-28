@@ -217,6 +217,7 @@ public class ConfigStoreTests : IDisposable
 	/// カスタムのブラウザコマンドは、引用符付きの引数を含めて保存される
 	/// </summary>
 	[Fact]
+	public void UpdateSettings_persists_custom_external_browser_settings()
 	{
 		// カスタムコマンドを載せる前の初期設定
 		LoadConfigResult load = _configStore.Load();

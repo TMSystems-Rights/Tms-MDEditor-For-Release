@@ -122,6 +122,7 @@ public class ClipboardHtmlTableConverterTests
 	/// Excel のクラスに書いた配置を、引用符の有無にかかわらずセルへ残す
 	/// </summary>
 	[Fact]
+	public void ToMarkdown_reads_excel_class_alignment()
 	{
 		// 引用符ありと無しの Excel クラスで配置を指定した2セル
 		const string html = """
@@ -177,6 +178,7 @@ public class ClipboardHtmlTableConverterTests
 	/// data-original の画像を渡したウィキリンクにし、同じセルの文字を br で残す
 	/// </summary>
 	[Fact]
+	public void ToMarkdown_inserts_resolved_images_and_keeps_text()
 	{
 		// data-original の画像と、同じセルの文字を含む1セル
 		const string html = """

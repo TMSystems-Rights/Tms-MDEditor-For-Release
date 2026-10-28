@@ -68,9 +68,8 @@ export function applyTheme(theme: string): void {
 	// ダーク固定のときだけダーククラスを付ける。light と system はこの分岐に入らない
 	if (mode === 'dark') {
 		document.body.classList.add(THEME_CLASS_DARK);
-	}
 	// ライト固定のときだけライトクラスを付ける。system はどちらのクラスも付けない
-	else if (mode === 'light') {
+	} else if (mode === 'light') {
 		document.body.classList.add(THEME_CLASS_LIGHT);
 	}
 

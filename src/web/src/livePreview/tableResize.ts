@@ -50,6 +50,10 @@ const MIN_ROW_HEIGHT   = 24;
 const TABLE_HORIZONTAL_OVERFLOW_CLASS        = 'cm-md-table-horizontal-overflow';
 /** 横はみ出しとみなす余裕（px）。1px 以内は誤差として無視する */
 const TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX = 1;
+/** 表が縦にはみ出したときに枠へ付けるクラス */
+const TABLE_VERTICAL_OVERFLOW_CLASS          = 'cm-md-table-vertical-overflow';
+/** 縦はみ出しとみなす余裕（px）。1px 以内は誤差として無視する */
+const TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX   = 1;
 
 /** セル内で折り返すクラス。はみ出し判定と対で使う */
 const TABLE_CELL_WRAP_CLASS = 'cm-md-table-cell-wrap';
@@ -90,28 +94,68 @@ export function isTableHorizontallyOverflowing(tableLeft: number, tableWidth: nu
 }
 
 /**
- * 表本体の実幅に応じて横スクロールの有無を切り替える
+ * 表の枠に実効の最大高さがあるかを返す
+ * none や算出できない指定は、内容の高さのまま伸ばす
+ * @param maxHeight - getComputedStyle が返す max-height
+ * @returns 高さ制限があるなら true
+ */
+export function isTableHeightConstrained(maxHeight: string): boolean {
+	// 未指定と none は制限なし。空白だけも制限にしない
+	if (maxHeight.trim() === '' || maxHeight === 'none') {
+		return false;
+	}
+
+	// 算出済みの高さ（px）。min() や vh も getComputedStyle では px になる
+	const pixels = Number.parseFloat(maxHeight);
+	return Number.isFinite(pixels) && pixels > 0;
+}
+
+/**
+ * 表本体がラッパーの表示高を実際に超えているかを返す
+ * @param tableTop - 表上端のスクロール領域内座標
+ * @param tableHeight - 表の実高さ
+ * @param viewportHeight - ラッパーの表示高
+ * @returns 縦スクロールが必要か
+ */
+export function isTableVerticallyOverflowing(tableTop: number, tableHeight: number, viewportHeight: number): boolean {
+	return tableTop + tableHeight > viewportHeight + TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX;
+}
+
+/**
+ * 表本体の実寸に応じて、横スクロールと高さ制限時の縦スクロールを切り替える
  * 絶対配置のヘッダー・リサイズ要素やサブピクセル丸めは判定対象にしない
+ * 最大高さが無い表は縦スクロールにせず、僅かな誤差で縦横スクロールが連鎖しないようにする
  * @param wrap - 表ラッパー
  * @param table - 表
- * @returns 表位置・幅が変わったときの再同期処理
+ * @returns 表位置・寸法が変わったときの再同期処理
  */
 export function attachTableHorizontalOverflow(wrap: HTMLElement, table: HTMLTableElement): () => void {
-	/** 現在の表実幅から横スクロール要否を同期する */
+	/** 現在の表実寸から縦横スクロールの要否を同期する */
 	const sync = (): void => {
 		// 枠と表の画面矩形。はみ出し判定の基準
-		const wrapRect  = wrap.getBoundingClientRect();
+		const wrapRect         = wrap.getBoundingClientRect();
 		// 表本体の画面矩形。絶対配置のヘッダーは含まない
-		const tableRect = table.getBoundingClientRect();
+		const tableRect        = table.getBoundingClientRect();
 		// スクロール領域内の表の左端
-		const tableLeft = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
+		const tableLeft        = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
 		// 表が枠の表示幅を超えているか
-		const overflow  = isTableHorizontallyOverflowing(tableLeft, tableRect.width, wrap.clientWidth);
+		const overflow         = isTableHorizontallyOverflowing(tableLeft, tableRect.width, wrap.clientWidth);
+		// スクロール領域内の表の上端
+		const tableTop         = resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop);
+		// 算出済みの max-height。none のときは高さ制限が無い
+		const maxHeight        = getComputedStyle(wrap).maxHeight;
+		// 高さ制限があり、かつ表本体が表示高を超えているか。制限が無い表は縦スクロールにしない
+		const verticalOverflow = isTableHeightConstrained(maxHeight) && isTableVerticallyOverflowing(tableTop, tableRect.height, wrap.clientHeight);
 
 		wrap.classList.toggle(TABLE_HORIZONTAL_OVERFLOW_CLASS, overflow);
+		wrap.classList.toggle(TABLE_VERTICAL_OVERFLOW_CLASS, verticalOverflow);
 		// はみ出していないのに横位置が残っているときは、先頭へ戻す
 		if (!overflow && wrap.scrollLeft !== 0) {
 			wrap.scrollLeft = 0;
+		}
+		// 縦にはみ出していないのに縦位置が残っているときは、先頭へ戻す
+		if (!verticalOverflow && wrap.scrollTop !== 0) {
+			wrap.scrollTop = 0;
 		}
 	};
 

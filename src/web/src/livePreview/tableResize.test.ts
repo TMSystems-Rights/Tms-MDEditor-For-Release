@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EXPORT_PREVIEW_CSS } from '../export/exportCss';
-import { TABLE_RESIZE_DRAG_THRESHOLD_PX, TABLE_RESIZE_HANDLE_PX, clampColumnWidth, clampRowHeight, clearTableLayouts, computeColumnRightEdges, computeColumnWidths, forgetTableLayout, getTableLayoutKey, hasTableResizePointerMoved, isTableHorizontallyOverflowing, recallTableLayout, rememberTableLayout, resolveActiveTableResizeLayout, resolveTableResizeHit, resolveTableRelativeOffset, shouldWrapTableCell } from './tableResize';
+import { TABLE_RESIZE_DRAG_THRESHOLD_PX, TABLE_RESIZE_HANDLE_PX, clampColumnWidth, clampRowHeight, clearTableLayouts, computeColumnRightEdges, computeColumnWidths, forgetTableLayout, getTableLayoutKey, hasTableResizePointerMoved, isTableHeightConstrained, isTableHorizontallyOverflowing, isTableVerticallyOverflowing, recallTableLayout, rememberTableLayout, resolveActiveTableResizeLayout, resolveTableResizeHit, resolveTableRelativeOffset, shouldWrapTableCell } from './tableResize';
 
 /**
  * リサイズ用クラスが載っているかを見る、ライブプレビュー CSS
@@ -208,6 +208,16 @@ describe('tableResize', () => {
 		expect(isTableHorizontallyOverflowing(26, 973, 1000)).toBe(false);
 		expect(isTableHorizontallyOverflowing(26, 974.5, 1000)).toBe(false);
 		expect(isTableHorizontallyOverflowing(26, 976, 1000)).toBe(true);
+	});
+
+	it('高さ制限があり表本体が表示高を超えた場合だけ縦スクロールを必要とする', () => {
+		expect(isTableHeightConstrained('none')).toBe(false);
+		expect(isTableHeightConstrained('')).toBe(false);
+		expect(isTableHeightConstrained('0px')).toBe(false);
+		expect(isTableHeightConstrained('720px')).toBe(true);
+		expect(isTableVerticallyOverflowing(26, 119, 146)).toBe(false);
+		expect(isTableVerticallyOverflowing(26, 120.5, 146)).toBe(false);
+		expect(isTableVerticallyOverflowing(26, 122, 146)).toBe(true);
 	});
 
 	it('表に編集領域の 40% 下限を付けない', () => {
@@ -437,6 +447,7 @@ describe('tableResize', () => {
 		expect(livePreviewCss).toMatch(/div\.cm-md-html-table-wrap\s*\{[^}]*overflow-y:\s*hidden;/s);
 		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
 		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\.cm-md-table-horizontal-overflow,[\s\S]*?overflow-x:\s*auto;/s);
+		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\.cm-md-table-vertical-overflow,[\s\S]*?div\.cm-md-html-table-wrap\.cm-md-table-vertical-overflow\s*\{[^}]*overflow-y:\s*auto;/s);
 	});
 
 	it('行列選択ヘッダーの余白は表示中だけ確保する', () => {

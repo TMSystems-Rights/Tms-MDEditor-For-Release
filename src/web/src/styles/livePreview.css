@@ -386,7 +386,7 @@
  * 最大幅は表示中の編集領域（--tms-mde-table-max-width）
  * パーセント幅だと親が表の内容幅まで伸び、横スクロールが出ない
  * 縦方向は内容に合わせて伸びるため隠し、僅かな計測誤差から縦横スクロールが連鎖するのを防ぐ
- * スニペットの overflow より詳細度を上げる
+ * スニペットの overflow より詳細度を上げる。高さ制限で見切れた表は別クラスで縦スクロールする
  */
 .tms-mde-editor-host div.cm-md-table-wrap,
 .tms-mde-editor-host div.cm-md-html-table-wrap {
@@ -416,6 +416,15 @@
 .tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-horizontal-overflow,
 .tms-mde-editor-host div.cm-md-html-table-wrap {
 	overflow-x: auto;
+}
+
+/*
+ * 常時 auto にすると 1px の誤差で縦横スクロールが連鎖する
+ * max-height で表本体が枠を超えたときだけ、このクラスで縦スクロールを戻す
+ */
+.tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-vertical-overflow,
+.tms-mde-editor-host div.cm-md-html-table-wrap.cm-md-table-vertical-overflow {
+	overflow-y: auto;
 }
 
 /* 選択帯は 24px。上下左右の 26px は帯と枠線の分 */

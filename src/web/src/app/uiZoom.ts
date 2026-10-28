@@ -202,14 +202,12 @@ export function handleUiZoomKeydown(event: KeyboardEvent): boolean {
 	if (isUiZoomInKey(event)) {
 		// 拡大の 1 段。倍率 0.1
 		delta = UI_ZOOM_STEP;
-	}
-	// ズームアウトのキーだけ 0.1 減らす。ズームインに入らなかったキーだけを見る
-	else if (isUiZoomOutKey(event)) {
+		// ズームアウトのキーだけ 0.1 減らす。ズームインに入らなかったキーだけを見る
+	} else if (isUiZoomOutKey(event)) {
 		// 縮小の 1 段。倍率 -0.1
 		delta = -UI_ZOOM_STEP;
-	}
-	// 100% へ戻すキーだけ既定動作を止める。インでもアウトでもないキーだけを見る。すでに 100% でも処理済みにする
-	else if (isUiZoomResetKey(event)) {
+		// 100% へ戻すキーだけ既定動作を止める。インでもアウトでもないキーだけを見る。すでに 100% でも処理済みにする
+	} else if (isUiZoomResetKey(event)) {
 		event.preventDefault();
 		// 100% へ変えられたときだけ通知する。すでに 100% なら通知せず、このキーは処理済み
 		if (setUiZoom(1)) {

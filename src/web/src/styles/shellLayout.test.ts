@@ -21,8 +21,8 @@ describe('ペインエディタのスクロールレイアウト', () => {
 	});
 
 	it('アウトラインを左右どちらにも配置できる', () => {
-		expect(shellCss).toMatch(/\.tms-mde-workspace\s*\{[^}]*grid-template-areas:\s*"editor outline";/s);
-		expect(shellCss).toMatch(/\.tms-mde-workspace\.is-outline-left\s*\{[^}]*grid-template-areas:\s*"outline editor";/s);
+		expect(shellCss).toMatch(/\.tms-mde-workspace\s*\{[^}]*grid-template-areas:\s*'editor outline';/s);
+		expect(shellCss).toMatch(/\.tms-mde-workspace\.is-outline-left\s*\{[^}]*grid-template-areas:\s*'outline editor';/s);
 	});
 
 	it('アウトライン一覧だけを縦スクロールさせる', () => {

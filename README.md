@@ -4,9 +4,14 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.13.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.1)
+最新リリース: [v1.13.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.2)
 
 ## 変更内容
+
+### v1.13.2 の主な変更
+
+- CSS スニペットで表の高さを制限したとき、はみ出した行が切れずに枠の中で縦スクロールできるようにする
+- 高さ制限の無い表は、計測誤差で縦横のスクロールバーが連鎖しないよう、これまでどおり縦スクロールを出さない
 
 ### v1.13.1 の主な変更
 
