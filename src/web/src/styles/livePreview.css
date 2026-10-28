@@ -398,6 +398,8 @@
 	 */
 	margin: -0.7em 0;
 	overflow-y: hidden;
+	/* セルの中身を編集用に差し替えても、スクロールアンカーが枠の位置を先頭へ戻さない */
+	overflow-anchor: none;
 }
 
 /*

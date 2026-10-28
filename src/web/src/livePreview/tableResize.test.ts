@@ -8,7 +8,33 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EXPORT_PREVIEW_CSS } from '../export/exportCss';
-import { TABLE_RESIZE_DRAG_THRESHOLD_PX, TABLE_RESIZE_HANDLE_PX, clampColumnWidth, clampRowHeight, clearTableLayouts, computeColumnRightEdges, computeColumnWidths, forgetTableLayout, getTableLayoutKey, hasTableResizePointerMoved, isTableHeightConstrained, isTableHorizontallyOverflowing, isTableVerticallyOverflowing, recallTableLayout, rememberTableLayout, resolveActiveTableResizeLayout, resolveTableResizeHit, resolveTableRelativeOffset, shouldWrapTableCell } from './tableResize';
+import {
+	TABLE_RESIZE_DRAG_THRESHOLD_PX, // 4px 未満の移動をドラッグにしない閾値
+	TABLE_RESIZE_HANDLE_PX, // 列と行の罫線を掴む幅
+	clampColumnWidth, // 細すぎる列幅を下限へ戻す
+	clampRowHeight, // 低すぎる行高を下限へ戻す
+	clearTableLayouts, // ケース間で残る寸法記憶を空にする
+	clearTableScrollPositions, // ケース間で残るスクロール記憶を空にする
+	computeColumnRightEdges, // 結合をまたいだ列の右端座標
+	computeColumnWidths, // セル幅から列幅の配列を作る
+	forgetTableLayout, // 書き戻し後に1表の寸法だけ消す
+	getTableLayoutKey, // 開始位置と列数を結んだ保存キー
+	hasTableResizePointerMoved, // 閾値以上動いたときだけドラッグ
+	isTableHeightConstrained, // none 以外の max-height があるか
+	isTableHorizontallyOverflowing, // 表示幅を超えたときだけ横スクロール
+	isTableVerticallyOverflowing, // 表示高を超えたときだけ縦スクロール
+	recallTableLayout, // キーに紐づく列幅と行高
+	recallTableScroll, // 表の開始位置に紐づくスクロール
+	rememberTableLayout, // ドラッグ結果の列幅と行高
+	rememberTableScroll, // 再フォーカス前の枠スクロール
+	resolveActiveTableResizeLayout, // 動かしている軸だけ新しい寸法にする
+	resolveFocusedTableScroll, // 先頭へ初期化された位置を操作前へ戻す
+	resolveTableResizeHit, // 近い列境界か行境界か
+	resolveTableRelativeOffset, // 親の余白とスクロールを足した座標
+	shouldKeepTableHorizontalOverflow, // 矩形が外れても進んでいる横位置を残す
+	shouldKeepTableVerticalOverflow, // 矩形が外れても進んでいる縦位置を残す
+	shouldWrapTableCell // 固定列幅を超えたセルだけ折り返す
+} from './tableResize';
 
 /**
  * リサイズ用クラスが載っているかを見る、ライブプレビュー CSS
@@ -24,6 +50,7 @@ const tableResizeSource = readFileSync(fileURLToPath(new URL('./tableResize.ts',
 describe('tableResize', () => {
 	afterEach(() => {
 		clearTableLayouts();
+		clearTableScrollPositions();
 	});
 
 	it('表位置と列数でレイアウトキーを作る', () => {
@@ -218,6 +245,65 @@ describe('tableResize', () => {
 		expect(isTableVerticallyOverflowing(26, 119, 146)).toBe(false);
 		expect(isTableVerticallyOverflowing(26, 120.5, 146)).toBe(false);
 		expect(isTableVerticallyOverflowing(26, 122, 146)).toBe(true);
+	});
+
+	it('フォーカスで先頭へ戻ったスクロールだけ、操作前の位置を保つ', () => {
+		// 480px 進んでいた枠が、フォーカスで先頭へ戻った。元の位置を保つ
+		expect(resolveFocusedTableScroll(480, 0)).toBe(480);
+		// 1px 以内の先頭も、同じ飛びとして戻す
+		expect(resolveFocusedTableScroll(480, 1)).toBe(480);
+		// セルを見せるための少しの移動は、そのまま使う
+		expect(resolveFocusedTableScroll(480, 40)).toBe(40);
+		// もともと先頭付近なら、フォーカス後の 0 をそのまま使う
+		expect(resolveFocusedTableScroll(48, 0)).toBe(0);
+		// 数でない位置は、次の値が数ならそれを使う
+		expect(resolveFocusedTableScroll(Number.NaN, 12)).toBe(12);
+	});
+
+	it('すでにスクロールしている表は、矩形が外れても縦位置を維持する', () => {
+		// 高さ制限が無い表は、中身が高くても縦スクロールにしない
+		expect(shouldKeepTableVerticalOverflow(false, true, 800, 200, 120)).toBe(false);
+		// 矩形が枠を超えていれば、先頭にいても維持する
+		expect(shouldKeepTableVerticalOverflow(true, true, 200, 200, 0)).toBe(true);
+		// 矩形は収まって見えても、中身が高く、すでに 120px 進んでいれば維持する
+		expect(shouldKeepTableVerticalOverflow(true, false, 800, 200, 120)).toBe(true);
+		// 先頭にいる 1px 差では、縦スクロールを出さない
+		expect(shouldKeepTableVerticalOverflow(true, false, 201, 200, 0)).toBe(false);
+		// 中身が表示高に収まっているなら、残っている位置は維持しない
+		expect(shouldKeepTableVerticalOverflow(true, false, 200, 200, 120)).toBe(false);
+	});
+
+	it('すでに横へ進んでいる表は、矩形が外れても横位置を維持する', () => {
+		// 矩形が枠を超えていれば維持する
+		expect(shouldKeepTableHorizontalOverflow(true, 400, 400, 0)).toBe(true);
+		// 中身が広く、すでに 80px 進んでいれば維持する
+		expect(shouldKeepTableHorizontalOverflow(false, 900, 400, 80)).toBe(true);
+		// 先頭の 1px 差では横スクロールを出さない
+		expect(shouldKeepTableHorizontalOverflow(false, 401, 400, 0)).toBe(false);
+	});
+
+	it('表の開始位置ごとにスクロール位置を覚える', () => {
+		rememberTableScroll('120', {
+			// 横に 16px
+			left: 16,
+			// 縦に 480px
+			top: 480
+		});
+		expect(recallTableScroll('120')).toEqual({
+			// 覚えた横位置
+			left: 16,
+			// 覚えた縦位置
+			top: 480
+		});
+		// 空の開始位置は覚えず、他の表の位置も返さない
+		rememberTableScroll('', {
+			// 空キーには残さない横位置
+			left: 4,
+			// 空キーには残さない縦位置
+			top: 8
+		});
+		expect(recallTableScroll('')).toBeUndefined();
+		expect(recallTableScroll('999')).toBeUndefined();
 	});
 
 	it('表に編集領域の 40% 下限を付けない', () => {
@@ -448,6 +534,7 @@ describe('tableResize', () => {
 		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\s*\{[^}]*overflow-x:\s*hidden;/s);
 		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\.cm-md-table-horizontal-overflow,[\s\S]*?overflow-x:\s*auto;/s);
 		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap\.cm-md-table-vertical-overflow,[\s\S]*?div\.cm-md-html-table-wrap\.cm-md-table-vertical-overflow\s*\{[^}]*overflow-y:\s*auto;/s);
+		expect(livePreviewCss).toMatch(/div\.cm-md-table-wrap,[\s\S]*?div\.cm-md-html-table-wrap\s*\{[^}]*overflow-anchor:\s*none;/s);
 	});
 
 	it('行列選択ヘッダーの余白は表示中だけ確保する', () => {

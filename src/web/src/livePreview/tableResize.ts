@@ -54,6 +54,8 @@ const TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX = 1;
 const TABLE_VERTICAL_OVERFLOW_CLASS          = 'cm-md-table-vertical-overflow';
 /** 縦はみ出しとみなす余裕（px）。1px 以内は誤差として無視する */
 const TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX   = 1;
+/** フォーカスで先頭へ戻ったとみなす移動量（px）。セルを少し見せる調整より大きい */
+const TABLE_SCROLL_FOCUS_JUMP_PX             = 48;
 
 /** セル内で折り返すクラス。はみ出し判定と対で使う */
 const TABLE_CELL_WRAP_CLASS = 'cm-md-table-cell-wrap';
@@ -121,43 +123,355 @@ export function isTableVerticallyOverflowing(tableTop: number, tableHeight: numb
 	return tableTop + tableHeight > viewportHeight + TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX;
 }
 
+/** 表枠に覚えているスクロール位置。再生成後に戻す */
+export type TableScrollPosition = {
+	/** 横スクロール量（px）。先頭は 0 */
+	left: number;
+	/** 縦スクロール量（px）。先頭は 0 */
+	top: number;
+};
+
+/** 表の開始位置から、フォーカス前のスクロール。プロセス内だけ */
+const tableScrollPositions = new Map<string, TableScrollPosition>();
+
+/**
+ * 表枠のスクロール位置を覚える
+ * 空の開始位置は覚えず、後から別の表へ誤って戻さない
+ * @param tableFrom - 表の開始位置。dataset の文字列
+ * @param position - 覚える横と縦の位置
+ */
+export function rememberTableScroll(tableFrom: string, position: TableScrollPosition): void {
+	// 開始位置が無い枠は、再生成時の対応が取れない
+	if (!tableFrom) {
+		return;
+	}
+
+	tableScrollPositions.set(tableFrom, {
+		// 横位置の複製。後から引数を変えても影響しない
+		left: position.left,
+		// 縦位置の複製。後から引数を変えても影響しない
+		top: position.top
+	});
+}
+
+/**
+ * 覚えた表枠のスクロール位置を返す
+ * @param tableFrom - 表の開始位置。dataset の文字列
+ * @returns 横と縦の位置。未記憶なら undefined
+ */
+export function recallTableScroll(tableFrom: string): TableScrollPosition | undefined {
+	// 開始位置が無い枠は、他の表の位置を返さない
+	if (!tableFrom) {
+		return undefined;
+	}
+
+	// 覚えた位置。無ければ undefined
+	const position = tableScrollPositions.get(tableFrom);
+	// 未記憶の表は undefined のまま返す
+	if (!position) {
+		return undefined;
+	}
+
+	return {
+		// 横位置。呼び出し側が書き換えても記憶は変わらない
+		left: position.left,
+		// 縦位置。呼び出し側が書き換えても記憶は変わらない
+		top: position.top
+	};
+}
+
+/**
+ * 覚えた表枠のスクロール位置をすべて消す
+ */
+export function clearTableScrollPositions(): void {
+	tableScrollPositions.clear();
+}
+
+/**
+ * フォーカスで先頭へ飛ばされたスクロールを、操作前の位置へ戻す
+ * 少しの調整や、もともと先頭付近の位置はそのまま使う
+ * @param previous - 操作前のスクロール量（px）
+ * @param next - フォーカス後のスクロール量（px）
+ * @returns 維持するスクロール量（px）
+ */
+export function resolveFocusedTableScroll(previous: number, next: number): number {
+	// 数でない位置は、次の値が数ならそれを使う。どちらも数でなければ先頭
+	if (!Number.isFinite(previous) || !Number.isFinite(next)) {
+		return Number.isFinite(next) ? Math.max(0, next) : 0;
+	}
+
+	// 操作前に進んでいて、フォーカス後が先頭付近なら、操作前の位置を保つ
+	if (previous > TABLE_SCROLL_FOCUS_JUMP_PX && next <= TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX) {
+		return previous;
+	}
+
+	return Math.max(0, next);
+}
+
+/**
+ * 横にはみ出した表のスクロールを維持するかを返す
+ * 先頭にいるときの 1px 差ではスクロールバーを出さない
+ * @param rectOverflow - 表本体の矩形が枠の表示幅を超えているか
+ * @param scrollWidth - 枠の中身の幅（px）
+ * @param clientWidth - 枠の表示幅（px）
+ * @param scrollLeft - いまの横位置か、覚えている横位置の大きい方（px）
+ * @returns 横スクロールを維持するなら true
+ */
+export function shouldKeepTableHorizontalOverflow(rectOverflow: boolean, scrollWidth: number, clientWidth: number, scrollLeft: number): boolean {
+	// 表本体が表示幅を超えていれば維持する
+	if (rectOverflow) {
+		return true;
+	}
+
+	// 先頭にいるときは、1px の誤差で横スクロールを出さない
+	if (scrollLeft <= TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX) {
+		return false;
+	}
+
+	return scrollWidth > clientWidth + TABLE_HORIZONTAL_OVERFLOW_TOLERANCE_PX;
+}
+
+/**
+ * 高さ制限のある表の縦スクロールを維持するかを返す
+ * 矩形判定が外れても、すでにスクロールしていて中身が高ければ維持する
+ * @param heightConstrained - 枠に実効の最大高さがあるか
+ * @param rectOverflow - 表本体の矩形が枠の表示高を超えているか
+ * @param scrollHeight - 枠の中身の高さ（px）
+ * @param clientHeight - 枠の表示高（px）
+ * @param scrollTop - いまの縦位置か、覚えている縦位置の大きい方（px）
+ * @returns 縦スクロールを維持するなら true
+ */
+export function shouldKeepTableVerticalOverflow(heightConstrained: boolean, rectOverflow: boolean, scrollHeight: number, clientHeight: number, scrollTop: number): boolean {
+	// 高さ制限が無い表は縦スクロールを持たない
+	if (!heightConstrained) {
+		return false;
+	}
+
+	// 表本体が表示高を超えていれば維持する
+	if (rectOverflow) {
+		return true;
+	}
+
+	// 先頭にいるときは、1px の誤差で縦スクロールを出さない
+	if (scrollTop <= TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX) {
+		return false;
+	}
+
+	return scrollHeight > clientHeight + TABLE_VERTICAL_OVERFLOW_TOLERANCE_PX;
+}
+
 /**
  * 表本体の実寸に応じて、横スクロールと高さ制限時の縦スクロールを切り替える
  * 絶対配置のヘッダー・リサイズ要素やサブピクセル丸めは判定対象にしない
  * 最大高さが無い表は縦スクロールにせず、僅かな誤差で縦横スクロールが連鎖しないようにする
+ * セルへ戻ったときにブラウザが枠を先頭へ戻しても、はみ出しているあいだは操作前の位置を保つ
  * @param wrap - 表ラッパー
  * @param table - 表
  * @returns 表位置・寸法が変わったときの再同期処理
  */
 export function attachTableHorizontalOverflow(wrap: HTMLElement, table: HTMLTableElement): () => void {
-	/** 現在の表実寸から縦横スクロールの要否を同期する */
-	const sync = (): void => {
-		// 枠と表の画面矩形。はみ出し判定の基準
-		const wrapRect         = wrap.getBoundingClientRect();
-		// 表本体の画面矩形。絶対配置のヘッダーは含まない
-		const tableRect        = table.getBoundingClientRect();
-		// スクロール領域内の表の左端
-		const tableLeft        = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
-		// 表が枠の表示幅を超えているか
-		const overflow         = isTableHorizontallyOverflowing(tableLeft, tableRect.width, wrap.clientWidth);
-		// スクロール領域内の表の上端
-		const tableTop         = resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop);
-		// 算出済みの max-height。none のときは高さ制限が無い
-		const maxHeight        = getComputedStyle(wrap).maxHeight;
-		// 高さ制限があり、かつ表本体が表示高を超えているか。制限が無い表は縦スクロールにしない
-		const verticalOverflow = isTableHeightConstrained(maxHeight) && isTableVerticallyOverflowing(tableTop, tableRect.height, wrap.clientHeight);
-
-		wrap.classList.toggle(TABLE_HORIZONTAL_OVERFLOW_CLASS, overflow);
-		wrap.classList.toggle(TABLE_VERTICAL_OVERFLOW_CLASS, verticalOverflow);
-		// はみ出していないのに横位置が残っているときは、先頭へ戻す
-		if (!overflow && wrap.scrollLeft !== 0) {
-			wrap.scrollLeft = 0;
-		}
-		// 縦にはみ出していないのに縦位置が残っているときは、先頭へ戻す
-		if (!verticalOverflow && wrap.scrollTop !== 0) {
-			wrap.scrollTop = 0;
-		}
+	// 再生成前に覚えた位置。開始位置が無ければ未記憶
+	const stored               = recallTableScroll(wrap.dataset.tableFrom ?? '');
+	// フォーカス前、または再生成前の位置。未記憶なら先頭
+	let scrollMemory           = stored ?? {
+		// 横は先頭
+		left: 0,
+		// 縦は先頭
+		top: 0
 	};
+	// スクロールバーを掴んでいるか。ユーザーの移動は戻さない
+	let scrollbarGesture       = false;
+	// ホイールで動かした直後か。ユーザーの移動は戻さない
+	let wheelScroll            = false;
+	// こちらが位置を書き戻している途中か。その scroll では再入しない
+	let holdingScroll          = false;
+	// フォーカス後の戻しを打ち消す番号。新しいフォーカスで古い予約は捨てる
+	let focusRestoreGeneration = 0;
+
+	/**
+	 * いまの位置を、表の開始位置へ残す
+	 */
+	const publishScroll = (): void => {
+		rememberTableScroll(wrap.dataset.tableFrom ?? '', scrollMemory);
+	};
+
+	/**
+	 * 現在の表実寸から縦横スクロールの要否を同期し、フォーカスで先頭へ戻った位置を戻す
+	 */
+	const sync = (): void => {
+		// 表が文書から外れていれば、位置もクラスも変えない
+		if (!table.isConnected) {
+			return;
+		}
+
+		// 枠と表の画面矩形。はみ出し判定の基準
+		const wrapRect  = wrap.getBoundingClientRect();
+		// 表本体の画面矩形。絶対配置のヘッダーは含まない
+		const tableRect = table.getBoundingClientRect();
+		// まだ寸法が無い。覚えている位置を、この計測では消さない
+		if (wrap.clientHeight <= 0 || tableRect.height <= 0) {
+			return;
+		}
+
+		// スクロールバーかホイールの位置は、フォーカス前の位置より優先する
+		if (scrollbarGesture || wheelScroll) {
+			scrollMemory = {
+				// ユーザーが動かした横位置
+				left: wrap.scrollLeft,
+				// ユーザーが動かした縦位置
+				top: wrap.scrollTop
+			};
+		}
+
+		// スクロール領域内の表の左端
+		const tableLeft      = resolveTableRelativeOffset(wrapRect.left, tableRect.left, wrap.scrollLeft);
+		// 表が枠の表示幅を超えているか
+		const horizontalRect = isTableHorizontallyOverflowing(tableLeft, tableRect.width, wrap.clientWidth);
+		// スクロール領域内の表の上端
+		const tableTop       = resolveTableRelativeOffset(wrapRect.top, tableRect.top, wrap.scrollTop);
+		// 算出済みの max-height。none のときは高さ制限が無い
+		const maxHeight      = getComputedStyle(wrap).maxHeight;
+		// 高さ制限があるか。無い表は縦スクロールにしない
+		const constrained    = isTableHeightConstrained(maxHeight);
+		// 高さ制限があり、かつ表本体が表示高を超えているか
+		const verticalRect   = constrained && isTableVerticallyOverflowing(tableTop, tableRect.height, wrap.clientHeight);
+		// 横スクロールを維持するか。矩形が外れても、進んでいる位置は scrollWidth で見る
+		const horizontal     = shouldKeepTableHorizontalOverflow(horizontalRect, wrap.scrollWidth, wrap.clientWidth, Math.max(wrap.scrollLeft, scrollMemory.left));
+		// 縦スクロールを維持するか。矩形が外れても、進んでいる位置は scrollHeight で見る
+		const vertical       = shouldKeepTableVerticalOverflow(constrained, verticalRect, wrap.scrollHeight, wrap.clientHeight, Math.max(wrap.scrollTop, scrollMemory.top));
+		// セルのクリックではなく、スクロールバーかホイールで動いたか
+		const userMoved      = scrollbarGesture || wheelScroll;
+		// 書く横位置。はみ出していないときは先頭。ユーザー操作でない先頭への飛びは取り消す
+		const nextLeft       = !horizontal ? 0 : userMoved ? wrap.scrollLeft : resolveFocusedTableScroll(scrollMemory.left, wrap.scrollLeft);
+		// 書く縦位置。はみ出していないときは先頭。ユーザー操作でない先頭への飛びは取り消す
+		const nextTop        = !vertical ? 0 : userMoved ? wrap.scrollTop : resolveFocusedTableScroll(scrollMemory.top, wrap.scrollTop);
+
+		wrap.classList.toggle(TABLE_HORIZONTAL_OVERFLOW_CLASS, horizontal);
+		wrap.classList.toggle(TABLE_VERTICAL_OVERFLOW_CLASS, vertical);
+		holdingScroll = true;
+		// 横位置が違うときだけ書く。同じ値の再代入では scroll を再入させない
+		if (wrap.scrollLeft !== nextLeft) {
+			wrap.scrollLeft = nextLeft;
+		}
+		// 縦位置が違うときだけ書く。同じ値の再代入では scroll を再入させない
+		if (wrap.scrollTop !== nextTop) {
+			wrap.scrollTop = nextTop;
+		}
+		holdingScroll = false;
+		scrollMemory  = {
+			// 書き戻したあとの横位置。はみ出しが無ければ 0
+			left: wrap.scrollLeft,
+			// 書き戻したあとの縦位置。はみ出しが無ければ 0
+			top: wrap.scrollTop
+		};
+		publishScroll();
+	};
+
+	// 枠自身を押したときはスクロールバー。離すまでユーザーの移動として扱う
+	wrap.addEventListener(
+		'pointerdown',
+		(event) => {
+			// セルや表の中はスクロールバーではない
+			if (event.target !== wrap) {
+				return;
+			}
+
+			scrollbarGesture = true;
+			// 枠の外でボタンを離しても、この操作の pointerup を受け取る
+			if (wrap.setPointerCapture) {
+				wrap.setPointerCapture(event.pointerId);
+			}
+		},
+		true
+	);
+	/**
+	 * ボタンを離した次のフレームで、スクロールバー操作を終える
+	 * 離した瞬間の scroll は、まだユーザーの移動として扱う
+	 */
+	const endScrollbarGesture = (): void => {
+		requestAnimationFrame(() => {
+			scrollbarGesture = false;
+		});
+	};
+	wrap.addEventListener('pointerup', endScrollbarGesture, true);
+	wrap.addEventListener('pointercancel', endScrollbarGesture, true);
+	// ホイールの移動は、同じフレームの先頭への飛びと区別する
+	wrap.addEventListener(
+		'wheel',
+		() => {
+			wheelScroll = true;
+			requestAnimationFrame(() => {
+				wheelScroll = false;
+			});
+		},
+		{ passive: true }
+	);
+	// 書き戻し以外のスクロールを覚える。ユーザー操作でない先頭への飛びは戻す
+	wrap.addEventListener(
+		'scroll',
+		() => {
+			// こちらが書いた scroll では、位置を取り直さない
+			if (holdingScroll) {
+				return;
+			}
+
+			// スクロールバーとホイールは、そのまま新しい位置にする
+			if (scrollbarGesture || wheelScroll) {
+				scrollMemory = {
+					// ユーザーが動かした横位置
+					left: wrap.scrollLeft,
+					// ユーザーが動かした縦位置
+					top: wrap.scrollTop
+				};
+				publishScroll();
+				return;
+			}
+
+			// 戻す横位置。先頭への飛びでなければ、いまの位置と同じ
+			const nextLeft = resolveFocusedTableScroll(scrollMemory.left, wrap.scrollLeft);
+			// 戻す縦位置。先頭への飛びでなければ、いまの位置と同じ
+			const nextTop  = resolveFocusedTableScroll(scrollMemory.top, wrap.scrollTop);
+			// 先頭へ飛んだので戻すか。少しの移動はここに入らない
+			const jumped   = nextLeft !== wrap.scrollLeft || nextTop !== wrap.scrollTop;
+			// 先頭への飛びでなければ、いまの位置を次の基準にする
+			if (!jumped) {
+				scrollMemory = {
+					// いまの横位置
+					left: wrap.scrollLeft,
+					// いまの縦位置
+					top: wrap.scrollTop
+				};
+				publishScroll();
+				return;
+			}
+
+			sync();
+		},
+		{ passive: true }
+	);
+	// セルへフォーカスが戻ったあと、ブラウザが遅れて先頭へ動かしても位置を戻す
+	wrap.addEventListener('focusin', () => {
+		focusRestoreGeneration += 1;
+		// このフォーカスの番号。次のフォーカスが来たら、この予約は捨てる
+		const generation        = focusRestoreGeneration;
+		/**
+		 * このフォーカスの予約が生きていれば、位置を同期する
+		 */
+		const finish            = (): void => {
+			// 新しいフォーカスが来ていれば、古い予約では動かさない
+			if (generation !== focusRestoreGeneration) {
+				return;
+			}
+
+			sync();
+		};
+		finish();
+		queueMicrotask(finish);
+		setTimeout(() => {
+			finish();
+			requestAnimationFrame(finish);
+		}, 0);
+	});
 
 	sync();
 	requestAnimationFrame(sync);

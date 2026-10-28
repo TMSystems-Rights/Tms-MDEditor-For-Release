@@ -4,9 +4,14 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.13.2](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.2)
+最新リリース: [v1.13.3](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.3)
 
 ## 変更内容
+
+### v1.13.3 の主な変更
+
+- 高さ制限のある表をスクロールしたあと、別の行へ移ってから表へ戻っても、スクロール位置を先頭へ戻さない
+- ホイールとスクロールバーで動かした位置は、これまでどおりそのまま使う
 
 ### v1.13.2 の主な変更
 

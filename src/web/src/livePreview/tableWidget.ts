@@ -18,7 +18,7 @@ import { splitWikiLinkAlias } from './wikiLink';
 import type { DecorationEntry } from './inlineDecorations';
 import { forgetCellImageWidth, recallCellImageWidth, rememberCellImageWidth } from './cellImageWidthMemory';
 import { applyImageDisplayWidth, applyImageWidthByPath, applyImageWidthOnDocumentLine, replaceImageWidthInCellText } from './imageResize';
-import { attachTableHorizontalOverflow, attachTableResize, collectTableCellBoxes, computeColumnRightEdges, forgetTableLayout, getTableLayoutKey, resolveTableRelativeOffset, type TableLayout, type TableResizeHit } from './tableResize';
+import { attachTableHorizontalOverflow, attachTableResize, collectTableCellBoxes, computeColumnRightEdges, forgetTableLayout, getTableLayoutKey, rememberTableScroll, resolveTableRelativeOffset, type TableLayout, type TableResizeHit } from './tableResize';
 import { buildAlignTableCellsChanges, buildMergeTableCellsChanges, buildTableLayoutChange, buildTableOccupancy, buildUnmergeTableCellsChanges, cellAlignmentClassNames, describeTableCellSelection, formatCellSpan, getTableMergeActionState, getVisibleAdjacentTableCellPosition, isCoveredTableCell, isMultiCellTableSelectionRect, normalizeTableSelectionRect, parseCellSpan, readTableLayout, resolveTableMergeRect, stripCellSpanFromNodes, type TableAlignPatch, type TableMergeActionState, type TableSelectionRect, type TableSizeLayout } from './tableMerge';
 import { buildTableStructureChange, buildTableStructureGroups, getTableStructureActionState, resolveTableStructureContextSelection, shouldHideTableStructureControls, type TableStructureAction, type TableStructureAxis, type TableStructureRange, type TableStructureSelection } from './tableStructure';
 
@@ -5814,6 +5814,32 @@ export class TableWidget extends WidgetType {
 		// 見出しを 1 行として数えた行数。見出しが無ければ本体だけ
 		const rowCount = this.data.headers.length > 0 ? 1 + this.data.rows.length : this.data.rows.length;
 		return Math.max(1, rowCount) * 42 + 40;
+	}
+
+	/**
+	 * ウィジェットを捨てる直前に、進んでいるスクロール位置を覚えておく
+	 * 先頭付近の値では、すでに覚えた途中位置を上書きしない
+	 * @param dom - 破棄する表ラッパー
+	 */
+	destroy(dom: HTMLElement): void {
+		// 枠でない DOM はスクロール位置を持たない
+		if (!dom?.classList?.contains('cm-md-table-wrap')) {
+			return;
+		}
+
+		// 表の開始位置。dataset が無ければ空で、記憶先が無い
+		const tableFrom = dom.dataset.tableFrom ?? '';
+		// 先頭付近なら、再生成前に覚えた途中位置を消さない
+		if (dom.scrollTop <= 1 && dom.scrollLeft <= 1) {
+			return;
+		}
+
+		rememberTableScroll(tableFrom, {
+			// 破棄直前の横位置
+			left: dom.scrollLeft,
+			// 破棄直前の縦位置
+			top: dom.scrollTop
+		});
 	}
 
 	/**
