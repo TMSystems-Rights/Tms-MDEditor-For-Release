@@ -100,6 +100,38 @@ describe('表見出しの固定', () => {
 		expect(translateAt(frames, 900, 3000)).toBeCloseTo(200);
 	});
 
+	it('列選択の余白があるときは、その上端から留め、見出し自身の移動量は増やさない', () => {
+		// 余白 26px。基準は見出しより前。移動量は見出しの高さだけを除いたまま
+		expect(resolveTableHeaderPinSpan(false, 100, 400, 120, 36, 700, 26)).toEqual({
+			// 見出し 120 から余白を引いた位置。文書先頭より前にはしない
+			headerDocTop: 94,
+			// 余白を足さない移動量。700 - 120 - 36
+			maxTravel: 544
+		});
+		// 見出しが余白より文書先頭に近いときは、基準を 0 で止める
+		expect(resolveTableHeaderPinSpan(false, 0, 400, 10, 36, 700, 26).headerDocTop).toBe(0);
+	});
+
+	it('枠内スクロールで列選択が出ているときは、見える高さから余白も引く', () => {
+		// 枠内スクロール。基準は枠の上端のまま。移動量だけ余白分短い
+		expect(resolveTableHeaderPinSpan(true, 500, 240, 80, 40, 2000, 26)).toEqual({
+			// 基準は枠の上端。見出し位置は使わない
+			headerDocTop: 500,
+			// 見える高さから見出しと余白を引いた量。240 - 40 - 26
+			maxTravel: 174
+		});
+	});
+
+	it('文書スクロールでは列選択が上端に着いてから、見出しはその余白分だけ下に残る', () => {
+		// 見出し 500、余白 26、表の下端 2000、見出し高 40
+		const span   = resolveTableHeaderPinSpan(false, 0, 800, 500, 40, 2000, 26);
+		// 補間に使う最大スクロール。表より大きい
+		const frames = buildTableHeaderPinFrames(span.headerDocTop, span.maxTravel, 3000);
+		expect(translateAt(frames, 474, 3000)).toBeCloseTo(0);
+		expect(translateAt(frames, 500, 3000)).toBeCloseTo(26);
+		expect(translateAt(frames, 600, 3000)).toBeCloseTo(126);
+	});
+
 	it('表の枠が縦スクロールしないときは、表の下端まで見出しを動かす', () => {
 		// 縦スクロールしない表の固定範囲。下端まで動ける
 		expect(resolveTableHeaderPinSpan(false, 100, 400, 120, 36, 700)).toEqual({
@@ -125,6 +157,18 @@ describe('表見出しの固定', () => {
 		expect(selectedAt).toBeGreaterThan(-1);
 		expect(pinAt).toBeGreaterThan(selectedAt);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell\s*\{[^}]*position:\s*sticky;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell\s*\{[^}]*top:\s*0;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-column-band\s*\{[^}]*position:\s*sticky;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-column-band\s*\{[^}]*top:\s*-26px;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-column-band\s*\{[^}]*margin-top:\s*-26px;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-column-band\s*\{[^}]*height:\s*26px;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-column-band\s*\{[^}]*background-color:\s*var\(--tms-mde-color-bg\);/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-column-band\s*\{[^}]*background-image:\s*linear-gradient\(var\(--tms-mde-color-active-line\),\s*var\(--tms-mde-color-active-line\)\);/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-row-head\s*\{[^}]*position:\s*sticky;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-row-head\s*\{[^}]*top:\s*0;/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-row-head\s*\{[^}]*background-color:\s*var\(--tms-mde-color-bg\);/);
+		expect(livePreviewCss).toMatch(/\.cm-md-table-structure-row-head\s*\{[^}]*background-image:\s*linear-gradient\(var\(--tms-mde-color-active-line\),\s*var\(--tms-mde-color-active-line\)\);/);
+		expect(livePreviewCss).not.toMatch(/cm-md-table-structure-controls-visible \.cm-md-table-pin-cell\s*\{[^}]*top:\s*26px;/);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell\s*\{[^}]*z-index:\s*2;/);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell::before\s*\{[^}]*top:\s*-3px;/);
 		expect(livePreviewCss).toMatch(/\.cm-md-table-pin-cell::after\s*\{[^}]*height:\s*22px;/);

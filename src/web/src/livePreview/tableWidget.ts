@@ -4,9 +4,9 @@
  * @file
  */
 import { redo, undo } from '@codemirror/commands';
-import { Decoration, type EditorView, WidgetType } from '@codemirror/view';
+import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import { EditorSelection, type EditorState } from '@codemirror/state';
+import { EditorSelection, Transaction, type EditorState } from '@codemirror/state';
 import type { SyntaxNode, SyntaxNodeRef } from '@lezer/common';
 import { applySanitizedAttributes, isBreakHtmlTag, parseHtmlTag, sanitizeHtmlAttributes, type SanitizedHtmlAttributes } from './htmlSanitizer';
 import { appendHighlightedCodeText, appendHighlightedInlineCode } from '../editor/codeHighlight';
@@ -1877,6 +1877,17 @@ function createTableCellImage(state: EditorState, from: number, to: number, raw:
 }
 
 /**
+ * 空のプレビューセルに、行の高さを残す印が要るか
+ * 文字も画像も改行も無いセルは、行高が潰れてクリックできない
+ * @param nodes - セル AST
+ * @returns 高さ用の印を付けるとき true
+ */
+export function tableCellNeedsHeightBreak(nodes: TableCellNode[]): boolean {
+	// 空白以外の文字、または文字以外のノードがあれば、中身が行の高さを作る
+	return !nodes.some((node) => node.kind !== 'text' || node.text.trim() !== '');
+}
+
+/**
  * セル内容を DOM に設定する
  * @param cell - セル要素
  * @param nodes - セル AST
@@ -1885,6 +1896,8 @@ function createTableCellImage(state: EditorState, from: number, to: number, raw:
 export function fillTableCellContent(cell: HTMLElement, nodes: TableCellNode[], view?: EditorView): void {
 	cell.textContent = '';
 	appendTableCellNodes(cell, nodes, view);
+	// 空セルはクラスで行高を残す。br を置くと、クリア時にソースの改行として残る
+	cell.classList.toggle('cm-md-table-cell-empty', tableCellNeedsHeightBreak(nodes));
 }
 
 /**
@@ -2043,7 +2056,9 @@ function isIgnorableTableCellNode(node: Node): boolean {
 		return false;
 	}
 
-	return (node.textContent ?? '').replaceAll(TABLE_CELL_BREAK_CARET, '') === '';
+	// ゼロ幅文字と、ブロックのあいだに挟まる改行を除いた中身
+	const text = (node.textContent ?? '').replaceAll(TABLE_CELL_BREAK_CARET, '').replace(/[\n\r]/g, '');
+	return text.length === 0;
 }
 
 /**
@@ -2064,7 +2079,8 @@ export function isTableCellEmptyLineBlock(node: Node): boolean {
 		return true;
 	}
 
-	return meaningful.length === 1 && meaningful[0] instanceof HTMLElement && meaningful[0].tagName === 'BR';
+	// 子が br だけなら空行。Chrome は高さを残すために br を2本置くことがある
+	return meaningful.every((child) => child instanceof HTMLElement && child.tagName === 'BR');
 }
 
 // ==============================================
@@ -2081,28 +2097,114 @@ type TableCellCaretPoint = {
 /** 編集文字列の1区間に対応する DOM。text は文字、break は改行 */
 type TableCellEditableSlot = { kind: 'text'; node: Text } | { kind: 'break'; caret: TableCellCaretPoint };
 
+/** 行やセル直下の子。text は表示される中身、break は br、gap は空テキストや改行だけ */
+export type TableCellStructureChild = 'text' | 'break' | 'gap';
+
 /**
- * 行末のプレースホルダ br か。Chrome が行ボックスを残すために付ける
- * @param block - 行
- * @param child - 子
- * @returns 行末のプレースホルダ br か。Chrome が行ボックスを残すために付けるなら true
+ * 子の並びのうち、ソースの改行として残す br の位置を返す
+ * 文字に挟まれた最初の br だけを残す。先頭、末尾、連続した2本目以降は行高のための br
+ * @param children - 子の種類。先頭から
+ * @returns ソースの改行として残す br の位置
  */
-function isTrailingLinePlaceholderBr(block: HTMLElement, child: Node): boolean {
-	// br 要素でなければ行末のプレースホルダではない
+export function tableCellSourceBreakIndexes(children: readonly TableCellStructureChild[]): number[] {
+	// 残す br の位置。行高のための br は入れない
+	const indexes: number[] = [];
+	for (let index = 0; index < children.length; index += 1) {
+		// br 以外は改行の候補ではない
+		if (children[index] !== 'break') {
+			continue;
+		}
+
+		// この br より前の子
+		const before        = children.slice(0, index);
+		// この br より後の子
+		const after         = children.slice(index + 1);
+		// 前に表示される中身があるか
+		const hasTextBefore = before.some((kind) => kind === 'text');
+		// 後に表示される中身があるか
+		const hasTextAfter  = after.some((kind) => kind === 'text');
+		// 文字に挟まれていなければ、クリアやフォーカスでブラウザが足した br
+		if (!hasTextBefore || !hasTextAfter) {
+			continue;
+		}
+
+		// 直前の、空白ではない子。無ければ undefined
+		const previous = [...before].reverse().find((kind) => kind !== 'gap');
+		// 連続 br の2本目以降は、同じ改行を重ねない
+		if (previous === 'break') {
+			continue;
+		}
+
+		indexes.push(index);
+	}
+
+	return indexes;
+}
+
+/**
+ * ノードを、改行判定用の種類へ分ける
+ * @param node - 子ノード
+ * @returns ノードを、改行判定用の種類へ分ける
+ */
+function tableCellStructureKind(node: Node): TableCellStructureChild {
+	// 空テキストと、改行だけのテキストは隙間
+	if (isIgnorableTableCellNode(node)) {
+		return 'gap';
+	}
+
+	// br は改行候補
+	if (node instanceof HTMLElement && node.tagName === 'BR') {
+		return 'break';
+	}
+
+	// 表示文字を含むテキスト
+	if (node.nodeType === Node.TEXT_NODE) {
+		return 'text';
+	}
+
+	// 要素でなければ隙間
+	if (!(node instanceof HTMLElement)) {
+		return 'gap';
+	}
+
+	// 子が無い要素は画像など。br を挟む中身として扱う
+	if (node.childNodes.length === 0) {
+		return 'text';
+	}
+
+	// 子孫に表示文字がある要素は、その文字の側に数える
+	if ([...node.childNodes].some((child) => tableCellStructureKind(child) === 'text')) {
+		return 'text';
+	}
+
+	return 'gap';
+}
+
+/**
+ * ソースへ残さない br か
+ * 文字の前だけ、後ろだけ、どちらの文字も無い br は、ブラウザが行の高さを残すために付ける
+ * @param block - 行またはセル
+ * @param child - 子
+ * @returns ソースへ残さない br なら true
+ */
+function isPlaceholderTableCellBr(block: HTMLElement, child: Node): boolean {
+	// br 要素でなければ、行高のための br ではない
 	if (!(child instanceof HTMLElement) || child.tagName !== 'BR') {
 		return false;
 	}
 
-	// 行の子。この br より後ろを見る
+	// 行の子。この br の前後を見る
 	const children = [...block.childNodes];
 	// br の位置。子でなければ -1
 	const index    = children.indexOf(child);
-	// 行の子でない br はプレースホルダにしない
+	// 行の子でない br は、ここでのプレースホルダにしない
 	if (index < 0) {
 		return false;
 	}
 
-	return children.slice(index + 1).every((node) => isIgnorableTableCellNode(node));
+	// 同じ並びでソースへ残す br の位置
+	const kept = tableCellSourceBreakIndexes(children.map((node) => tableCellStructureKind(node)));
+	return !kept.includes(index);
 }
 
 /**
@@ -2160,8 +2262,8 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 	 * @param node - テキスト
 	 */
 	const pushText                       = (node: Text): void => {
-		// ゼロ幅文字だけなら文字スロットにしない
-		if (visibleTableCellTextLength(node.textContent ?? '') === 0) {
+		// 改行やゼロ幅だけのテキストは文字にしない。ソースの <br> にしない
+		if (tableCellStructureKind(node) !== 'text') {
 			return;
 		}
 
@@ -2184,10 +2286,12 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 			return;
 		}
 
-		// br はプレースホルダでなければ改行スロットにする
+		// br は、文字に挟まれていなければ改行スロットにしない
 		if (node instanceof HTMLElement && node.tagName === 'BR') {
-			// 行末のプレースホルダ br は改行として数えない
-			if (lineBlock && isTrailingLinePlaceholderBr(lineBlock, node)) {
+			// 所属行。直下の br は、その親を行として見る
+			const owner = lineBlock ?? node.parentElement;
+			// 行高のための br はソースの改行にしない
+			if (owner instanceof HTMLElement && isPlaceholderTableCellBr(owner, node)) {
 				return;
 			}
 
@@ -2237,8 +2341,13 @@ function collectTableCellEditableSlots(cell: HTMLElement): TableCellEditableSlot
 		}
 
 		hasLine = true;
-		// 直下の br は改行スロットにする
+		// 直下の br は、末尾のプレースホルダでなければ改行スロットにする
 		if (child instanceof HTMLElement && child.tagName === 'BR') {
+			// 文字に挟まれない br は、クリアや取り消しでブラウザが足す。ソースへ残さない
+			if (isPlaceholderTableCellBr(cell, child)) {
+				continue;
+			}
+
 			slots.push({
 				// 改行スロット
 				kind: 'break',
@@ -2269,7 +2378,9 @@ function slotsToEditableValue(slots: TableCellEditableSlot[]): string {
 	// 文字と改行を足した編集用文字列。スロットが無ければ空文字
 	let result = '';
 	for (const slot of slots) {
-		result += slot.kind === 'text' ? (slot.node.textContent ?? '') : '\n';
+		// テキスト内の改行はブラウザの区切り。改行スロット以外はソースの <br> にしない
+		const slotText = slot.kind === 'text' ? normalizeEditableCellDomText(slot.node.textContent ?? '').replaceAll('\n', '') : '\n';
+		result        += slotText;
 	}
 
 	return normalizeEditableCellDomText(result);
@@ -2298,6 +2409,15 @@ export function insertLineBreakAtOffset(value: string, offset: number): string {
 }
 
 /**
+ * 表示文字に数えない文字か
+ * @param char - 1文字
+ * @returns 表示文字に数えない文字かなら true
+ */
+function isUncountedTableCellChar(char: string): boolean {
+	return char === TABLE_CELL_BREAK_CARET || char === '\n' || char === '\r';
+}
+
+/**
  * 表示上の文字数を返す。ゼロ幅のキャレット用文字は数えない
  * @param text - テキスト
  * @param rawEnd - 生オフセット。省略可
@@ -2309,8 +2429,8 @@ export function visibleTableCellTextLength(text: string, rawEnd: number = text.l
 	// 数える生オフセットの終端。文字列長を超えない
 	const end   = Math.max(0, Math.min(rawEnd, text.length));
 	for (let index = 0; index < end; index += 1) {
-		// キャレット用のゼロ幅文字は表示文字に数えない
-		if (text[index] !== TABLE_CELL_BREAK_CARET) {
+		// ゼロ幅文字と、テキストに混ざった改行は表示文字に数えない
+		if (!isUncountedTableCellChar(text[index] ?? '')) {
 			visible += 1;
 		}
 	}
@@ -2333,8 +2453,8 @@ export function rawTableCellTextOffset(text: string, visibleOffset: number): num
 			return index;
 		}
 
-		// ゼロ幅文字は表示オフセットを進めない
-		if (text[index] !== TABLE_CELL_BREAK_CARET) {
+		// ゼロ幅文字と、テキストに混ざった改行は表示オフセットを進めない
+		if (!isUncountedTableCellChar(text[index] ?? '')) {
 			visible += 1;
 		}
 	}
@@ -2480,6 +2600,22 @@ export function isTableCellSelectAllKey(event: Pick<KeyboardEvent, 'ctrlKey' | '
  */
 export function isTableCellSoftBreakKey(event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>): boolean {
 	return event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+}
+
+/**
+ * 表の編集を閉じて表示へ戻す Escape か判定する
+ * 修飾付きや変換中は、メニューや変換のキャンセルに任せる
+ * @param event - キーイベント
+ * @returns 修飾なしの Escape なら true
+ */
+export function isTableEditExitKey(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'isComposing'>): boolean {
+	// 変換中の Escape は文字変換のキャンセル。表の編集は閉じない
+	if (event.isComposing) {
+		return false;
+	}
+
+	// 修飾なしの Escape だけ表の編集を閉じる
+	return event.key === 'Escape' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
 }
 
 /**
@@ -3227,6 +3363,7 @@ function persistAndDeactivateTableCell(view: EditorView, cell: HTMLElement, tabl
 
 	cell.dataset.editing = 'false';
 	cell.classList.remove('cm-md-table-cell-editing');
+	cell.contentEditable = 'false';
 	// 行か列が整数でなければ、プレビューへ戻さず寸法だけ通知する。どちらか一方でも通知して戻る
 	if (!Number.isInteger(position.row) || !Number.isInteger(position.column)) {
 		notifyTableGeometryChange(cell);
@@ -3277,6 +3414,8 @@ function activateTableCell(cell: HTMLElement, view?: EditorView): void {
 		deactivateOtherEditingTableCells(view, wrap, tableFrom, cell);
 	}
 
+	// 編集中は入力を受け付ける。普段のセルは編集不可のまま
+	cell.contentEditable = 'true';
 	// すでに編集中のセルは DOM を作り直さない
 	if (cell.dataset.editing === 'true') {
 		return;
@@ -3284,6 +3423,7 @@ function activateTableCell(cell: HTMLElement, view?: EditorView): void {
 
 	// 画像だけのセルは、明示フラグが無い限りソース編集に入らない。どちらかが欠けると入る
 	if (cellShowsOnlyImage(cell) && cell.dataset.forceImageEdit !== 'true') {
+		cell.contentEditable = 'false';
 		return;
 	}
 
@@ -3301,6 +3441,404 @@ function activateTableCell(cell: HTMLElement, view?: EditorView): void {
 	fillEditableTableCellContent(cell, cell.dataset.editableText ?? cell.dataset.source ?? '', inlineRanges);
 	updateTableCellInlineMarks(cell);
 	notifyTableGeometryChange(cell);
+}
+
+/** セル内の取り消し実行中の入れ子。0 のときは、表の外にいたキャレットを表へ戻さない */
+let tableCellHistoryDepth = 0;
+
+/**
+ * 編集中セルの DOM が文書と違うとき、表示を文書へ戻す
+ * 入力直後は文書と DOM が同じなので、キャレットは崩さない
+ * @param liveInsert - DOM を文書へ書いたときのソース。書けなければ null
+ * @param sourceText - いまの文書のセルソース
+ * @returns 表示を文書へ戻すとき true
+ */
+export function shouldRefreshEditingTableCell(liveInsert: string | null, sourceText: string): boolean {
+	return liveInsert !== null && liveInsert !== sourceText;
+}
+
+/**
+ * 表の外で取り消したとき、キャレットを表の中へ戻さない
+ * @param inCellHistory - セル内の取り消し実行中
+ * @param docChanged - 文書が変わった
+ * @param startedInsideTable - 操作前のキャレットが表の中
+ * @param historyNavigation - 取り消しまたはやり直し
+ * @returns 表の外のキャレットを維持するとき true
+ */
+export function shouldKeepSelectionOutsideTable(inCellHistory: boolean, docChanged: boolean, startedInsideTable: boolean, historyNavigation: boolean): boolean {
+	return historyNavigation && !inCellHistory && docChanged && !startedInsideTable;
+}
+
+/**
+ * 編集中セルの表示を、いまの文書のセル本文へ合わせる
+ * ブラウザが持つ入力の取り消しは捨てる。残すと、消した文字がすぐ戻る
+ * @param view - エディタ
+ * @param cell - 編集中セル
+ * @param tableFrom - 表開始位置
+ * @param position - セル位置
+ */
+function syncEditingCellFromDocument(view: EditorView, cell: HTMLElement, tableFrom: number, position: TableCellPosition): void {
+	// 開始位置を含む表。無ければ null
+	const tableNode = findTableNodeAt(view.state, tableFrom);
+	// 表が文書に無ければ、表示を合わせられない
+	if (!tableNode) {
+		return;
+	}
+
+	// いまの文書から取り直した表
+	const data   = extractTableData(view.state, tableNode);
+	// 同じ位置のセルソース。範囲外は null
+	const source = getTableCellSource(data, position);
+	// セルが無ければ表示を合わせられない
+	if (!source) {
+		return;
+	}
+
+	cell.dataset.inlineRanges = JSON.stringify(source.inlineRanges);
+	cell.dataset.source       = source.text;
+	cell.dataset.editableText = source.editableText;
+	fillEditableTableCellContent(cell, source.editableText, source.inlineRanges);
+	// 一度編集不可にすると、ブラウザの取り消し履歴が消える
+	cell.contentEditable = 'false';
+	cell.contentEditable = 'true';
+	cell.dataset.editing = 'true';
+	cell.classList.add('cm-md-table-cell-editing');
+	cell.focus({ preventScroll: true });
+	setCellSelection(cell, source.editableText.length, false);
+}
+
+/**
+ * 表の外からの取り消しでは、キャレットを操作前の位置へ戻す
+ * セルが常時編集可能だと、選択の復元で次の Ctrl+Z がセルに吸われる
+ */
+export const tableHistoryFocusExtension = EditorView.updateListener.of((update) => {
+	// 取り消しかやり直しの更新か
+	const historyNavigation = update.transactions.some((transaction) => transaction.isUserEvent('undo') || transaction.isUserEvent('redo'));
+	// セル内の取り消し、本文が変わらない更新、もともと表の中にいたキャレットは動かさない
+	if (!shouldKeepSelectionOutsideTable(tableCellHistoryDepth > 0, update.docChanged, findTableNodeAt(update.startState, update.startState.selection.main.head) !== null, historyNavigation)) {
+		return;
+	}
+
+	// 操作前のキャレットを、取り消した文書の位置へ移したもの
+	const mapped = update.startState.selection.map(update.changes);
+	// すでにその位置なら、選択を置き換えない
+	if (mapped.eq(update.state.selection)) {
+		return;
+	}
+
+	// 更新の途中では dispatch できない。直後に、表をクリックしていなければ戻す
+	const view      = update.view;
+	// この取り消し直後の文書長。次の操作が先に入ったら、古い位置は使わない
+	const docLength = update.state.doc.length;
+	queueMicrotask(() => {
+		// セル編集の取り消しに入ったあと、文書が続きで変わった、または選択がすでに同じなら戻さない
+		if (tableCellHistoryDepth > 0 || view.state.doc.length !== docLength || mapped.eq(view.state.selection)) {
+			return;
+		}
+
+		// 待ちのあいだにセルをクリックしていたら、その編集を奪わない
+		const active = view.dom.ownerDocument.activeElement;
+		if (active instanceof Element && active.closest('[data-table-row]')) {
+			return;
+		}
+
+		view.dispatch({
+			// 表の外にいたキャレット
+			selection: mapped,
+			// 選択の戻しは、次の Ctrl+Z で取り消さない
+			annotations: Transaction.addToHistory.of(false)
+		});
+	});
+});
+
+/**
+ * 編集中でないセルを、文書の文字が変わったときだけ埋め直すか
+ * 編集中セルは入力 DOM を維持する
+ * @param isEditing - そのセルを編集中か
+ * @param previousSource - いま表示しているソース
+ * @param nextSource - 文書のソース
+ * @returns プレビューを文書へ戻すとき true
+ */
+export function shouldRefreshPreviewTableCell(isEditing: boolean, previousSource: string, nextSource: string): boolean {
+	return !isEditing && previousSource !== nextSource;
+}
+
+/**
+ * 編集中でないセルの表示を、いまの文書へ合わせる
+ * セルの文字だけでは表 DOM を作り直さない。取り消した隣セルは、フォーカスを外すまで古い文字が残る
+ * @param view - エディタ
+ * @param editingCell - 編集中セル。このセルは編集 DOM のまま残す
+ * @param tableFrom - 表開始位置
+ */
+function refreshInactiveTableCellsFromDocument(view: EditorView, editingCell: HTMLElement, tableFrom: number): void {
+	// 編集中セルが属する表。表の外なら null
+	const wrap = editingCell.closest<HTMLElement>('.cm-md-table-wrap');
+	// 表が描画されていなければ、隣セルを埋め直せない
+	if (!wrap) {
+		return;
+	}
+
+	// 開始位置を含む表。無ければ null
+	const tableNode = findTableNodeAt(view.state, tableFrom);
+	// 表が文書に無ければ、表示を合わせられない
+	if (!tableNode) {
+		return;
+	}
+
+	// いまの文書から取り直した表
+	const data = extractTableData(view.state, tableNode);
+	for (const cell of wrap.querySelectorAll<HTMLElement>('[data-table-row][data-table-column]')) {
+		// 編集中のセルは、キャレット用の DOM を維持する
+		if (cell === editingCell || cell.dataset.editing === 'true') {
+			continue;
+		}
+
+		// セル位置。dataset が数値でなければ NaN
+		const position = {
+			// 見出しは 0
+			row: Number(cell.dataset.tableRow),
+			// 列番号。0 始まり
+			column: Number(cell.dataset.tableColumn)
+		};
+		// 行か列が整数でないセルは飛ばす。どちらか一方でも次へ
+		if (!Number.isInteger(position.row) || !Number.isInteger(position.column)) {
+			continue;
+		}
+
+		// 同じ位置のセルソース。範囲外は null
+		const source = getTableCellSource(data, position);
+		// セルが無い、または表示がすでに文書と同じなら埋め直さない。どちらか一方でも次へ
+		if (!source || !shouldRefreshPreviewTableCell(false, cell.dataset.source ?? '', source.text)) {
+			continue;
+		}
+
+		// 見出しは headers、本体は行配列。セルが無ければ undefined
+		const nodes = position.row === 0 ? data.headers[position.column] : data.rows[position.row - 1]?.[position.column];
+		// 表示ノードが無いセルは埋め直さない
+		if (!nodes) {
+			continue;
+		}
+
+		cell.dataset.inlineRanges = JSON.stringify(source.inlineRanges);
+		applyCellAlignmentClasses(cell, source.text);
+		cell.dataset.source       = source.text;
+		cell.dataset.editableText = source.editableText;
+		fillTableCellContent(cell, nodes, view);
+		applyRememberedWidthToCell(cell, nodes, position);
+	}
+}
+
+/** 文書上のセル範囲。取り消しで変わった位置からセルを引く */
+export type TableCellDocumentSpan = {
+	/** 行番号。0 は見出し */
+	row: number;
+	/** 列番号。0 始まり */
+	column: number;
+	/** セル本文の開始 */
+	from: number;
+	/** セル本文の終端 */
+	to: number;
+};
+
+/**
+ * 文書位置を含むセルを返す
+ * 空セルは開始と終端が同じなので、その位置ちょうどもそのセルにする
+ * @param cells - セル範囲
+ * @param pos - 文書位置
+ * @returns 文書位置を含むセル。無ければ null
+ */
+function tableCellCoveringPosition(cells: readonly TableCellDocumentSpan[], pos: number): TableCellPosition | null {
+	for (const cell of cells) {
+		// 本文の内側。終端ちょうどは、次の文字との境なので含めない
+		if (cell.from <= pos && pos < cell.to) {
+			return {
+				// 見出しは 0
+				row: cell.row,
+				// 列番号。0 始まり
+				column: cell.column
+			};
+		}
+	}
+
+	for (const cell of cells) {
+		// 空セルは幅が無い。変わった位置がそこなら、そのセル
+		if (cell.from === cell.to && cell.from === pos) {
+			return {
+				// 見出しは 0
+				row: cell.row,
+				// 列番号。0 始まり
+				column: cell.column
+			};
+		}
+	}
+
+	return null;
+}
+
+/**
+ * 取り消しややり直しで変わったセルを返す
+ * 変わった位置は、編集前の文書でその文字があったセルに属する
+ * @param beforeText - 操作前の文書
+ * @param afterText - 操作後の文書
+ * @param cells - 操作前のセル範囲
+ * @returns 取り消しややり直しで変わったセル。表の外なら null
+ */
+export function tableCellPositionForTextChange(beforeText: string, afterText: string, cells: readonly TableCellDocumentSpan[]): TableCellPosition | null {
+	// 先頭から、最初に違う文字の位置
+	let index   = 0;
+	// 比べられる短い方の長さ
+	const limit = Math.min(beforeText.length, afterText.length);
+	while (index < limit && beforeText[index] === afterText[index]) {
+		index += 1;
+	}
+
+	// 文書が同じなら、戻るセルは無い
+	if (index === beforeText.length && index === afterText.length) {
+		return null;
+	}
+
+	// 変わった位置のセル。境目なら、直前の文字のセル
+	return tableCellCoveringPosition(cells, index) ?? (index > 0 ? tableCellCoveringPosition(cells, index - 1) : null);
+}
+
+/**
+ * 操作前の表から、セル範囲を並べる
+ * @param state - 操作前の状態
+ * @param tableFrom - 表開始位置
+ * @returns 操作前の表から、セル範囲を並べる。表が無ければ空
+ */
+function tableCellDocumentSpans(state: EditorState, tableFrom: number): TableCellDocumentSpan[] {
+	// 開始位置を含む表。無ければ null
+	const tableNode = findTableNodeAt(state, tableFrom);
+	// 表が無ければ範囲は空
+	if (!tableNode) {
+		return [];
+	}
+
+	// 操作前の表
+	const data                           = extractTableData(state, tableNode);
+	// 見出しと本体の範囲
+	const cells: TableCellDocumentSpan[] = [];
+	for (let column = 0; column < data.headerSources.length; column += 1) {
+		// 見出しセル。列が無ければ undefined
+		const source = data.headerSources[column];
+		// ソースが無い列は範囲にしない
+		if (!source) {
+			continue;
+		}
+
+		cells.push({
+			// 見出し行
+			row: 0,
+			// 列番号。0 始まり
+			column,
+			// セル本文の開始
+			from: source.from,
+			// セル本文の終端
+			to: source.to
+		});
+	}
+
+	for (let rowIndex = 0; rowIndex < data.rowSources.length; rowIndex += 1) {
+		// 本体の1行。行が無ければ undefined
+		const row = data.rowSources[rowIndex];
+		// 行が無ければ次へ
+		if (!row) {
+			continue;
+		}
+
+		for (let column = 0; column < row.length; column += 1) {
+			// 本体セル。列が無ければ undefined
+			const source = row[column];
+			// ソースが無い列は範囲にしない
+			if (!source) {
+				continue;
+			}
+
+			cells.push({
+				// 見出しの次から 1
+				row: rowIndex + 1,
+				// 列番号。0 始まり
+				column,
+				// セル本文の開始
+				from: source.from,
+				// セル本文の終端
+				to: source.to
+			});
+		}
+	}
+
+	return cells;
+}
+
+/**
+ * セル編集中の取り消しとやり直しを、文書の履歴として実行する
+ * ウィジェット破棄の blur が、戻した文書へ編集中の文字列を書き戻さない
+ * 戻したあとはセルの表示を文書へ合わせ、変わったセルへフォーカスを戻す
+ * @param view - エディタ
+ * @param cell - 編集中セル
+ * @param tableFrom - 表開始位置
+ * @param position - セル位置
+ * @param command - undo または redo
+ */
+export function runTableCellDocumentHistory(view: EditorView, cell: HTMLElement, tableFrom: number, position: TableCellPosition, command: (view: EditorView) => boolean): void {
+	tableCellHistoryDepth          += 1;
+	// 破棄で blur が先に走る。そのあいだは編集 DOM を文書へ書かない
+	cell.dataset.skipHistoryPersist = 'true';
+	// 履歴コマンドが文書を変えたか
+	let changed                     = false;
+	// 操作前の状態。変わったセルは、この文書の範囲から引く
+	const beforeState               = view.state;
+	try {
+		changed = command(view);
+		// セルが残っているときは、文書の本文をその場へ書く
+		if (changed && cell.isConnected) {
+			// 操作前のセル範囲。表が無ければ空
+			const cells    = tableCellDocumentSpans(beforeState, tableFrom);
+			// 文字が変わったセル。表の外なら null
+			const target   = tableCellPositionForTextChange(beforeState.doc.toString(), view.state.doc.toString(), cells);
+			// いまのセルの取り消しなら、フォーカスは動かさない
+			const sameCell = !target || (target.row === position.row && target.column === position.column);
+			// 同じセルなら、編集中の表示だけを文書へ合わせる
+			if (sameCell) {
+				syncEditingCellFromDocument(view, cell, tableFrom, position);
+				// 隣セルの文字は、表 DOM を再利用するとフォーカスを外すまで残る
+				refreshInactiveTableCellsFromDocument(view, cell, tableFrom);
+			} else if (target) {
+				// 隣セルの表示を先に文書へ合わせ、そのあと入力していたセルへ入る
+				refreshInactiveTableCellsFromDocument(view, cell, tableFrom);
+				// 戻したあとの表。無ければ null
+				const afterNode = findTableNodeAt(view.state, tableFrom);
+				// 戻したあとの表データ。表が無ければ null
+				const afterData = afterNode ? extractTableData(view.state, afterNode) : null;
+				// 戻したセルのソース。範囲外は null
+				const source    = afterData ? getTableCellSource(afterData, target) : null;
+				restoreTableCellFocus(view, tableFrom, target, source?.editableText.length ?? 0, false);
+			}
+		}
+	} finally {
+		tableCellHistoryDepth -= 1;
+		// 表示を戻した直後、ブラウザが br を足す。フラグを先に戻すと、その br が次の取り消しになる
+		/**
+		 *
+		 */
+		const releasePersist   = (): void => {
+			cell.dataset.skipHistoryPersist = 'false';
+		};
+		// ウィンドウが無いテストでは、グローバルの待ちを使う
+		if (typeof window === 'undefined') {
+			setTimeout(releasePersist, 0);
+		} else {
+			window.setTimeout(releasePersist, 0);
+		}
+	}
+
+	// セルが残っているときは、作り直した表へ入り直さない
+	if (!changed || cell.isConnected) {
+		return;
+	}
+
+	restoreTableCellFocus(view, tableFrom, position, 0, true);
 }
 
 /**
@@ -3901,7 +4439,22 @@ function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement
 	controls.className = 'cm-md-table-structure-controls';
 	controls.setAttribute('contenteditable', 'false');
 	controls.hidden = true;
-	wrap.appendChild(controls);
+	// 表より前に置く。中身は枠の流れに入り、列選択だけが sticky で留まる
+	wrap.insertBefore(controls, table);
+	// 列選択の帯。ボタンをこの中に置き、スクロールのたびに top を書き直さない
+	const columnBand     = document.createElement('div');
+	columnBand.className = 'cm-md-table-structure-column-band';
+	columnBand.setAttribute('aria-hidden', 'true');
+	controls.appendChild(columnBand);
+	// 行選択列の見出し。見出し行の左で留まり、行ボタンがそこをすり抜けない
+	const rowHead     = document.createElement('div');
+	rowHead.className = 'cm-md-table-structure-row-head';
+	rowHead.setAttribute('aria-hidden', 'true');
+	controls.appendChild(rowHead);
+	// 行ボタンの層。表より手前に置き、見出しの下へ流す
+	const rowLayer     = document.createElement('div');
+	rowLayer.className = 'cm-md-table-structure-row-layer';
+	controls.appendChild(rowLayer);
 	// 範囲選択の起点。まだ押していなければ null
 	let anchor: { axis: TableStructureAxis; group: TableStructureRange } | null = null;
 	// 左ボタンを押したままか。離すと false
@@ -3935,8 +4488,25 @@ function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement
 		return button;
 	};
 
-	columnGroups.forEach((group) => controls.appendChild(createButton('column', group)));
-	rowGroups.forEach((group) => controls.appendChild(createButton('row', group)));
+	columnGroups.forEach((group) => columnBand.appendChild(createButton('column', group)));
+	rowGroups.forEach((group) => rowLayer.appendChild(createButton('row', group)));
+
+	/** 列選択の幅と、行選択列の見出しを、見出し行へ合わせる */
+	const syncPinnedStructureChrome = (): void => {
+		// 表の幅に左余白を足す。スクロール中は書き換えない
+		columnBand.style.width = `${table.offsetWidth + TABLE_STRUCTURE_CONTROLS_GUTTER_PX}px`;
+		// 固定する見出し行。thead が無ければ先頭行
+		const headerRow        = table.tHead?.rows[0] ?? table.rows[0];
+		// 見出し行が無い表は、行選択列の見出しを置かない
+		if (!headerRow) {
+			return;
+		}
+
+		// 見出し行の高さ。行選択列の見出しはこれと重ね、余白は負の margin で消す
+		const headerHeight         = headerRow.getBoundingClientRect().height;
+		rowHead.style.height       = `${headerHeight}px`;
+		rowHead.style.marginBottom = `${-headerHeight}px`;
+	};
 
 	/** ボタンを表の実寸へ合わせる */
 	const sync = (): void => {
@@ -3962,9 +4532,9 @@ function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement
 			// 範囲の右端。右端が無ければ左端と同じ
 			const right        = rightEdges[range.end] ?? left;
 			button.style.left  = `${tableLeft + left}px`;
-			button.style.top   = '0';
 			button.style.width = `${Math.max(0, right - left)}px`;
 		});
+		syncPinnedStructureChrome();
 		controls.querySelectorAll<HTMLElement>('.cm-md-table-structure-selector.is-row').forEach((button) => {
 			// ボタンが担当する行範囲。dataset が壊れていれば null
 			const range = readTableStructureRange(button);
@@ -4148,6 +4718,28 @@ function attachTableStructureControls(wrap: HTMLElement, table: HTMLTableElement
 	// ボタンを離したら構造ヘッダーのドラッグを終える
 	controls.addEventListener('mouseup', () => {
 		dragging = false;
+	});
+	// Escape でセル編集を閉じ、選択ヘッダーを隠してエディタの表示へ戻す
+	wrap.addEventListener('keydown', (event) => {
+		// 表編集を閉じるキーではない、または先に処理済みなら戻す。どちらか一方でも戻る
+		if (!isTableEditExitKey(event) || event.defaultPrevented) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		// 行・列選択の起点。残すと次のドラッグが前回の範囲を引き継ぐ
+		anchor = null;
+		clearTableStructureSelection(wrap, table);
+		// いま表の中にあるフォーカス。セルか選択ボタン。表の外なら null
+		const active = wrap.ownerDocument.activeElement;
+		// 表の中のフォーカスだけ外す。外すと編集中セルは blur でプレビューへ戻る
+		if (active instanceof HTMLElement && wrap.contains(active)) {
+			active.blur();
+		}
+
+		setVisible(false);
+		view.focus();
 	});
 	// 表にフォーカスが入ったら選択ヘッダーを出す
 	wrap.addEventListener('focusin', () => {
@@ -5152,8 +5744,32 @@ export class TableWidget extends WidgetType {
 			applyCellAlignmentClasses(cell, source.text);
 			cell.dataset.source       = source.text;
 			cell.dataset.editableText = source.editableText;
-			// ソースが同じ、または編集中のセルは表示を作り直さない。どちらか一方でも維持する
-			if (!changed || cell.dataset.editing === 'true') {
+			// 編集中セルは、入力中の DOM を維持する。文書だけが戻ったときだけ中身を合わせる
+			if (cell.dataset.editing === 'true') {
+				// いまの DOM を文書へ書いたときのソース。セルが無ければ null
+				const liveChange = buildTableCellChange(data, position, readTableCellEditableValue(cell));
+				// 文書と違うときだけ、取り消し後の本文へ戻す。同じならキャレットを崩さない
+				if (shouldRefreshEditingTableCell(liveChange?.insert ?? null, source.text)) {
+					// dataset のインライン範囲。壊れた JSON は空
+					let inlineRanges: TableCellInlineRange[] = [];
+					try {
+						inlineRanges = JSON.parse(cell.dataset.inlineRanges ?? '[]') as TableCellInlineRange[];
+					} catch {
+						inlineRanges = [];
+					}
+
+					fillEditableTableCellContent(cell, source.editableText, inlineRanges);
+					// フォーカスがこのセルにあるときだけ、戻した本文の末尾へキャレットを置く
+					const active = cell.ownerDocument.activeElement;
+					if (active instanceof Node && (active === cell || cell.contains(active))) {
+						setCellSelection(cell, source.editableText.length, false);
+					}
+				}
+				continue;
+			}
+
+			// ソースが同じセルは表示を作り直さない
+			if (!changed) {
 				continue;
 			}
 
@@ -5208,7 +5824,7 @@ export class TableWidget extends WidgetType {
 			cell.dataset.source       = source?.text ?? '';
 			cell.dataset.editableText = source?.editableText ?? '';
 			cell.dataset.inlineRanges = JSON.stringify(source?.inlineRanges ?? []);
-			cell.contentEditable      = view.state.readOnly || !source ? 'false' : 'true';
+			cell.contentEditable      = 'false';
 			cell.spellcheck           = false;
 			cell.setAttribute('aria-label', `表 ${position.row + 1} 行 ${position.column + 1} 列`);
 			fillTableCellContent(cell, nodes, view);
@@ -5257,6 +5873,10 @@ export class TableWidget extends WidgetType {
 					return;
 				}
 
+				// クリックのあいだだけ入力を受け付ける。普段は編集不可で、取り消しのキャレットを吸わない
+				if (!view.state.readOnly) {
+					cell.contentEditable = 'true';
+				}
 				// CodeMirror のカーソル同期で再描画される前に、直前の表選択表示を確実に消す
 				clearTableSelectionRect(wrap, table);
 				clearTableStructureSelection(wrap, table);
@@ -5325,6 +5945,8 @@ export class TableWidget extends WidgetType {
 			let composing                = false;
 			// 変換確定の直後か。次の input の履歴名に使う
 			let compositionCommitPending = false;
+			// keydown で取り消しを処理したか。続く beforeinput では重ねて取り消さない
+			let historyShortcutHandled   = false;
 			// 文書へ書いているあいだの再入回数。0 なら書き込み中ではない
 			let persistGuard             = 0;
 			/**
@@ -5406,8 +6028,11 @@ export class TableWidget extends WidgetType {
 					updateTableCellInlineMarks(cell);
 				}
 			});
-			// キーを離したときも、キャレット位置の記法を出す
-			cell.addEventListener('keyup', () => updateTableCellInlineMarks(cell));
+			// キーを離したとき、取り消しの二重処理を消し、キャレット位置の記法を出す
+			cell.addEventListener('keyup', () => {
+				historyShortcutHandled = false;
+				updateTableCellInlineMarks(cell);
+			});
 			// ダブルクリックでは画像セルもソース編集へ入り、中身を全選択する
 			cell.addEventListener('dblclick', (event) => {
 				event.preventDefault();
@@ -5451,6 +6076,13 @@ export class TableWidget extends WidgetType {
 			});
 			// フォーカスが外れたとき、編集中なら文書へ書いてプレビューへ戻す
 			cell.addEventListener('blur', () => {
+				// 取り消しで DOM が捨てられたときは、編集中の文字列を文書へ戻さない
+				if (cell.dataset.skipHistoryPersist === 'true') {
+					cell.dataset.editing = 'false';
+					cell.classList.remove('cm-md-table-cell-editing');
+					return;
+				}
+
 				// 文書へ書いている途中なら、書き終わりとフォーカス移動を待って閉じる
 				if (persistGuard > 0) {
 					window.queueMicrotask(() => {
@@ -5475,6 +6107,8 @@ export class TableWidget extends WidgetType {
 
 				cell.dataset.editing = 'false';
 				cell.classList.remove('cm-md-table-cell-editing');
+				// 編集を閉じたセルは入力を受けない。取り消しのキャレットがセルへ入らない
+				cell.contentEditable = 'false';
 				// 編集していたセルだけ、文書の表示へ戻して画像幅を付け直す
 				if (wasEditing) {
 					// 文書から取り直した表示ノード。セルが無ければ null
@@ -5528,10 +6162,47 @@ export class TableWidget extends WidgetType {
 					return;
 				}
 
+				// ブラウザの取り消しは、文書へ書き戻さず、文書の表示へ合わせる
+				if (inputEvent.inputType === 'historyUndo' || inputEvent.inputType === 'historyRedo') {
+					// 表の開始。dataset が無ければ NaN
+					const tableFrom = Number(cell.closest<HTMLElement>('.cm-md-table-wrap')?.dataset.tableFrom);
+					// 表の開始が整数のときだけ、文書の本文をセルへ書く
+					if (Number.isInteger(tableFrom)) {
+						syncEditingCellFromDocument(view, cell, tableFrom, position);
+					}
+					return;
+				}
+
+				// 文書の取り消し中に起きた入力は、編集 DOM を文書へ書き戻さない
+				if (cell.dataset.skipHistoryPersist === 'true') {
+					return;
+				}
+
 				// 変換確定の直後だけ compose の履歴名。それ以外は通常入力
 				const userEvent          = compositionCommitPending ? 'input.type.compose' : 'input.type';
 				compositionCommitPending = false;
 				dispatchCellValue(userEvent);
+			});
+			// ブラウザの取り消しは contenteditable の履歴を使う。文書の履歴と二重にしない
+			cell.addEventListener('beforeinput', (event) => {
+				// InputEvent 以外は取り消しの入力種を持たない
+				const inputEvent = event as InputEvent;
+				// 取り消しとやり直し以外は、文字入力の beforeinput に任せる
+				if (inputEvent.inputType !== 'historyUndo' && inputEvent.inputType !== 'historyRedo') {
+					return;
+				}
+
+				event.preventDefault();
+				event.stopPropagation();
+				// keydown が先に文書を戻していれば、ここでは重ねない
+				if (historyShortcutHandled) {
+					historyShortcutHandled = false;
+					return;
+				}
+
+				// keydown が来ない環境では、ここで文書の履歴を動かす
+				const command = inputEvent.inputType === 'historyUndo' ? undo : redo;
+				runTableCellDocumentHistory(view, cell, this.data.tableFrom, position, command);
 			});
 			// 全選択、改行、取り消し、上下、Tab と Enter をセル側で処理する
 			cell.addEventListener('keydown', (event) => {
@@ -5583,12 +6254,11 @@ export class TableWidget extends WidgetType {
 				if (modKey && !event.altKey && event.key.toLowerCase() === 'z') {
 					event.preventDefault();
 					event.stopPropagation();
+					// 続く beforeinput では、同じ取り消しを重ねない
+					historyShortcutHandled = true;
 					// Shift 付きはやり直し、無ければ取り消し
-					const command = event.shiftKey ? redo : undo;
-					// 文書が変わったときだけ、このセルを全選択で戻す
-					if (command(view)) {
-						restoreTableCellFocus(view, this.data.tableFrom, position, 0, true);
-					}
+					const command          = event.shiftKey ? redo : undo;
+					runTableCellDocumentHistory(view, cell, this.data.tableFrom, position, command);
 					return;
 				}
 
@@ -5596,10 +6266,9 @@ export class TableWidget extends WidgetType {
 				if (modKey && !event.altKey && event.key.toLowerCase() === 'y') {
 					event.preventDefault();
 					event.stopPropagation();
-					// やり直しで文書が変わったときだけ、このセルを全選択で戻す
-					if (redo(view)) {
-						restoreTableCellFocus(view, this.data.tableFrom, position, 0, true);
-					}
+					// 続く beforeinput では、同じやり直しを重ねない
+					historyShortcutHandled = true;
+					runTableCellDocumentHistory(view, cell, this.data.tableFrom, position, redo);
 					return;
 				}
 

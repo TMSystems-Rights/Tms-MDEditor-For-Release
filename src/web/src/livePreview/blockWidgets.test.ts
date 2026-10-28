@@ -12,7 +12,56 @@ import { collectBlockDecorationEntries, extractImageAltAndUrl, extractWikiEmbedP
 import { createDocumentContextExtensions } from './documentContext';
 import { classifyImageSource } from './imageWidget';
 import { applyImageDisplayWidth, applyImageWidthOnDocumentLine } from './imageResize';
-import { buildAppendTableRowChange, buildTableCellChange, TableWidget, clearCellImageWidths, extractTableData, findTableNodeAt, forgetCellImageWidth, getTableDataIdentity, normalizeTableCellTextForIdentity, persistTableLayout, writeTableCellImageWidth, recallCellImageWidth, rememberCellImageWidth, getActiveTableCellInlineRangeIds, getAdjacentTableCellPosition, getNormalizedTableCellCaretOffset, getTableCellEditableOffsetFromPreview, getTableCellEditableCaretOffset, getTableCellLineCaretPosition, getTableCellVerticalArrowDirection, getTableCellVerticalCaretOffset, getTableCellVerticalNavigation, getTableVerticalExitPosition, getTableVerticalEntryTarget, hasTableSelectionPointerMoved, insertLineBreakAtOffset, isTableCellSoftBreakKey, isTableCellSelectAllKey, isBreakHtmlTag, normalizeEditableCellDomText, normalizeTableCellSource, observeTableStructureGeometry, resolveTableStructureOffset, restoreTableCellFocus, shouldPreserveTableCellSelectionOnMouseDown, shouldSyncTableCellEditorOnMouseDown, syncTableCellEditorSelection, syncTableDataAfterCellChange, TABLE_CELL_BREAK_CARET, tableCellNodesToPlainText } from './tableWidget';
+import {
+	buildAppendTableRowChange,
+	buildTableCellChange,
+	TableWidget,
+	clearCellImageWidths,
+	extractTableData,
+	findTableNodeAt,
+	forgetCellImageWidth,
+	getTableDataIdentity,
+	normalizeTableCellTextForIdentity,
+	persistTableLayout,
+	writeTableCellImageWidth,
+	recallCellImageWidth,
+	rememberCellImageWidth,
+	getActiveTableCellInlineRangeIds,
+	getAdjacentTableCellPosition,
+	getNormalizedTableCellCaretOffset,
+	getTableCellEditableOffsetFromPreview,
+	getTableCellEditableCaretOffset,
+	getTableCellLineCaretPosition,
+	getTableCellVerticalArrowDirection,
+	getTableCellVerticalCaretOffset,
+	getTableCellVerticalNavigation,
+	getTableVerticalExitPosition,
+	getTableVerticalEntryTarget,
+	hasTableSelectionPointerMoved,
+	insertLineBreakAtOffset,
+	isTableCellSoftBreakKey,
+	isTableCellSelectAllKey,
+	isTableEditExitKey,
+	runTableCellDocumentHistory,
+	tableCellPositionForTextChange,
+	shouldRefreshEditingTableCell,
+	shouldRefreshPreviewTableCell,
+	shouldKeepSelectionOutsideTable,
+	tableCellNeedsHeightBreak,
+	tableCellSourceBreakIndexes,
+	isBreakHtmlTag,
+	normalizeEditableCellDomText,
+	normalizeTableCellSource,
+	observeTableStructureGeometry,
+	resolveTableStructureOffset,
+	restoreTableCellFocus,
+	shouldPreserveTableCellSelectionOnMouseDown,
+	shouldSyncTableCellEditorOnMouseDown,
+	syncTableCellEditorSelection,
+	syncTableDataAfterCellChange,
+	TABLE_CELL_BREAK_CARET,
+	tableCellNodesToPlainText
+} from './tableWidget';
 import { collectHtmlDecorationEntries } from './htmlInline';
 import { collectHtmlBreakDecorationEntries } from './htmlBreak';
 
@@ -1540,6 +1589,73 @@ describe('blockWidgets', () => {
 		).toBe(false);
 	});
 
+	it('修飾なしの Escape だけを表編集の終了として扱う', () => {
+		expect(
+			isTableEditExitKey({
+				// 修飾なしの Escape
+				key: 'Escape',
+				// Ctrl は押していない
+				ctrlKey: false,
+				// Meta は押していない
+				metaKey: false,
+				// Alt は押していない
+				altKey: false,
+				// Shift は押していない
+				shiftKey: false,
+				// 文字変換中ではない
+				isComposing: false
+			})
+		).toBe(true);
+		expect(
+			isTableEditExitKey({
+				// Escape 以外は編集を閉じない
+				key: 'Enter',
+				// Ctrl は押していない
+				ctrlKey: false,
+				// Meta は押していない
+				metaKey: false,
+				// Alt は押していない
+				altKey: false,
+				// Shift は押していない
+				shiftKey: false,
+				// 文字変換中ではない
+				isComposing: false
+			})
+		).toBe(false);
+		expect(
+			isTableEditExitKey({
+				// Escape
+				key: 'Escape',
+				// Ctrl 付きは表編集を閉じない
+				ctrlKey: true,
+				// Meta は押していない
+				metaKey: false,
+				// Alt は押していない
+				altKey: false,
+				// Shift は押していない
+				shiftKey: false,
+				// 文字変換中ではない
+				isComposing: false
+			})
+		).toBe(false);
+		expect(
+			isTableEditExitKey({
+				// Escape
+				key: 'Escape',
+				// Ctrl は押していない
+				ctrlKey: false,
+				// Meta は押していない
+				metaKey: false,
+				// Alt は押していない
+				altKey: false,
+				// Shift は押していない
+				shiftKey: false,
+				// 変換中の Escape は変換のキャンセル
+				isComposing: true
+			})
+		).toBe(false);
+	});
+
 	it('表セルの上下キーだけを同一列の縦移動として扱う', () => {
 		/**
 		 * 修飾キーなしのキーイベント相当値を作る
@@ -2006,6 +2122,235 @@ describe('blockWidgets', () => {
 
 		expect(undo(commandTarget)).toBe(true);
 		expect(state.doc.toString()).toBe(doc);
+	});
+
+	it('連続したセル入力は1回のUndoで編集前へ戻る', () => {
+		// aa を aZ、続けて aZa にしたあと、履歴から 1 回で戻す
+		const doc   = '| a | b |\n| --- | --- |\n| aa | bb |';
+		// 履歴付きの文書。編集前
+		let state   = EditorState.create({
+			// 編集前の表
+			doc,
+			// Markdown と履歴。連続入力を 1 回で戻す
+			extensions: [createTmsMarkdownSupport(), history()]
+		});
+		// セル文字列を先頭データセルへ書く
+		/**
+		 *
+		 */
+		const apply = (text: string): void => {
+			// 最初の Table。無ければ null
+			const table  = findNode(state, 'Table');
+			// 表示ノードと、記法を残したソース
+			const data   = extractTableData(state, table!);
+			// 先頭データセルを text にする変更
+			const change = buildTableCellChange(
+				data,
+				{
+					// 先頭データ行
+					row: 1,
+					// 先頭列
+					column: 0
+				},
+				text
+			);
+			// 入力として履歴へ積む
+			state        = state.update({
+				// セル置換
+				changes: change!,
+				// 入力として履歴へ残す
+				userEvent: 'input.type'
+			}).state;
+		};
+
+		apply('aZ');
+		apply('aZa');
+
+		// undo が dispatch する対象
+		const commandTarget = {
+			// 編集後の状態
+			state,
+			/**
+			 *
+			 */
+			dispatch(transaction: import('@codemirror/state').Transaction) {
+				// Undo 後の文書へ置き換える
+				state = transaction.state;
+			}
+		} as unknown as import('@codemirror/view').EditorView;
+
+		expect(undo(commandTarget)).toBe(true);
+		expect(state.doc.toString()).toBe(doc);
+	});
+
+	it('履歴コマンドのあいだはセルの書き戻しを止める', async () => {
+		// dataset だけを持つセル
+		const cell = { dataset: {} } as HTMLElement;
+		// コマンド実行中に見えたフラグ
+		let during = '';
+		runTableCellDocumentHistory(
+			{
+				/**
+				 *
+				 */
+				focus() {
+					return;
+				},
+				// 操作前の文書。このテストでは履歴は動かさない
+				state: {
+					// 空の文書
+					doc: {
+						/**
+						 *
+						 */
+						toString() {
+							return '';
+						}
+					}
+				}
+			} as unknown as import('@codemirror/view').EditorView,
+			cell,
+			0,
+			{
+				// 先頭データ行
+				row: 1,
+				// 先頭列
+				column: 0
+			},
+			() => {
+				during = cell.dataset.skipHistoryPersist ?? '';
+				return false;
+			}
+		);
+		expect(during).toBe('true');
+		// 取り消し直後の br を書き戻さないよう、フラグは関数を抜けた直後も残る
+		expect(cell.dataset.skipHistoryPersist).toBe('true');
+		await new Promise<void>((resolve) => {
+			setTimeout(() => {
+				resolve();
+			}, 0);
+		});
+		expect(cell.dataset.skipHistoryPersist).toBe('false');
+	});
+
+	it('編集中セルは文書と違うときだけ表示を戻す', () => {
+		// 入力直後は文書と DOM が同じ。キャレットを崩さない
+		expect(shouldRefreshEditingTableCell('a', 'a')).toBe(false);
+		// 取り消しで文書だけ戻ったとき、表示を文書へ合わせる
+		expect(shouldRefreshEditingTableCell('a', '')).toBe(true);
+		// セルが無く変更を作れないときは、表示を触らない
+		expect(shouldRefreshEditingTableCell(null, 'a')).toBe(false);
+	});
+
+	it('取り消しで変わった文字のセルへ戻る', () => {
+		// B1 は 14 から 17、B2 は 30 から 33
+		const cells     = [
+			{
+				// 1 行目
+				row: 1,
+				// B 列
+				column: 1,
+				// aaa の開始
+				from: 14,
+				// aaa の終端
+				to: 17
+			},
+			{
+				// 2 行目
+				row: 2,
+				// B 列
+				column: 1,
+				// bbb の開始
+				from: 30,
+				// bbb の終端
+				to: 33
+			}
+		];
+		// B1 の aaa を消した位置は、B1
+		const aaaPrefix = 'x'.repeat(14);
+		const aaaSuffix = `${'y'.repeat(13)}bbb`;
+		expect(tableCellPositionForTextChange(`${aaaPrefix}aaa${aaaSuffix}`, `${aaaPrefix}${aaaSuffix}`, cells)).toEqual({
+			// 1 行目
+			row: 1,
+			// B 列
+			column: 1
+		});
+		// B2 の bbb を消した位置は、B2
+		const bbbPrefix = 'x'.repeat(30);
+		expect(tableCellPositionForTextChange(`${bbbPrefix}bbb`, bbbPrefix, cells)).toEqual({
+			// 2 行目
+			row: 2,
+			// B 列
+			column: 1
+		});
+		// 空セルへ入れた文字を戻す位置は、幅の無いそのセル
+		expect(
+			tableCellPositionForTextChange('x'.repeat(14), `${'x'.repeat(14)}a`, [
+				{
+					// 1 行目
+					row: 1,
+					// B 列
+					column: 1,
+					// 空セルの位置
+					from: 14,
+					// 空セルは終端も同じ
+					to: 14
+				}
+			])
+		).toEqual({
+			// 1 行目
+			row: 1,
+			// B 列
+			column: 1
+		});
+	});
+
+	it('取り消した隣セルだけプレビューを文書へ戻す', () => {
+		// 編集中でないセルは、文書の文字が消えたとき表示を戻す
+		expect(shouldRefreshPreviewTableCell(false, 'aaa', '')).toBe(true);
+		// 編集中セルは、入力 DOM を維持する
+		expect(shouldRefreshPreviewTableCell(true, 'bbb', '')).toBe(false);
+		// 文書と表示が同じセルは、埋め直さない
+		expect(shouldRefreshPreviewTableCell(false, 'aaa', 'aaa')).toBe(false);
+	});
+
+	it('文字に挟まれた br だけをセルの改行として残す', () => {
+		// <br><br> は、クリアしたセルにブラウザが足す行高。ソースへ残さない
+		expect(tableCellSourceBreakIndexes(['break', 'break'])).toEqual([]);
+		// 文字の前だけの br は、空セルへ入力したときに残るプレースホルダ
+		expect(tableCellSourceBreakIndexes(['break', 'text'])).toEqual([]);
+		// 文字の後ろだけの br は、行末のプレースホルダ
+		expect(tableCellSourceBreakIndexes(['text', 'break'])).toEqual([]);
+		// 文字に挟まれた br は、セル内改行
+		expect(tableCellSourceBreakIndexes(['text', 'break', 'text'])).toEqual([1]);
+		// 連続 br は1改行。2本目は行高のための br
+		expect(tableCellSourceBreakIndexes(['text', 'break', 'break', 'text'])).toEqual([1]);
+		// 改行だけのテキストが前後にあっても、挟まれた br は改行
+		expect(tableCellSourceBreakIndexes(['text', 'gap', 'break', 'gap', 'text'])).toEqual([2]);
+	});
+
+	it('空セルだけ行の高さを残す', () => {
+		// 文字も改行も無いセルは、行高が潰れる
+		expect(tableCellNeedsHeightBreak([])).toBe(true);
+		// 空白だけのセルも空と同じ
+		expect(tableCellNeedsHeightBreak([{ kind: 'text', text: ' ' }])).toBe(true);
+		// 文字があるセルは、その文字が行の高さを作る
+		expect(tableCellNeedsHeightBreak([{ kind: 'text', text: 'a' }])).toBe(false);
+		// 改行があるセルは、改行が行の高さを作る
+		expect(tableCellNeedsHeightBreak([{ kind: 'br' }])).toBe(false);
+	});
+
+	it('表の外からの取り消しではキャレットを表へ戻さない', () => {
+		// 表の外で、本文が変わった取り消し。キャレットを維持する
+		expect(shouldKeepSelectionOutsideTable(false, true, false, true)).toBe(true);
+		// セル内の取り消しでは、編集中のキャレットを動かさない
+		expect(shouldKeepSelectionOutsideTable(true, true, false, true)).toBe(false);
+		// もともと表の中にいたキャレットは、表の外へ追い出さない
+		expect(shouldKeepSelectionOutsideTable(false, true, true, true)).toBe(false);
+		// 本文が変わらない更新では、選択を置き換えない
+		expect(shouldKeepSelectionOutsideTable(false, false, false, true)).toBe(false);
+		// 取り消し以外では、キャレットを維持しない
+		expect(shouldKeepSelectionOutsideTable(false, true, false, false)).toBe(false);
 	});
 
 	it('Image から alt と URL を抽出する', () => {

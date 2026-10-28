@@ -1,0 +1,19 @@
+{
+	"version": 1,
+	"hooks": {
+		"preToolUse": [
+			{
+				"command": "pwsh -NoProfile -File .cursor/hooks/wait-same-file-edit.ps1",
+				"matcher": "Write|StrReplace|Shell",
+				"timeout": 50
+			}
+		],
+		"postToolUse": [
+			{
+				"command": "pwsh -NoProfile -File .cursor/hooks/wait-same-file-edit.ps1",
+				"matcher": "Write|StrReplace|Shell",
+				"timeout": 50
+			}
+		]
+	}
+}

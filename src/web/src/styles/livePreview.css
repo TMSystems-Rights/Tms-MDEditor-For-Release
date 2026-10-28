@@ -429,7 +429,7 @@
 	overflow-y: auto;
 }
 
-/* 選択帯は 24px。上下左右の 26px は帯と枠線の分 */
+/* 選択帯は 24px。左と上の 26px は帯と枠線の分。見出しセルの sticky は top: 0 だけがこの padding の下に留まる */
 .tms-mde-editor-host div.cm-md-table-wrap.cm-md-table-structure-controls-visible {
 	box-sizing: content-box;
 	max-width: max(0px, calc(var(--tms-mde-table-max-width, 100%) - 26px));
@@ -437,11 +437,9 @@
 	padding-left: 26px;
 }
 
+/* 箱を作らない。列選択の帯と行選択の見出しは、枠のスクロールに対して sticky になる */
 .tms-mde-editor-host .cm-md-table-structure-controls {
-	position: absolute;
-	inset: 0 auto auto 0;
-	/* リサイズ表示（3）より手前。セル選択（1）にも隠れない */
-	z-index: 4;
+	display: contents;
 	pointer-events: none;
 }
 
@@ -449,8 +447,57 @@
 	display: none;
 }
 
+/*
+ * 列選択の帯。枠内スクロールでは sticky で留まり、スクロールのたびに位置を書き直さない
+ * 見出しは padding の下で top: 0。帯を top: 0 にすると同じ位置へ落ち、見出しが帯の裏に入る
+ * 左へ 26px はみ出し、行選択列の上も同じ帯で塞ぐ
+ * 地の色は編集中の行。ノート色だけだと、表の縁に出るアクティブ行とずれる
+ */
+.tms-mde-editor-host .cm-md-table-structure-column-band {
+	position: sticky;
+	/* padding の上端。0 だと見出しと同じ高さへ下がる */
+	top: -26px;
+	z-index: 6;
+	height: 26px;
+	/* 帯の高さ分を padding の中へ戻し、表は帯の下から始める */
+	margin-top: -26px;
+	margin-left: -26px;
+	/* 親は pointer-events: none。帯は行へのクリックを止め、列ボタンは手前で受ける */
+	pointer-events: auto;
+	/* 下地はノート背景。半透明のアクティブ行を重ね、縁の色と揃えてデータ行は透かさない */
+	background-color: var(--tms-mde-color-bg);
+	background-image: linear-gradient(var(--tms-mde-color-active-line), var(--tms-mde-color-active-line));
+}
+
+/* 行ボタンを表より手前に置く。高さは内容を持たず、ボタンだけがはみ出す */
+.tms-mde-editor-host .cm-md-table-structure-row-layer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 4;
+	width: 0;
+	height: 0;
+	overflow: visible;
+	pointer-events: none;
+}
+
+/* 行選択列の見出し。見出し行の左、padding の下端に留まり、行ボタンはこの下を流れる */
+.tms-mde-editor-host .cm-md-table-structure-row-head {
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	width: 26px;
+	margin-left: -26px;
+	box-sizing: border-box;
+	pointer-events: none;
+	/* 列選択の帯と同じ。編集中の行色を不透明にして、見出しセルの色は使わない */
+	background-color: var(--tms-mde-color-bg);
+	background-image: linear-gradient(var(--tms-mde-color-active-line), var(--tms-mde-color-active-line));
+}
+
 .tms-mde-editor-host .cm-md-table-structure-selector {
 	position: absolute;
+	z-index: 1;
 	box-sizing: border-box;
 	min-width: 0;
 	min-height: 0;
@@ -462,6 +509,7 @@
 }
 
 .tms-mde-editor-host .cm-md-table-structure-selector.is-column {
+	top: 0;
 	height: 24px;
 }
 
@@ -712,6 +760,14 @@
 }
 
 .tms-mde-editor-host .cm-md-table :is(th, td):not(.cm-md-table-cell-editing):has(> br:last-child)::after {
+	content: '\200B';
+	display: inline-block;
+	width: 0;
+	height: 1.4em;
+}
+
+/* 文字の無いセルは、br が行箱を作らない環境でも見出し行と同じ高さでクリックできる */
+.tms-mde-editor-host .cm-md-table :is(th, td).cm-md-table-cell-empty:not(.cm-md-table-cell-editing)::before {
 	content: '\200B';
 	display: inline-block;
 	width: 0;

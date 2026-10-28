@@ -8,6 +8,15 @@ import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 /** 固定対象の見出しセル。選択セルより手前に描く */
 export const TABLE_HEADER_PIN_CLASS = 'cm-md-table-pin-cell';
 
+/** 列選択ヘッダーの余白（px）。表示中の padding-top と背面の高さと同じ */
+const TABLE_STRUCTURE_PIN_GUTTER_PX = 26;
+
+/** 列選択を出している枠。このときだけ余白の分だけ早く留める */
+const TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS = 'cm-md-table-structure-controls-visible';
+
+/** 見出しと同じ縦ずらしを付ける列選択の帯と、行選択列の見出し。行ボタンは行に残す */
+const TABLE_COLUMN_STRUCTURE_PIN_SELECTOR = '.cm-md-table-structure-column-band, .cm-md-table-structure-row-head';
+
 /** 見出し位置の再計測をまとめる requestMeasure のキー */
 const TABLE_HEADER_PIN_KEY = 'tms-mde-table-header-pin';
 
@@ -31,26 +40,31 @@ export type TableHeaderPinSpan = {
  * @param headerDocTop - 見出しの位置（スクロール内容の上端から）
  * @param headerHeight - 見出しの高さ
  * @param tableBottom - 表の下端（スクロール内容の上端から）
+ * @param structureGutter - 列選択ヘッダーの余白（px）。出ていなければ 0
  * @returns 基準位置と移動量
  */
-export function resolveTableHeaderPinSpan(scrollsInside: boolean, wrapDocTop: number, wrapClientHeight: number, headerDocTop: number, headerHeight: number, tableBottom: number): TableHeaderPinSpan {
+export function resolveTableHeaderPinSpan(scrollsInside: boolean, wrapDocTop: number, wrapClientHeight: number, headerDocTop: number, headerHeight: number, tableBottom: number, structureGutter = 0): TableHeaderPinSpan {
+	// 余白。負や非数は 0。列選択が無いときは固定の開始を早めない
+	const gutter = Number.isFinite(structureGutter) ? Math.max(0, structureGutter) : 0;
 	// 枠自身が縦スクロールするときは、表の全高ではなく見える高さで留める
 	if (scrollsInside) {
-		// 枠の中をスクロールするときの基準と移動量
+		// 枠の中をスクロールするときの基準と移動量。余白は枠の padding が空ける
 		return {
 			// 基準は枠の上端。見出し行の文書位置は使わない
 			headerDocTop: wrapDocTop,
-			// 見える高さから見出しを引いた量。負なら 0
-			maxTravel: Math.max(0, wrapClientHeight - headerHeight)
+			// 見える高さから見出しと列選択の余白を引いた量。負なら 0
+			maxTravel: Math.max(0, wrapClientHeight - headerHeight - gutter)
 		};
 	}
 
+	// 列選択の上端。見出しより余白分だけ前。文書先頭より前にはしない
+	const origin = Math.max(0, headerDocTop - gutter);
 	// エディタ全体のスクロールで留めるときの基準と移動量
 	return {
-		// 見出し自身の位置
-		headerDocTop,
-		// 表の下端まで動かせる量。見出しの高さは除く
-		maxTravel: tableBottom - headerDocTop - headerHeight
+		// 列選択が見える位置。余白が無ければ見出し自身
+		headerDocTop: origin,
+		// 見出し自身が表の下端まで動ける量。余白の分は移動量へ足さない
+		maxTravel: Math.max(0, tableBottom - headerDocTop - headerHeight)
 	};
 }
 
@@ -229,6 +243,9 @@ class TableHeaderPinController {
 		this.view.dom.querySelectorAll<HTMLElement>(`.${TABLE_HEADER_PIN_CLASS}`).forEach((cell) => {
 			clearTableHeaderPin(cell);
 		});
+		this.view.dom.querySelectorAll<HTMLElement>(TABLE_COLUMN_STRUCTURE_PIN_SELECTOR).forEach((element) => {
+			clearScrollLinkedPin(element);
+		});
 	}
 
 	/**
@@ -375,8 +392,10 @@ function readTableHeaderPinUpdate(wrap: HTMLElement, scroller: HTMLElement): Tab
 	const wrapDocTop       = wrap.getBoundingClientRect().top - scrollerRect.top + scroller.scrollTop;
 	// 枠自身が縦スクロールするなら true。2px 以内の差は誤差
 	const scrollsInside    = wrap.scrollHeight > wrap.clientHeight + 2;
+	// 列選択の余白。出ていなければ 0。文書スクロールではこの分だけ早く留める
+	const structureGutter  = wrap.classList.contains(TABLE_STRUCTURE_CONTROLS_VISIBLE_CLASS) ? TABLE_STRUCTURE_PIN_GUTTER_PX : 0;
 	// 枠内スクロールか文書スクロールかで切り替えた基準と移動量
-	const span             = resolveTableHeaderPinSpan(scrollsInside, wrapDocTop, wrap.clientHeight, measuredTop, headerHeight, tableBottom);
+	const span             = resolveTableHeaderPinSpan(scrollsInside, wrapDocTop, wrap.clientHeight, measuredTop, headerHeight, tableBottom, structureGutter);
 	// 見出しの基準位置（px）
 	const { headerDocTop } = span;
 	// 下へ動かせる最大量（px）
@@ -430,22 +449,27 @@ function applyTableHeaderPinUpdates(updates: TableHeaderPinUpdate[], scroller: H
 			update.cells.forEach((cell) => {
 				clearTableHeaderPin(cell);
 			});
+			columnStructurePinTargets(update.wrap).forEach((element) => {
+				clearScrollLinkedPin(element);
+			});
 			return;
 		}
 
 		update.wrap.dataset.tmsMdeHeaderPinTop = String(update.headerDocTop);
-		bindTableHeaderPin(update.cells, update.frames, scroller);
+		bindTableHeaderPin(update.wrap, update.cells, update.frames, scroller);
 		syncTableHeaderCovering(update.wrap, scroller.scrollTop);
 	});
 }
 
 /**
- * 見出しセルをエディタの縦スクロールに連動させる
+ * 見出しセルと列選択ヘッダーを、エディタの縦スクロールに連動させる
+ * 行選択は行と一緒に流すため、ここには含めない
+ * @param wrap - 表ラッパー。列選択を探す
  * @param cells - 見出しセル
  * @param frames - ずらしキーフレーム
  * @param scroller - エディタのスクロール要素
  */
-function bindTableHeaderPin(cells: HTMLElement[], frames: TableHeaderPinFrame[], scroller: HTMLElement): void {
+function bindTableHeaderPin(wrap: HTMLElement, cells: HTMLElement[], frames: TableHeaderPinFrame[], scroller: HTMLElement): void {
 	// ずらしのキーフレーム。割合と translateY
 	const keyframes: Keyframe[] = frames.map((frame) => ({
 		// スクロール割合。0 から 1
@@ -456,19 +480,43 @@ function bindTableHeaderPin(cells: HTMLElement[], frames: TableHeaderPinFrame[],
 	// エディタの縦スクロールに紐づくタイムライン
 	const timeline              = createScrollTimeline(scroller);
 	cells.forEach((cell) => {
-		clearTableHeaderPin(cell);
 		cell.classList.add(TABLE_HEADER_PIN_CLASS);
-		// セルをスクロールへ連動させるアニメーション
-		const animation = cell.animate(keyframes, {
-			// 範囲外でも両端の値を保つ
-			fill: 'both',
-			// 張り替え判定に使う id
-			id: TABLE_HEADER_PIN_KEY,
-			// スクロール連動。時間では進めない
-			timeline
-		});
-		animation.id    = TABLE_HEADER_PIN_KEY;
+		bindScrollLinkedPin(cell, keyframes, timeline);
 	});
+	columnStructurePinTargets(wrap).forEach((element) => {
+		bindScrollLinkedPin(element, keyframes, timeline);
+	});
+}
+
+/**
+ * 列選択の背面と列ボタンを返す
+ * 行ボタンは含めない
+ * @param wrap - 表ラッパー
+ * @returns 見出しと同じずらしを付ける要素
+ */
+function columnStructurePinTargets(wrap: HTMLElement): HTMLElement[] {
+	return [...wrap.querySelectorAll<HTMLElement>(TABLE_COLUMN_STRUCTURE_PIN_SELECTOR)];
+}
+
+/**
+ * 要素をスクロール連動の縦ずらしへ付ける
+ * 以前の同じアニメーションは外してから付け直す
+ * @param element - 見出しセルか列選択
+ * @param keyframes - ずらしキーフレーム
+ * @param timeline - エディタの縦スクロール
+ */
+function bindScrollLinkedPin(element: HTMLElement, keyframes: Keyframe[], timeline: AnimationTimeline): void {
+	clearScrollLinkedPin(element);
+	// 要素をスクロールへ連動させるアニメーション
+	const animation = element.animate(keyframes, {
+		// 範囲外でも両端の値を保つ
+		fill: 'both',
+		// 張り替え判定に使う id
+		id: TABLE_HEADER_PIN_KEY,
+		// スクロール連動。時間では進めない
+		timeline
+	});
+	animation.id    = TABLE_HEADER_PIN_KEY;
 }
 
 /**
@@ -476,14 +524,23 @@ function bindTableHeaderPin(cells: HTMLElement[], frames: TableHeaderPinFrame[],
  * @param cell - セル
  */
 function clearTableHeaderPin(cell: HTMLElement): void {
-	cell.getAnimations().forEach((animation) => {
+	clearScrollLinkedPin(cell);
+	cell.classList.remove(TABLE_HEADER_PIN_CLASS, TABLE_HEADER_COVERING_CLASS);
+}
+
+/**
+ * スクロール連動の縦ずらしだけを外す
+ * 列選択には固定クラスを付けないので、クラスは触らない
+ * @param element - 見出しセルか列選択
+ */
+function clearScrollLinkedPin(element: HTMLElement): void {
+	element.getAnimations().forEach((animation) => {
 		// この固定のアニメーションだけ止める。ほかのアニメーションは残す
 		if (animation.id === TABLE_HEADER_PIN_KEY) {
 			animation.cancel();
 		}
 	});
-	cell.style.transform = '';
-	cell.classList.remove(TABLE_HEADER_PIN_CLASS, TABLE_HEADER_COVERING_CLASS);
+	element.style.transform = '';
 }
 
 /**

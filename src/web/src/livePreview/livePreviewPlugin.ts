@@ -22,6 +22,7 @@ import { collectHtmlDecorationEntries } from './htmlInline';
 import { buildDecorationSet, collectInlineDecorationEntries, collectLinkLabelRanges, extractLinkUrl } from './inlineDecorations';
 import { collectLineDecorationEntries } from './lineDecorations';
 import { collectTagDecorationEntries } from './tagDecorations';
+import { tableHistoryFocusExtension } from './tableWidget';
 
 export { setDocumentContextEffect, setCustomDecorationsEffect, type DocumentContext };
 export type { CompiledCustomDecorationRule };
@@ -555,6 +556,7 @@ export function createLivePreviewExtensions(initialViewMode: ViewMode, documentC
 			return { class: 'tms-mde-cm-live-preview' };
 		}),
 		livePreviewDecorationsField,
+		tableHistoryFocusExtension,
 		caretNormalizeListener,
 		externalLinkMouseDownPlugin,
 		EditorView.domEventHandlers({
