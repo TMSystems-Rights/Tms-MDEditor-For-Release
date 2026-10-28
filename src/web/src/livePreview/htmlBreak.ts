@@ -7,6 +7,6 @@
  * @deprecated htmlInline.ts へ移行済み。互換のため再エクスポートする
  */
 export {
-	collectHtmlBreakDecorationEntries,
-	collectHtmlDecorationEntries,
+	collectHtmlBreakDecorationEntries, // 改行の装飾収集
+	collectHtmlDecorationEntries // 装飾収集
 } from './htmlInline';

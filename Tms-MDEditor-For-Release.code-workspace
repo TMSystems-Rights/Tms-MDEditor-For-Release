@@ -61,10 +61,10 @@
 				"command": "dotnet",
 				"type": "process",
 				"args": [
-					"build",
-					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj",
-					"/property:GenerateFullPaths=true",
-					"/consoleloggerparameters:NoSummary;ForceNoAlign"
+					"build", // ビルドコマンド
+					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj", // プロジェクトファイル
+					"/property:GenerateFullPaths=true", // フルパスを生成
+					"/consoleloggerparameters:NoSummary;ForceNoAlign" // コンソールロガーのパラメータ
 				],
 				"problemMatcher": "$msCompile"
 			},
@@ -73,10 +73,10 @@
 				"command": "dotnet",
 				"type": "process",
 				"args": [
-					"publish",
-					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj",
-					"/property:GenerateFullPaths=true",
-					"/consoleloggerparameters:NoSummary;ForceNoAlign"
+					"publish", // パブリッシュコマンド
+					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj", // プロジェクトファイル
+					"/property:GenerateFullPaths=true", // フルパスを生成
+					"/consoleloggerparameters:NoSummary;ForceNoAlign" // コンソールロガーのパラメータ
 				],
 				"problemMatcher": "$msCompile"
 			},
@@ -85,10 +85,10 @@
 				"command": "dotnet",
 				"type": "process",
 				"args": [
-					"watch",
-					"run",
-					"--project",
-					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj"
+					"watch", // 監視コマンド
+					"run", // 実行コマンド
+					"--project", // プロジェクトオプション
+					"${workspaceFolder}/src/TmsMdEditor/TmsMdEditor.csproj" // プロジェクトファイル
 				],
 				"problemMatcher": "$msCompile"
 			}

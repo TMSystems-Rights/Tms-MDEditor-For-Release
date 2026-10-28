@@ -12,10 +12,10 @@
  */
 export function escapeHtml(value: string): string {
 	return value
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;');
+		.replaceAll('&', '&amp;') // & は実体参照にする
+		.replaceAll('<', '&lt;') // < は実体参照にする
+		.replaceAll('>', '&gt;') // > は実体参照にする
+		.replaceAll('"', '&quot;'); // " は実体参照にする
 }
 
 /**
