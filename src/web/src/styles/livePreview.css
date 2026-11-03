@@ -238,6 +238,13 @@
 	color: var(--tms-mde-color-text);
 }
 
+/* ----- 折り返し行を本文の開始へ揃えた項目 ----- */
+
+/* 行の hanging 付き text-indent はインラインブロックの中へも継がれ、折り返した中身が右へずれるため 0 へ戻す */
+.tms-mde-editor-host .cm-line.cm-md-list-hang * {
+	text-indent: 0;
+}
+
 .tms-mde-editor-host .cm-md-highlight {
 	border-radius: 2px;
 	background: var(--tms-mde-color-highlight-bg);

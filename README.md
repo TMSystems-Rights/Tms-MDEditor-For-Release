@@ -4,9 +4,14 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.13.4](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.4)
+最新リリース: [v1.13.5](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.13.5)
 
 ## 変更内容
+
+### v1.13.5 の主な変更
+
+- ライブプレビューで折り返し表示が On のとき、箇条書き・番号付きリスト・タスクの折り返した行を、項目の本文の開始位置に揃える
+- タブでインデントした項目も、クリックや入力で位置がずれない
 
 ### v1.13.4 の主な変更
 

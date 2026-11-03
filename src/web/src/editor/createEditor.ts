@@ -26,6 +26,7 @@ import { createTripleClickSelectionExtension } from './tripleClickSelection';
 import { createLineWrapperExtensions } from './lineWrappers';
 import { createTableMaxWidthExtension } from './tableMaxWidth';
 import { createTableHeaderPinExtension } from '../livePreview/tableHeaderPin';
+import { createListHangingIndentExtensions } from '../livePreview/listHangingIndent';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
 import { createHeadingFoldExtensions, restoreCollapsedHeadings } from './headingFold';
@@ -377,7 +378,8 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 				loadRemoteImages: options.settings.loadRemoteImages ?? true
 			},
 			options.customDecorations ?? []
-		)
+		),
+		...createListHangingIndentExtensions()
 	);
 
 	// 折り返す設定のときだけ行折り返しを足す。切っているときは水平スクロールのまま
