@@ -146,4 +146,33 @@ describe('listIndent', () => {
 		expect(line.text.slice(0, head - line.from)).toBe('- [x] ');
 		expect(line.text.slice(head - line.from)).toBe('child');
 	});
+
+	it('Tab は、直前の兄弟の本文がタブ幅より右から始まるときは本文の開始位置まで深くする', () => {
+		// 番号 41 の本文は 5 桁目から始まる。タブ幅 4 だけでは 41 の子にならない
+		const state = createListState(['41.  aa', '42.  bb'], 2);
+		// インデント後。2 行目は 5 桁インデントした 41 の子
+		const next  = applyCommand(state, indentListItem);
+
+		expect(next.doc.line(2).text).toBe('     1.  bb');
+	});
+
+	it('Shift+Tab は、タブ幅の倍数でない位置の子も親と同じ位置へ戻す', () => {
+		// 5 桁インデントした 41 の子
+		const state = createListState(['41.  aa', '     1.  bb'], 2);
+		// デデント後。親と同じ 0 桁の 42
+		const next  = applyCommand(state, dedentListItem);
+
+		expect(next.doc.line(2).text).toBe('42.  bb');
+	});
+
+	it('振り直しで番号の桁数が増えるときは、記号の後ろの空白を減らして本文の開始位置を保つ', () => {
+		// 2 行目を深くすると、後続の 10 が 9 に、9 の前にあった番号が詰まる。逆に戻すと 9 が 10 になる
+		const state = createListState(['8.  aa', '    1.  bb', '9.  cc', '    1.  dd'], 2);
+		// デデント後。2 行目は 9、後続の 9 は 10 になり、空白を 1 つ減らす
+		const next  = applyCommand(state, dedentListItem);
+
+		expect(next.doc.line(2).text).toBe('9.  bb');
+		expect(next.doc.line(3).text).toBe('10. cc');
+		expect(next.doc.line(4).text).toBe('    1.  dd');
+	});
 });

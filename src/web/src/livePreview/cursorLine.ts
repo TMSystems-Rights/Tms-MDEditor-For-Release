@@ -102,6 +102,26 @@ export function isPreviewLineNumber(lineNumber: number, sourceLineNumbers: Set<n
 }
 
 /**
+ * カーソルまたは選択範囲が、行頭からリスト記号の終わりまでの範囲に触れているか判定する
+ * selectionIntersectsRange と違い、空選択は範囲の両端も含める。記号の直後でもソースの記号を見せるため
+ * 範囲選択は行頭で終わるものを含めない。前の行を改行まで選んだだけで、次の行の記号を戻さないため
+ * @param state - 選択範囲を読むエディタ状態
+ * @param from - 範囲の開始。マーカーがある行の行頭
+ * @param to - 範囲の終端。リスト記号、またはタスク記法の終わり
+ * @returns どれか 1 つの選択が範囲に触れていれば true
+ */
+export function selectionTouchesListMarker(state: EditorState, from: number, to: number): boolean {
+	return state.selection.ranges.some((range) => {
+		// 空選択は、キャレットが行頭から記号の終わりまでにあれば触れている。両端も含める
+		if (range.empty) {
+			return range.head >= from && range.head <= to;
+		}
+
+		return range.from <= to && range.to > from;
+	});
+}
+
+/**
  * 現在のカーソルまたは選択範囲が指定範囲と交差するかを判定する
  * 空選択は範囲境界を含めず、記法の直前・直後ではプレビューを維持する
  * @param state - 選択範囲を読むエディタ状態

@@ -496,6 +496,86 @@ public class ConfigStoreTests : IDisposable
 	}
 
 	/// <summary>
+	/// 採番ルールの無い設定を読むと、8 階層すべてが既定の文字種と囲みで埋まる
+	/// </summary>
+	[Fact]
+	public void Load_fills_default_list_numbering()
+	{
+		// 採番ルールの無い設定を読んだ結果
+		LoadConfigResult result = _configStore.Load();
+
+		Assert.True(result.Success, result.Message);
+		// 読み込んだ採番ルール
+		ListNumberingSettings numbering = result.Config.Settings.ListNumbering;
+		Assert.Equal(("decimal", "period"), (numbering.Level1.Kind, numbering.Level1.Enclosure));
+		Assert.Equal(("decimal", "paren"), (numbering.Level2.Kind, numbering.Level2.Enclosure));
+		Assert.Equal(("circled", "none"), (numbering.Level3.Kind, numbering.Level3.Enclosure));
+		Assert.Equal(("katakana", "paren"), (numbering.Level4.Kind, numbering.Level4.Enclosure));
+		Assert.Equal(("hiragana", "paren"), (numbering.Level5.Kind, numbering.Level5.Enclosure));
+		Assert.Equal(("upper-alpha", "paren"), (numbering.Level6.Kind, numbering.Level6.Enclosure));
+		Assert.Equal(("lower-alpha", "paren"), (numbering.Level7.Kind, numbering.Level7.Enclosure));
+		Assert.Equal(("lower-roman", "paren"), (numbering.Level8.Kind, numbering.Level8.Enclosure));
+	}
+
+	/// <summary>
+	/// 採番ルールの 1 階層だけを更新すると、その値が保存され、他の階層と同じ階層の残りは既定のまま残る
+	/// </summary>
+	[Fact]
+	public void UpdateSettings_persists_list_numbering_level()
+	{
+		_configStore.Load();
+
+		// 第 2 階層の文字種だけを全角数字にした保存結果
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse("""{"listNumbering":{"level2":{"kind":"fullwidth-decimal"}}}""").RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal("fullwidth-decimal", update.Config?.Settings.ListNumbering.Level2.Kind);
+		Assert.Equal("paren", update.Config?.Settings.ListNumbering.Level2.Enclosure);
+		Assert.Equal("decimal", update.Config?.Settings.ListNumbering.Level1.Kind);
+		Assert.Equal("fullwidth-decimal", _configStore.Load().Config.Settings.ListNumbering.Level2.Kind);
+	}
+
+	/// <summary>
+	/// 未知の文字種と囲みは、その階層の既定へ戻り、更新自体は成功する
+	/// </summary>
+	[Fact]
+	public void UpdateSettings_rejects_unknown_list_numbering_values()
+	{
+		_configStore.Load();
+
+		// 未知の文字種と、大文字違いの囲みを渡した保存結果
+		SaveConfigResult update = _configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse("""{"listNumbering":{"level4":{"kind":"greek","enclosure":"PAREN"}}}""").RootElement);
+
+		Assert.True(update.Success, update.Message);
+		Assert.Equal("katakana", update.Config?.Settings.ListNumbering.Level4.Kind);
+		Assert.Equal("paren", update.Config?.Settings.ListNumbering.Level4.Enclosure);
+	}
+
+	/// <summary>
+	/// 採番ルールの文字種と囲みは、キーごとに既定へ戻せる
+	/// </summary>
+	[Fact]
+	public void ResetSettingItem_restores_list_numbering_level()
+	{
+		_configStore.Load();
+		_configStore.UpdateSettings(
+			System.Text.Json.JsonDocument.Parse("""{"listNumbering":{"level3":{"kind":"upper-alpha","enclosure":"fullwidth-paren"}}}""").RootElement);
+
+		// 文字種だけを戻した結果。囲みは変更後のまま
+		SaveConfigResult kindReset = _configStore.ResetSettingItem("listNumbering.level3.kind");
+		Assert.True(kindReset.Success, kindReset.Message);
+		Assert.Equal("circled", kindReset.Config?.Settings.ListNumbering.Level3.Kind);
+		Assert.Equal("fullwidth-paren", kindReset.Config?.Settings.ListNumbering.Level3.Enclosure);
+
+		// 囲みも戻した結果。両方が既定
+		SaveConfigResult enclosureReset = _configStore.ResetSettingItem("listNumbering.level3.enclosure");
+		Assert.True(enclosureReset.Success, enclosureReset.Message);
+		Assert.Equal("none", enclosureReset.Config?.Settings.ListNumbering.Level3.Enclosure);
+	}
+
+	/// <summary>
 	/// 日本語名の装飾ルールはパターンとクラス名ごと保存され、再読込でも残る
 	/// </summary>
 	[Fact]

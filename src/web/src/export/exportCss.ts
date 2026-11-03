@@ -229,6 +229,15 @@ export const EXPORT_PREVIEW_CSS = `
 .tms-mde-export .cm-md-mermaid svg { max-width: 100%; height: auto; }
 .tms-mde-export .cm-md-mermaid-error { color: var(--tms-mde-color-error); }
 .tms-mde-export .cm-md-checkbox { margin-right: 0.4em; vertical-align: -0.15em; accent-color: var(--tms-mde-color-primary); }
+/* 番号はラベルを文字で書くため、ブラウザの番号は出さない。ラベルが項目の内側に入るぶん左の余白を詰める */
+.tms-mde-export .cm-md-numbered-list { padding-left: 1em; list-style: none; }
+/* ラベルと本文を 2 列に並べ、本文の折り返しをラベルの右端へ揃える */
+.tms-mde-export .cm-md-numbered-item { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 0.5em; }
+.tms-mde-export .cm-md-list-label { display: inline-grid; color: var(--tms-mde-color-text); white-space: nowrap; }
+/* 見えるラベルと見えない最も広いラベルを同じ升に重ね、兄弟の本文の開始位置をそろえる */
+.tms-mde-export .cm-md-list-label > span { grid-area: 1 / 1; }
+.tms-mde-export .cm-md-list-label-ghost { visibility: hidden; }
+.tms-mde-export .cm-md-list-body > p:first-child { margin-top: 0; }
 `;
 
 /**

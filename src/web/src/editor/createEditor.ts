@@ -27,6 +27,7 @@ import { createLineWrapperExtensions } from './lineWrappers';
 import { createTableMaxWidthExtension } from './tableMaxWidth';
 import { createTableHeaderPinExtension } from '../livePreview/tableHeaderPin';
 import { createListHangingIndentExtensions } from '../livePreview/listHangingIndent';
+import { resolveListNumbering } from '../livePreview/orderedListLabels';
 import { createOutlineScrollExtension } from '../outline/outline';
 import { createSearchExtensions } from '../search/searchPanel';
 import { createHeadingFoldExtensions, restoreCollapsedHeadings } from './headingFold';
@@ -377,7 +378,9 @@ function createEditorExtensions(options: CreateEditorOptions): Extension[] {
 				// リモート画像を読むか。設定が無いときは読む
 				loadRemoteImages: options.settings.loadRemoteImages ?? true
 			},
-			options.customDecorations ?? []
+			options.customDecorations ?? [],
+			// 番号付きリストの採番ルール。欠けた階層や未知の値は既定で埋める
+			resolveListNumbering(options.settings.listNumbering)
 		),
 		...createListHangingIndentExtensions()
 	);

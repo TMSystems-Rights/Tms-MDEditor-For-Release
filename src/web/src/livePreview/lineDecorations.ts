@@ -11,10 +11,11 @@ import { isTaskMarkerChecked } from '../editor/checkboxToggle';
 import { foldDefaultFromMark, normalizeCalloutType, type CalloutInfo } from '../editor/markdownSyntax';
 import { calloutFoldField, isCalloutCollapsed } from './calloutFold';
 import { pushCalloutCollapseReplace, pushCalloutFoldWidget, pushCalloutTypeLabel } from './calloutFoldWidget';
-import { collectSourceLineNumbers, isPreviewLineNumber } from './cursorLine';
+import { collectSourceLineNumbers, isPreviewLineNumber, selectionTouchesListMarker } from './cursorLine';
 import { pushCheckboxReplace } from './checkboxWidget';
 import { pushHiddenReplace } from './hiddenContent';
-import { pushBulletMarkerReplace } from './listMarkers';
+import { pushBulletMarkerReplace, pushOrderedListLabelReplace } from './listMarkers';
+import { findWidestOrderedListLabel, formatOrderedListItemLabel, readListNumbering } from './orderedListLabels';
 import type { DecorationEntry } from './inlineDecorations';
 import { isMermaidFencedCode } from './mermaidWidget';
 
@@ -426,8 +427,9 @@ function hideCalloutTitleMarkup(node: SyntaxNode, state: EditorState, entries: D
  * @param state - エディタ状態
  * @param entries - エントリ配列
  * @param sourceLineNumbers - ソース行集合
+ * @param widestLabels - 番号付きリストの開始位置から、兄弟で最も広いラベル。内側のリストの項目で共有する
  */
-function decorateBlockquote(node: SyntaxNode, state: EditorState, entries: DecorationEntry[], sourceLineNumbers: Set<number>): void {
+function decorateBlockquote(node: SyntaxNode, state: EditorState, entries: DecorationEntry[], sourceLineNumbers: Set<number>, widestLabels: Map<number, string>): void {
 	// 引用の開始行
 	const startLine = state.doc.lineAt(node.from).number;
 	// 引用の終了行。空ノードは開始行と同じ
@@ -477,6 +479,11 @@ function decorateBlockquote(node: SyntaxNode, state: EditorState, entries: Decor
 				decorateFencedCode(child.node, state, entries, sourceLineNumbers);
 				return false;
 			}
+
+			// 内側のリスト項目は引用の外と同じ記号の置き換えにする。入れ子の項目は子として続けて訪れる
+			if (child.name === 'ListItem') {
+				decorateListItem(child.node, state, entries, widestLabels);
+			}
 		});
 		return;
 	}
@@ -515,6 +522,11 @@ function decorateBlockquote(node: SyntaxNode, state: EditorState, entries: Decor
 			decorateFencedCode(child.node, state, entries, sourceLineNumbers);
 			return false;
 		}
+
+		// 本文のリスト項目は引用の外と同じ記号の置き換えにする。入れ子の項目は子として続けて訪れる
+		if (child.name === 'ListItem') {
+			decorateListItem(child.node, state, entries, widestLabels);
+		}
 	});
 
 	// 折りたたみ記号がある種別だけ、開いた状態のトグルを出す
@@ -548,22 +560,17 @@ function decorateHorizontalRule(node: SyntaxNode, state: EditorState, entries: D
 }
 
 /**
- * リスト項目の装飾を追加する
- * プレビュー行ではマーカー文字のみ置換し、インデント等のレイアウトはソースと同一に保つ
- * タスク項目は ListMark（`•`）を出さず、チェックボックスのみ表示する
+ * リスト項目の記号を置き換える装飾を追加する
+ * キャレットか選択が、行頭から記号の終わりまでに触れている項目は、記号をソースのまま残して編集できるようにする
+ * それ以外では、箇条書きは `•`、番号付きは採番ルールのラベル、タスクはチェックボックスにする
+ * 番号付きのラベルは、兄弟の項目で最も広いラベルの幅にそろえ、本文の開始位置を合わせる
+ * インデントなどのレイアウトはソースと同一に保つ。タスク項目は ListMark（`•`）を出さない
  * @param node - ListItem ノード
- * @param state - エディタ状態
+ * @param state - エディタ状態。採番ルールは Facet から読む
  * @param entries - エントリ配列
- * @param sourceLineNumbers - ソース行集合
+ * @param widestLabels - 番号付きリストの開始位置から、兄弟で最も広いラベル。無いリストはこの関数が求めて足す
  */
-function decorateListItem(node: SyntaxNode, state: EditorState, entries: DecorationEntry[], sourceLineNumbers: Set<number>): void {
-	// 項目の開始行
-	const lineNumber = state.doc.lineAt(node.from).number;
-	// ソース行ではマーカーもチェックも置き換えない
-	if (!isPreviewLineNumber(lineNumber, sourceLineNumbers)) {
-		return;
-	}
-
+function decorateListItem(node: SyntaxNode, state: EditorState, entries: DecorationEntry[], widestLabels: Map<number, string>): void {
 	// 親が番号付きリストなら true。箇条書きは false
 	const isOrdered                 = node.parent?.name === 'OrderedList';
 	// マーカーの開始。無ければ null
@@ -595,30 +602,46 @@ function decorateListItem(node: SyntaxNode, state: EditorState, entries: Decorat
 		}
 	});
 
-	// タスク行: `- [ ]` の ListMark〜TaskMarker 直前を隠し、チェックボックスのみ残す
-	// タスク記法とリスト記号が揃った行だけ、記号を隠してチェックボックスにする。どれか一つが null でも入らない
-	if (taskFrom !== null && taskTo !== null && listMarkFrom !== null) {
-		pushHiddenReplace(entries, listMarkFrom, taskFrom);
-		pushCheckboxReplace(entries, taskFrom, taskTo, taskChecked);
-		return;
-	}
-
 	// マーカーの開始か終端が無い項目は置き換えない。どちらか一方でも return
 	if (listMarkFrom === null || listMarkTo === null) {
 		return;
 	}
 
-	// 番号付きだけ数字を mark にし、箇条書きは記号ウィジェットへ渡す
-	if (isOrdered) {
-		// 番号部分の mark。中身の数字は残す
-		entries.push({
-			// 番号の開始
-			from: listMarkFrom,
-			// 番号の終端
-			to: listMarkTo,
-			// 番号の見た目。箇条書きの記号置換とは分ける
-			decoration: Decoration.mark({ class: 'cm-md-list-number' })
-		});
+	// タスク記法を持つ項目か。開始と終端の両方が揃ったときだけ true
+	const isTask   = taskFrom !== null && taskTo !== null;
+	// マーカーがある行の行頭。引用の中では `>` の前から数える
+	const lineFrom = state.doc.lineAt(listMarkFrom).from;
+	// ソースの記号を見せる範囲の終わり。タスクはチェックボックスの後ろまで、それ以外は記号の直後
+	const revealTo = isTask && taskTo !== null ? taskTo : listMarkTo;
+	// キャレットか選択が記号に触れている。数字や `- [ ]` を直接編集できるよう、ソースのまま残す
+	if (selectionTouchesListMarker(state, lineFrom, revealTo)) {
+		return;
+	}
+
+	// タスク行: `- [ ]` の ListMark〜TaskMarker 直前を隠し、チェックボックスのみ残す
+	// タスク記法の開始と終端が揃った行だけ、記号を隠してチェックボックスにする。どちらか一方でも null なら入らない
+	if (taskFrom !== null && taskTo !== null) {
+		pushHiddenReplace(entries, listMarkFrom, taskFrom);
+		pushCheckboxReplace(entries, taskFrom, taskTo, taskChecked);
+		return;
+	}
+
+	// 番号付きは採番ルールのラベルへ、箇条書きは記号ウィジェットへ渡す
+	// 番号付きは、ソースと同じ表記になる項目もウィジェットにする。兄弟とラベルの幅をそろえるため
+	if (isOrdered && node.parent) {
+		// 階層ごとの採番ルール
+		const numbering = readListNumbering(state);
+		// 階層の採番ルールで作ったラベル。ルールで表せないときはソースの記号のまま
+		const label     = formatOrderedListItemLabel(state.doc, node, numbering) ?? state.doc.sliceString(listMarkFrom, listMarkTo);
+		// 兄弟で最も広いラベル。同じリストの 2 項目目以降は、最初に求めた値を使う
+		let widest      = widestLabels.get(node.parent.from);
+		// このリストでまだ求めていないときだけ、全項目のラベルを比べる
+		if (widest === undefined) {
+			widest = findWidestOrderedListLabel(state.doc, node.parent, numbering);
+			widestLabels.set(node.parent.from, widest);
+		}
+
+		pushOrderedListLabelReplace(entries, listMarkFrom, listMarkTo, label, widest);
 		return;
 	}
 
@@ -636,7 +659,9 @@ function decorateListItem(node: SyntaxNode, state: EditorState, entries: Decorat
  */
 export function collectLineDecorationEntries(state: EditorState, sourceLineNumbers: Set<number> = collectSourceLineNumbers(state)): DecorationEntry[] {
 	// 集めた行装飾。該当が無ければ空のまま返す
-	const entries: DecorationEntry[] = [];
+	const entries: DecorationEntry[]        = [];
+	// 番号付きリストの開始位置から、兄弟で最も広いラベル。1 回の収集のあいだだけ使い、リストごとに 1 度だけ求める
+	const widestLabels: Map<number, string> = new Map();
 
 	syntaxTree(state).iterate({
 		/**
@@ -676,7 +701,7 @@ export function collectLineDecorationEntries(state: EditorState, sourceLineNumbe
 				}
 				// 引用とコールアウト。内側は decorateBlockquote が処理するので子は見ない
 				case 'Blockquote':
-					decorateBlockquote(ref.node, state, entries, sourceLineNumbers);
+					decorateBlockquote(ref.node, state, entries, sourceLineNumbers, widestLabels);
 					return false;
 				// フェンスコード。引用の内側は引用側が処理する
 				case 'FencedCode':
@@ -686,9 +711,9 @@ export function collectLineDecorationEntries(state: EditorState, sourceLineNumbe
 				case 'HorizontalRule':
 					decorateHorizontalRule(ref.node, state, entries, sourceLineNumbers);
 					return false;
-				// リスト項目。子のマーカーは decorateListItem が見る
+				// リスト項目。子のマーカーは decorateListItem が見る。記号の表示はキャレット位置で決めるため、ソース行集合は渡さない
 				case 'ListItem':
-					decorateListItem(ref.node, state, entries, sourceLineNumbers);
+					decorateListItem(ref.node, state, entries, widestLabels);
 					return;
 				default:
 					return;

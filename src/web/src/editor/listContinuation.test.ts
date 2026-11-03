@@ -142,4 +142,59 @@ describe('listContinuation', () => {
 
 		expect(next.doc.toString()).toBe('- [ ] a\n  - [x] b\n    - [x] c\n    - [ ] ');
 	});
+
+	it('タブでインデントした番号付きリストは、次の行も同じタブのインデントで継続する', () => {
+		// 第 3 階層をタブ 2 つで書いた行末。CodeMirror だけでは空白 10 個になり、兄弟にならない
+		const state = createStateAtLineEnd(['1.  a', '\t1.  b', '\t\t1.  c'], 3);
+		// 継続後。次の行もタブ 2 つの 2.
+		const next  = applyCommand(state, continueListMarkup);
+
+		expect(next.doc.toString()).toBe('1.  a\n\t1.  b\n\t\t1.  c\n\t\t2.  ');
+	});
+
+	it('空白とタブが混ざったインデントも、元の行と同じ文字列で継続する', () => {
+		// 空白 2 つとタブ 1 つ（4 桁）で書いた第 2 階層の行末
+		const state = createStateAtLineEnd(['1.  a', '  \t1.  b'], 2);
+		// 継続後。次の行も空白 2 つとタブ 1 つ
+		const next  = applyCommand(state, continueListMarkup);
+
+		expect(next.doc.toString()).toBe('1.  a\n  \t1.  b\n  \t2.  ');
+	});
+
+	it('9 の次を 10 にするときは、記号の後ろの空白を減らして本文の開始位置を保つ', () => {
+		// 番号 9 の行末
+		const state = createStateAtLineEnd(['9.  a'], 1);
+		// 継続後。10 の後ろの空白は 1 つ
+		const next  = applyCommand(state, continueListMarkup);
+
+		expect(next.doc.toString()).toBe('9.  a\n10. ');
+	});
+
+	it('途中に項目を足して後続が 9 から 10 になるときも、本文の開始位置を保ち子の項目を子のまま残す', () => {
+		// 番号 8 の行末。後続の 9 には子がある
+		const state = createStateAtLineEnd(['8.  a', '9.  b', '    1.  child'], 1);
+		// 継続後。後続は 10 になり、空白を 1 つ減らす
+		const next  = applyCommand(state, continueListMarkup);
+
+		expect(next.doc.toString()).toBe('8.  a\n9.  \n10. b\n    1.  child');
+	});
+
+	it('前の項目と空行で離れた項目の Enter でも、続ける項目の前に空行を足さない', () => {
+		// 空行しか挟まないので、3 行目は 1 行目と同じリストの 2 項目目になる。CodeMirror だけでは空行が入る
+		const state = createStateAtLineEnd(['1. a', '', '1. b'], 3);
+		// 継続後。3 行目の直後に次の項目が続く
+		const next  = applyCommand(state, continueListMarkup);
+
+		expect(next.doc.toString()).toBe('1. a\n\n1. b\n2. ');
+		expect(next.selection.main.head).toBe(next.doc.length);
+	});
+
+	it('タブでインデントした空の項目の Enter は、インデントを補正せず階層を解除する', () => {
+		// タブ 1 つの空の番号付き項目
+		const state = createStateAtLineEnd(['1.  a', '\t2.  '], 2);
+		// 継続後。CodeMirror の解除の結果のまま。補正で次の行を作らない
+		const next  = applyCommand(state, continueListMarkup);
+
+		expect(next.doc.lines).toBe(2);
+	});
 });

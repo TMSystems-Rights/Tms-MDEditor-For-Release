@@ -52,6 +52,36 @@ internal sealed class ConfigStore
 	private const string DefaultUnderlinePattern = "_v(.+?)_v";
 
 	/// <summary>
+	/// 番号付きリストの文字種として受け付ける値。Web 層の ListNumberKind と同じ並び
+	/// 実行中は増やさない
+	/// </summary>
+	private static readonly HashSet<string> ListNumberKinds =
+	[
+		"decimal",
+		"fullwidth-decimal",
+		"circled",
+		"katakana",
+		"hiragana",
+		"upper-alpha",
+		"lower-alpha",
+		"upper-roman",
+		"lower-roman",
+	];
+
+	/// <summary>
+	/// 番号付きリストの囲みとして受け付ける値。Web 層の ListNumberEnclosure と同じ並び
+	/// 実行中は増やさない
+	/// </summary>
+	private static readonly HashSet<string> ListNumberEnclosures =
+	[
+		"none",
+		"period",
+		"paren",
+		"right-paren",
+		"fullwidth-paren",
+	];
+
+	/// <summary>
 	/// 個別リセットを許す settings の dot 記法キー。dataDir はここへ入れず、移行で扱う
 	/// 実行中は増やさない
 	/// </summary>
@@ -73,6 +103,22 @@ internal sealed class ConfigStore
 		"imageBorder.color",
 		"imageBorder.hoverWidth",
 		"imageBorder.hoverColor",
+		"listNumbering.level1.kind",
+		"listNumbering.level1.enclosure",
+		"listNumbering.level2.kind",
+		"listNumbering.level2.enclosure",
+		"listNumbering.level3.kind",
+		"listNumbering.level3.enclosure",
+		"listNumbering.level4.kind",
+		"listNumbering.level4.enclosure",
+		"listNumbering.level5.kind",
+		"listNumbering.level5.enclosure",
+		"listNumbering.level6.kind",
+		"listNumbering.level6.enclosure",
+		"listNumbering.level7.kind",
+		"listNumbering.level7.enclosure",
+		"listNumbering.level8.kind",
+		"listNumbering.level8.enclosure",
 		"newFileEncoding",
 		"newFileEol",
 		"externalChangeBehavior",
@@ -1126,6 +1172,8 @@ internal sealed class ConfigStore
 			AttachmentFolder      = settings.AttachmentFolder?.Trim() ?? string.Empty,
 			// 画像枠線。null は既定
 			ImageBorder           = NormalizeImageBorder(settings.ImageBorder, defaults.ImageBorder),
+			// 番号付きリストの採番ルール。null と未知の値は階層ごとの既定
+			ListNumbering         = NormalizeListNumbering(settings.ListNumbering, defaults.ListNumbering),
 			// 新規ファイルの文字コード。空白は既定
 			NewFileEncoding       = string.IsNullOrWhiteSpace(settings.NewFileEncoding) ? defaults.NewFileEncoding : settings.NewFileEncoding,
 			// 新規ファイルの改行。未知値は既定
@@ -1227,6 +1275,54 @@ internal sealed class ConfigStore
 			HoverWidth = Clamp(source.HoverWidth, 0, 16, defaults.HoverWidth),
 			// ホバー色。空はホバー色なし。不正な 16 進も空にする
 			HoverColor = NormalizeCssHexColor(source.HoverColor, string.Empty, allowEmpty: true),
+		};
+	}
+
+	/// <summary>
+	/// 番号付きリストの採番ルールを、階層ごとに未知の文字種と囲みを既定へ戻した形にする
+	/// </summary>
+	/// <param name="source">読み込んだルール。null は全階層を既定にする</param>
+	/// <param name="defaults">階層ごとの既定</param>
+	/// <returns>新しいルール。引数は変えない</returns>
+	private static ListNumberingSettings NormalizeListNumbering(ListNumberingSettings? source, ListNumberingSettings defaults)
+	{
+		// 階層ごとに確認した新しいルール
+		return new ListNumberingSettings
+		{
+			// 第 1 階層
+			Level1 = NormalizeListNumberLevel(source?.Level1, defaults.Level1),
+			// 第 2 階層
+			Level2 = NormalizeListNumberLevel(source?.Level2, defaults.Level2),
+			// 第 3 階層
+			Level3 = NormalizeListNumberLevel(source?.Level3, defaults.Level3),
+			// 第 4 階層
+			Level4 = NormalizeListNumberLevel(source?.Level4, defaults.Level4),
+			// 第 5 階層
+			Level5 = NormalizeListNumberLevel(source?.Level5, defaults.Level5),
+			// 第 6 階層
+			Level6 = NormalizeListNumberLevel(source?.Level6, defaults.Level6),
+			// 第 7 階層
+			Level7 = NormalizeListNumberLevel(source?.Level7, defaults.Level7),
+			// 第 8 階層
+			Level8 = NormalizeListNumberLevel(source?.Level8, defaults.Level8),
+		};
+	}
+
+	/// <summary>
+	/// 1 つの階層の文字種と囲みを、既知の値でなければ既定へ戻す
+	/// </summary>
+	/// <param name="source">読み込んだルール。null は既定</param>
+	/// <param name="defaults">その階層の既定</param>
+	/// <returns>新しいルール</returns>
+	private static ListNumberLevelSettings NormalizeListNumberLevel(ListNumberLevelSettings? source, ListNumberLevelSettings defaults)
+	{
+		// 確認した文字種と囲みのルール
+		return new ListNumberLevelSettings
+		{
+			// 文字種。null と未知の値は既定。大文字小文字は区別する
+			Kind      = source?.Kind is { } kind && ListNumberKinds.Contains(kind) ? kind : defaults.Kind,
+			// 囲み。null と未知の値は既定。大文字小文字は区別する
+			Enclosure = source?.Enclosure is { } enclosure && ListNumberEnclosures.Contains(enclosure) ? enclosure : defaults.Enclosure,
 		};
 	}
 

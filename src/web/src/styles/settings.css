@@ -209,6 +209,24 @@
 }
 
 /* ---------------------------------------------- */
+/* リスト番号の階層ごとの選択 */
+/* ---------------------------------------------- */
+
+/* 文字種と囲みを横に並べ、見本はその下の行に全幅で置く */
+.tms-mde-settings-list-numbering {
+	display: grid;
+	grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+	gap: 6px 8px;
+	min-width: 0;
+}
+
+.tms-mde-settings-list-numbering-sample {
+	grid-column: 1 / -1;
+	color: var(--tms-mde-color-text-muted);
+	font-size: 13px;
+}
+
+/* ---------------------------------------------- */
 /* CSS スニペット */
 /* ---------------------------------------------- */
 

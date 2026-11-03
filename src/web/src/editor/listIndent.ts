@@ -122,6 +122,114 @@ function buildIndent(width: number, tabSize: number, useTabs: boolean): string {
 	return `${'\t'.repeat(Math.floor(width / tabSize))}${' '.repeat(width % tabSize)}`;
 }
 
+/**
+ * リスト記号の後ろで本文が始まる桁を数える
+ * Markdown では、子の項目はこの桁以上までインデントしないと子にならない
+ * @param info - 行のリスト分解
+ * @param tabSize - タブ幅（桁）
+ * @returns 行頭から本文の開始までの幅（桁）。記号の文字は 1 文字 1 桁で数える
+ */
+function measureContentColumn(info: ListLineInfo, tabSize: number): number {
+	// 行頭から、記号と直後の空白までの文字列
+	const prefix = `${info.indent}${info.isOrdered ? `${info.numberText}${info.separator}` : info.bullet}${info.after}`;
+	return measureIndent(prefix, tabSize);
+}
+
+/**
+ * 番号の桁数が変わるとき、記号の後ろの空白を増減して本文の開始位置を保つ
+ * `9.  ` を `10.` にするときは `10. ` にする。空白は 1 つ未満にしない
+ * 本文の開始位置が動くと、その位置に合わせてインデントした子の項目が子でなくなるため
+ * @param oldNumberText - 変える前の番号の数字
+ * @param after - 変える前の記号の後ろの空白
+ * @param newNumberText - 変えたあとの番号の数字
+ * @returns 変えたあとに使う記号の後ろの空白。タブを含むときは after のまま
+ */
+export function adjustOrderedMarkerSpacing(oldNumberText: string, after: string, newNumberText: string): string {
+	// タブを含む空白は桁の数え方が位置で変わるため、数え直さずそのまま残す
+	if (!/^ +$/.test(after)) {
+		return after;
+	}
+
+	// 番号と空白を合わせた文字数。区切りの `.` や `)` は前後で同じなので数えない
+	const width = oldNumberText.length + after.length;
+	return ' '.repeat(Math.max(1, width - newNumberText.length));
+}
+
+/**
+ * 指定行より前にある、同じ幅でインデントした兄弟の項目を探す
+ * 空行と、より深い行は飛ばす。より浅い行か、リストでない行に当たったら探すのをやめる
+ * @param state - 検索する文書
+ * @param lineNumber - 基準行。この行より前を見る。1 始まり
+ * @param width - 基準行のインデント幅（桁）
+ * @returns 直前の兄弟のリスト分解。兄弟が無ければ null
+ */
+function findPreviousSibling(state: EditorState, lineNumber: number, width: number): ListLineInfo | null {
+	for (let current = lineNumber - 1; current >= 1; current -= 1) {
+		// 基準行より前の行の本文
+		const text = state.doc.line(current).text;
+		// その行のリスト分解。リストでなければ null
+		const info = parseListLine(text);
+		// リストでない行。空行なら続きを探し、本文がある行で打ち切る
+		if (!info) {
+			// 空白だけの行は階層の切れ目にしない
+			if (text.trim() === '') {
+				continue;
+			}
+
+			return null;
+		}
+
+		// その行のインデント幅（桁）
+		const lineWidth = measureIndent(info.indent, state.tabSize);
+		// 同じ幅なら兄弟
+		if (lineWidth === width) {
+			return info;
+		}
+
+		// より浅い行は親。同じ階層の兄弟はもう無い
+		if (lineWidth < width) {
+			return null;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * 指定行より前にある、親の項目のインデント幅を探す
+ * 空行と、同じ幅かより深い行は飛ばす。リストでない行に当たったら探すのをやめる
+ * @param state - 検索する文書
+ * @param lineNumber - 基準行。この行より前を見る。1 始まり
+ * @param width - 基準行のインデント幅（桁）
+ * @returns 親のインデント幅（桁）。親が無ければ null
+ */
+function findParentIndentWidth(state: EditorState, lineNumber: number, width: number): number | null {
+	for (let current = lineNumber - 1; current >= 1; current -= 1) {
+		// 基準行より前の行の本文
+		const text = state.doc.line(current).text;
+		// その行のリスト分解。リストでなければ null
+		const info = parseListLine(text);
+		// リストでない行。空行なら続きを探し、本文がある行で打ち切る
+		if (!info) {
+			// 空白だけの行は階層の切れ目にしない
+			if (text.trim() === '') {
+				continue;
+			}
+
+			return null;
+		}
+
+		// その行のインデント幅（桁）
+		const lineWidth = measureIndent(info.indent, state.tabSize);
+		// 浅い行に当たったら、それが親
+		if (lineWidth < width) {
+			return lineWidth;
+		}
+	}
+
+	return null;
+}
+
 // ==============================================
 // 番号の振り直し
 // ==============================================
@@ -172,20 +280,22 @@ function renumberFollowingOrderedLines(state: EditorState, startLineNumber: numb
 			break;
 		}
 
-		// 既に付けたい番号なら置換しない。違うときだけ数字の範囲を置き換える
+		// 既に付けたい番号なら置換しない。違うときだけ数字から直後の空白までを置き換える
 		if (info.numberText !== String(number)) {
+			// 振り直した番号の数字
+			const numberText = String(number);
 			// 番号の開始（文字）。インデントの直後
-			const from = line.from + info.indent.length;
-			// 番号の終了（文字）。数字の長さだけ。区切りの `.` や `)` は含めない
-			const to   = from + info.numberText.length;
-			// 数字だけを置き換える変更。区切りと本文は残す
+			const from       = line.from + info.indent.length;
+			// 置き換えの終了（文字）。数字、区切り、直後の空白まで。本文は含めない
+			const to         = from + info.numberText.length + info.separator.length + info.after.length;
+			// 数字と直後の空白を置き換える変更。桁数が変わっても本文の開始位置は保つ
 			changes.push({
 				// 番号の開始（文字、含む）
 				from,
-				// 番号の終了（文字、含まない）
+				// 直後の空白の終了（文字、含まない）
 				to,
-				// 振り直した番号の文字列
-				insert: String(number)
+				// 振り直した番号、元の区切り、桁数に合わせた空白
+				insert: `${numberText}${info.separator}${adjustOrderedMarkerSpacing(info.numberText, info.after, numberText)}`
 			});
 		}
 
@@ -247,6 +357,43 @@ function nextOrderedNumberAtIndent(state: EditorState, lineNumber: number, inden
 // ==============================================
 
 /**
+ * Tab で 1 段深くしたあとのインデント幅を決める
+ * 基本はタブ幅だけ深くする。直前の兄弟の本文がそれより右から始まるときは、本文の開始位置まで深くする
+ * `43.  ` のように番号が 2 桁以上の項目の下では、タブ幅だけでは子にならないため
+ * @param state - 対象文書
+ * @param lineNumber - 深くする行。1 始まり
+ * @param currentWidth - その行のいまのインデント幅（桁）
+ * @returns 深くしたあとのインデント幅（桁）
+ */
+function measureIndentForward(state: EditorState, lineNumber: number, currentWidth: number): number {
+	// タブ幅だけ深くした幅（桁）
+	const stepped = currentWidth + state.tabSize;
+	// 直前の兄弟。深くしたあとは、この項目の子になる。無ければ null
+	const sibling = findPreviousSibling(state, lineNumber, currentWidth);
+	// 兄弟が無ければ、子にする相手がいないのでタブ幅だけ深くする
+	if (!sibling) {
+		return stepped;
+	}
+
+	return Math.max(stepped, measureContentColumn(sibling, state.tabSize));
+}
+
+/**
+ * Shift+Tab で 1 段浅くしたあとのインデント幅を決める
+ * 親の項目があれば、親と同じ幅にして親の兄弟にする。無ければタブ幅だけ浅くする
+ * 子の位置が親の本文に合わせてタブ幅の倍数からずれていても、親の階層へそろえて戻すため
+ * @param state - 対象文書
+ * @param lineNumber - 浅くする行。1 始まり
+ * @param currentWidth - その行のいまのインデント幅（桁）
+ * @returns 浅くしたあとのインデント幅（桁）。0 未満にはしない
+ */
+function measureIndentBackward(state: EditorState, lineNumber: number, currentWidth: number): number {
+	// 親のインデント幅（桁）。親が無ければ null
+	const parentWidth = findParentIndentWidth(state, lineNumber, currentWidth);
+	return parentWidth ?? Math.max(0, currentWidth - state.tabSize);
+}
+
+/**
  * 選択中のリスト行を、1 段インデントまたはアウトデントする変更を作る
  * 範囲選択、またはリストでない行が 1 つでもあれば、全体を作らず null を返す
  * 文書中にタブが 1 つでもあれば、新しいインデントはタブを使う
@@ -282,8 +429,8 @@ function buildListIndentUpdate(state: EditorState, forward: boolean) {
 
 		// いまのインデント幅（桁）
 		const currentWidth = measureIndent(info.indent, tabSize);
-		// 1 段動かしたあとの幅（桁）。浅くするときは 0 未満にしない
-		const nextWidth    = forward ? currentWidth + tabSize : Math.max(0, currentWidth - tabSize);
+		// 1 段動かしたあとの幅（桁）。深くするときは直前の兄弟の子になる位置、浅くするときは親と同じ位置
+		const nextWidth    = forward ? measureIndentForward(state, line.number, currentWidth) : measureIndentBackward(state, line.number, currentWidth);
 
 		// 幅が変わらないとき（既に 0 でアウトデントしたなど）は変更を作らない。呼び出し側は indentLess へ委譲する
 		if (nextWidth === currentWidth) {
@@ -296,8 +443,10 @@ function buildListIndentUpdate(state: EditorState, forward: boolean) {
 		const nextNumber = info.isOrdered ? nextOrderedNumberAtIndent(state, line.number, nextIndent) : 0;
 		// 行頭に出すマーカー。番号付きは新しい番号と区切り、箇条書きは元の記号
 		const marker     = info.isOrdered ? `${nextNumber}${info.separator}` : info.bullet;
+		// マーカーの後ろの空白。階層を移る行は、移った先で番号の桁数が変わっても元の空白のまま残す
+		const after      = info.after;
 		// 置換後の行テキスト。本文とタスクマーカーはそのまま
-		const nextText   = `${nextIndent}${marker}${info.after}${info.content}`;
+		const nextText   = `${nextIndent}${marker}${after}${info.content}`;
 
 		// その行全体を、新しいインデントとマーカーで置き換える
 		changes.push({
@@ -318,7 +467,7 @@ function buildListIndentUpdate(state: EditorState, forward: boolean) {
 		}
 
 		// キャレットを置く、行頭からの文字数。タスクマーカーの直後。タスクでなければマーカーの直後
-		const cursorCol = nextIndent.length + marker.length + info.after.length + taskMarkerPrefixLength(info.content);
+		const cursorCol = nextIndent.length + marker.length + after.length + taskMarkerPrefixLength(info.content);
 		cursors.push(EditorSelection.cursor(line.from + cursorCol));
 	}
 

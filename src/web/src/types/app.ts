@@ -137,6 +137,52 @@ export type ImageBorderSettings = {
 };
 
 /**
+ * 番号付きリストの番号を表す文字種
+ * 値は config.json へそのまま保存する。未知の値は読込時に階層の既定へ戻る
+ */
+export type ListNumberKind = 'decimal' | 'fullwidth-decimal' | 'circled' | 'katakana' | 'hiragana' | 'upper-alpha' | 'lower-alpha' | 'upper-roman' | 'lower-roman';
+
+/**
+ * 番号の前後に付ける囲み
+ * `period` は `1.`、`paren` は `(1)`、`right-paren` は `1)`、`fullwidth-paren` は `（1）`、`none` は番号だけ
+ */
+export type ListNumberEnclosure = 'none' | 'period' | 'paren' | 'right-paren' | 'fullwidth-paren';
+
+/**
+ * 1 つの階層の採番ルール
+ * 文字種と囲みを別々に選び、組み合わせで表示を決める
+ */
+export type ListNumberLevelSettings = {
+	/** 番号の文字種。表せない番号（0 や丸数字の 51 以上など）はソースの番号をそのまま出す */
+	kind: ListNumberKind;
+	/** 番号の囲み。文字種に関係なく同じ形で付ける */
+	enclosure: ListNumberEnclosure;
+};
+
+/**
+ * 番号付きリストの階層ごとの採番ルール
+ * 階層は箇条書きも含めたリストの入れ子の深さで数え、第 9 階層以降はソースの番号をそのまま出す
+ */
+export type ListNumberingSettings = {
+	/** 第 1 階層。既定は `1.` */
+	level1: ListNumberLevelSettings;
+	/** 第 2 階層。既定は `(1)` */
+	level2: ListNumberLevelSettings;
+	/** 第 3 階層。既定は `①` */
+	level3: ListNumberLevelSettings;
+	/** 第 4 階層。既定は `(ア)` */
+	level4: ListNumberLevelSettings;
+	/** 第 5 階層。既定は `(あ)` */
+	level5: ListNumberLevelSettings;
+	/** 第 6 階層。既定は `(A)` */
+	level6: ListNumberLevelSettings;
+	/** 第 7 階層。既定は `(a)` */
+	level7: ListNumberLevelSettings;
+	/** 第 8 階層。既定は `(i)` */
+	level8: ListNumberLevelSettings;
+};
+
+/**
  * 更新確認の設定
  * ダウンロード中の進捗は含まない
  */
@@ -266,6 +312,8 @@ export type AppSettings = {
 	attachmentFolder: string;
 	/** 画像枠線 */
 	imageBorder: ImageBorderSettings;
+	/** 番号付きリストの階層ごとの採番ルール。ライブプレビューと書き出しの表示だけに使い、文書の番号は変えない */
+	listNumbering: ListNumberingSettings;
 	/** 新規ファイルの文字コード。既知の `EncodingKind` 文字列 */
 	newFileEncoding: string;
 	/** 新規ファイルの改行。既知の `EolKind` 文字列 */

@@ -12,7 +12,7 @@ import { collectCodeHighlightRanges, splitInlineCodeLanguageContent } from '../e
 import { extractCodeLanguageName, getLoadedCodeLanguage, requestCodeLanguage } from '../editor/codeLanguage';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { buildOutlineTree, collectOutlineItems, type OutlineItem, type OutlineTreeNode } from '../outline/outline';
-import type { CustomDecorationRule, ExportOutlineSettings, ImageBorderSettings } from '../types/app';
+import type { CustomDecorationRule, ExportOutlineSettings, ImageBorderSettings, ListNumberingSettings } from '../types/app';
 import { buildCodeFontCss, sanitizeCssFontFamily } from '../app/codeFont';
 import { buildImageBorderCss } from '../app/imageBorder';
 import { extractImageAltAndUrl, extractWikiEmbedPath } from '../livePreview/blockWidgets';
@@ -22,6 +22,7 @@ import { classifyImageSource, type ImageSourceKind, type ImageSpec } from '../li
 import { splitImageAlt, splitWikiEmbedTarget } from '../livePreview/imageSize';
 import { splitWikiLinkAlias } from '../livePreview/wikiLink';
 import { findCalloutInfo } from '../livePreview/lineDecorations';
+import { findWidestOrderedListLabel, formatOrderedListItemLabel, resolveListNumbering } from '../livePreview/orderedListLabels';
 import { extractFencedCodeInfo, extractFencedCodeText, isMermaidFencedCode, renderMermaidSource } from '../livePreview/mermaidWidget';
 import { extractTableData, type TableCellNode } from '../livePreview/tableWidget';
 import { buildTableOccupancy, cellAlignmentClassNames, isCoveredTableCell, parseCellSpan, readTableLayout } from '../livePreview/tableMerge';
@@ -83,6 +84,8 @@ export type RenderExportHtmlOptions = {
 	codeFontFamily?: string;
 	/** 画像枠線。未指定の項目は既定 */
 	imageBorder?: Partial<ImageBorderSettings>;
+	/** 番号付きリストの採番ルール。省略時と未知の値は既定 */
+	listNumbering?: ListNumberingSettings;
 	/** 有効な CSS スニペット。並びが適用順 */
 	snippetsCss?: string[];
 	/** カスタム装飾ルール。無効なものは変換時に除く */
@@ -115,6 +118,8 @@ type ExportContext = {
 	filePath: string | null;
 	/** 見出しの開始位置から、HTML の id */
 	headingIds: Map<number, string>;
+	/** 番号付きリストの採番ルール。8 階層すべてを持つ */
+	listNumbering: ListNumberingSettings;
 	/** 画像解決。失敗時は null を返す */
 	resolveImage: (request: ExportImageRequest) => Promise<string | null>;
 	/** Mermaid を SVG にする */
@@ -174,6 +179,8 @@ export async function renderExportHtml(options: RenderExportHtmlOptions): Promis
 		loadRemoteImages: options.loadRemoteImages !== false,
 		filePath: options.filePath ?? null,
 		headingIds,
+		// 番号付きリストの採番ルール。欠けた階層と未知の値は既定で埋める
+		listNumbering: resolveListNumbering(options.listNumbering),
 		resolveImage: options.resolveImage ?? unresolvedExportImage,
 		renderMermaid: options.renderMermaid ?? defaultRenderMermaid
 	};
@@ -753,9 +760,9 @@ async function renderBlock(context: ExportContext, node: SyntaxNode): Promise<st
 		return `<ul>\n${await renderListItems(context, node)}</ul>`;
 	}
 
-	// 番号付きリスト
+	// 番号付きリスト。番号はブラウザに振らせず、採番ルールのラベルを各項目へ書く
 	if (node.name === 'OrderedList') {
-		return `<ol>\n${await renderListItems(context, node)}</ol>`;
+		return `<ol class="cm-md-numbered-list">\n${await renderListItems(context, node)}</ol>`;
 	}
 
 	// 引用かコールアウト
@@ -828,6 +835,8 @@ async function renderListItems(context: ExportContext, listNode: SyntaxNode): Pr
 
 	// 項目の li。空のリストなら空文字に近い結果になる
 	const parts: string[] = [];
+	// 兄弟で最も広いラベル。各項目のラベルをこの幅にそろえる。箇条書きは空文字
+	const widest          = listNode.name === 'OrderedList' ? findWidestOrderedListLabel(context.state.doc, listNode, context.listNumbering) : '';
 	for (let index = 0; index < items.length; index += 1) {
 		// いま描く項目
 		const child  = items[index];
@@ -841,10 +850,34 @@ async function renderListItems(context: ExportContext, listNode: SyntaxNode): Pr
 		const inner  = await renderListItemContent(context, child);
 		// 次の項目までの空行。次が無ければ空文字
 		const extra  = next ? repeatExportBlankLines(countBlankLines(context.state, child.to, next.from)).join('') : '';
+		// 番号付きの項目のラベル。箇条書きと、記号の無い項目は null
+		const label  = listNode.name === 'OrderedList' ? formatOrderedListItemLabel(context.state.doc, child, context.listNumbering) : null;
+		// 番号付きだけ、ラベルと本文を並べた形にする。箇条書きはブラウザの記号のまま
+		if (label !== null) {
+			parts.push(`<li class="cm-md-numbered-item">${renderOrderedListLabel(label, widest)}<div class="cm-md-list-body">${prefix}${inner}${extra}</div></li>`);
+			continue;
+		}
+
 		parts.push(`<li>${prefix}${inner}${extra}</li>`);
 	}
 
 	return `${parts.join('\n')}\n`;
+}
+
+/**
+ * 番号付きリストの項目のラベルを HTML にする
+ * エディタのプレビューと同じく、兄弟で最も広いラベルを見えない形で重ね、本文の開始位置をそろえる
+ * @param label - この項目の表示ラベル
+ * @param widest - 兄弟で最も広いラベル。label と同じなら重ねない
+ * @returns ラベルの span
+ */
+function renderOrderedListLabel(label: string, widest: string): string {
+	// 自分が最も広いラベルなら、重ねる相手は要らない
+	if (widest === label || widest.length === 0) {
+		return `<span class="cm-md-list-number cm-md-list-label">${escapeHtml(label)}</span>`;
+	}
+
+	return `<span class="cm-md-list-number cm-md-list-label"><span class="cm-md-list-label-text">${escapeHtml(label)}</span><span class="cm-md-list-label-ghost" aria-hidden="true">${escapeHtml(widest)}</span></span>`;
 }
 
 /**

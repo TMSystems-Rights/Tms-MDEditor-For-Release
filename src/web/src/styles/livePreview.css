@@ -238,6 +238,23 @@
 	color: var(--tms-mde-color-text);
 }
 
+/* `(ア)` や `（1）` の括弧と番号の間で折り返さない */
+.tms-mde-editor-host .cm-md-list-label {
+	display: inline-grid;
+	white-space: nowrap;
+}
+
+/* ----- 兄弟で最も広いラベルの幅にそろえる ----- */
+
+/* 見えるラベルと見えない最も広いラベルを同じ升に重ね、升の幅を広い方に合わせる。ラベルは左詰め */
+.tms-mde-editor-host .cm-md-list-label>span {
+	grid-area: 1 / 1;
+}
+
+.tms-mde-editor-host .cm-md-list-label-ghost {
+	visibility: hidden;
+}
+
 /* ----- 折り返し行を本文の開始へ揃えた項目 ----- */
 
 /* 行の hanging 付き text-indent はインラインブロックの中へも継がれ、折り返した中身が右へずれるため 0 へ戻す */

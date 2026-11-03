@@ -7,7 +7,7 @@ import { Decoration, type DecorationSet, EditorView, ViewPlugin } from '@codemir
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
 import { type EditorState, type Extension, StateEffect, StateField } from '@codemirror/state';
-import type { ViewMode } from '../types/app';
+import type { ListNumberingSettings, ViewMode } from '../types/app';
 import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import { buildToggleTaskMarkerTransaction } from '../editor/checkboxToggle';
 import { normalizeCaretSelection } from '../editor/caretNormalize';
@@ -21,6 +21,7 @@ import { collectCustomDecorationEntries, createCustomDecorationsExtensions, setC
 import { collectHtmlDecorationEntries } from './htmlInline';
 import { buildDecorationSet, collectInlineDecorationEntries, collectLinkLabelRanges, extractLinkUrl } from './inlineDecorations';
 import { collectLineDecorationEntries } from './lineDecorations';
+import { listNumberingFacet } from './orderedListLabels';
 import { collectTagDecorationEntries } from './tagDecorations';
 import { tableHistoryFocusExtension } from './tableWidget';
 
@@ -187,15 +188,17 @@ const livePreviewDecorationsField = StateField.define<DecorationSet>({
 	 */
 	update(value, transaction) {
 		// 表示モードが切り替わったか
-		const viewModeChanged = transaction.effects.some((effect) => effect.is(setViewModeEffect));
+		const viewModeChanged  = transaction.effects.some((effect) => effect.is(setViewModeEffect));
 		// コールアウトの折りたたみが変わったか
-		const foldChanged     = transaction.effects.some((effect) => effect.is(setCalloutFoldEffect));
+		const foldChanged      = transaction.effects.some((effect) => effect.is(setCalloutFoldEffect));
 		// 文書パスや画像読み込みの文脈が変わったか
-		const contextChanged  = transaction.effects.some((effect) => effect.is(setDocumentContextEffect));
+		const contextChanged   = transaction.effects.some((effect) => effect.is(setDocumentContextEffect));
 		// カスタム装飾ルールが変わったか
-		const customChanged   = transaction.effects.some((effect) => effect.is(setCustomDecorationsEffect));
-		// 本文、選択、モード、折りたたみ、文脈、装飾、言語のどれかが変わったとき再構築する
-		if (transaction.docChanged || transaction.selection || viewModeChanged || foldChanged || contextChanged || customChanged || transaction.effects.some((effect) => effect.is(codeLanguageReadyEffect))) {
+		const customChanged    = transaction.effects.some((effect) => effect.is(setCustomDecorationsEffect));
+		// 採番ルールが変わったか。設定の再構成で内容が同じなら、Facet は前と同じ値を返すので false
+		const numberingChanged = transaction.startState.facet(listNumberingFacet) !== transaction.state.facet(listNumberingFacet);
+		// 本文、選択、モード、折りたたみ、文脈、装飾、採番、言語のどれかが変わったとき再構築する
+		if (transaction.docChanged || transaction.selection || viewModeChanged || foldChanged || contextChanged || customChanged || numberingChanged || transaction.effects.some((effect) => effect.is(codeLanguageReadyEffect))) {
 			return buildLivePreviewDecorations(transaction.state);
 		}
 
@@ -529,11 +532,13 @@ const externalLinkMouseDownPlugin = ViewPlugin.define((view) => {
  * @param initialViewMode - 初期表示モード
  * @param documentContext - ドキュメント文脈。省略可
  * @param customDecorations - カスタム装飾ルール。省略可
+ * @param listNumbering - 番号付きリストの階層ごとの採番ルール。省略時は Facet の既定
  * @returns ライブプレビュー拡張
  */
-export function createLivePreviewExtensions(initialViewMode: ViewMode, documentContext?: DocumentContext, customDecorations: CompiledCustomDecorationRule[] = []): Extension[] {
+export function createLivePreviewExtensions(initialViewMode: ViewMode, documentContext?: DocumentContext, customDecorations: CompiledCustomDecorationRule[] = [], listNumbering?: ListNumberingSettings): Extension[] {
 	return [
 		viewModeField.init(() => initialViewMode),
+		...(listNumbering ? [listNumberingFacet.of(listNumbering)] : []),
 		hoveredExternalLinkDecorationsField,
 		...createDocumentContextExtensions(
 			documentContext ?? {

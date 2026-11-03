@@ -5,7 +5,8 @@
  */
 import { BRIDGE_METHOD, invokeBridge } from '../bridge';
 import { isCssHexColor, toColorInputValue } from '../app/imageBorder';
-import type { AppSettings, ConfigGetResponse, ContextMenuSettings, CustomDecorationRule, CssSnippetsResponse, DataDirInfo, KeybindingsSettings, MigrateDataDirResponse, PickFolderResult, SaveConfigResponse } from '../types/app';
+import type { AppSettings, ConfigGetResponse, ContextMenuSettings, CustomDecorationRule, CssSnippetsResponse, DataDirInfo, KeybindingsSettings, ListNumberingSettings, MigrateDataDirResponse, PickFolderResult, SaveConfigResponse } from '../types/app';
+import { formatListNumberLabel, LIST_NUMBER_ENCLOSURE_OPTIONS, LIST_NUMBER_KIND_OPTIONS, LIST_NUMBERING_LEVEL_KEYS, resolveListNumbering } from '../livePreview/orderedListLabels';
 import { findShortcutConflicts, isKnownWindowsReservedShortcut, shortcutFromKeyboardEvent } from '../utils/keybindings';
 import { createNewCustomDecorationRule, normalizeCustomDecorationRules, validateCustomDecorationRules } from './customDecorationRules';
 import { getCssSnippetsReloadStatus } from './cssSnippets';
@@ -178,6 +179,9 @@ export class SettingsModal {
 	/** メニュー種別から、その項目一覧の要素 */
 	private readonly contextMenuLists = new Map<ContextMenuKind, HTMLDivElement>();
 
+	/** 採番ルールの見本を、保持している設定値で書き直す関数。描き直すたびに空から積み直す */
+	private readonly listNumberingSampleUpdaters: Array<() => void> = [];
+
 	/**
 	 * 設定ダイアログの要素を作り、渡された設定は複製して持つ
 	 * この時点では文書へ出さない
@@ -239,6 +243,7 @@ export class SettingsModal {
 		this.content.innerHTML = '';
 		this.bindings.length   = 0;
 		this.contextMenuLists.clear();
+		this.listNumberingSampleUpdaters.length = 0;
 
 		// タイトルと閉じるボタンを置くヘッダー
 		const header     = document.createElement('header');
@@ -272,6 +277,7 @@ export class SettingsModal {
 		// ナビゲーションと対応セクションを同時に登録し、data-sectionを切替キーとして共有する
 		this.addSection(navigation, sections, 'appearance', '外観', (section) => this.renderAppearance(section));
 		this.addSection(navigation, sections, 'editor', 'エディタ', (section) => this.renderEditor(section));
+		this.addSection(navigation, sections, 'listNumbering', 'リスト番号', (section) => this.renderListNumbering(section));
 		this.addSection(navigation, sections, 'save', '保存', (section) => this.renderSave(section));
 		this.addSection(navigation, sections, 'file', 'ファイル・起動', (section) => this.renderFileAndStartup(section));
 		this.addSection(navigation, sections, 'export', 'エクスポート', (section) => this.renderExport(section));
@@ -403,6 +409,117 @@ export class SettingsModal {
 		this.renderAttachmentFolder(section);
 		this.renderImageBorder(section);
 		this.addCheckbox(section, 'search.restoreCalloutFoldStateOnMove', '検索移動後にコールアウトの折りたたみを戻す');
+	}
+
+	/**
+	 * 番号付きリストの採番ルールを、階層ごとの文字種と囲みの選択で節へ足す
+	 * 選択を変えるとすぐ保存し、呼び出し側が開いている全タブへ反映する
+	 * @param section - 入力を足す節
+	 */
+	private renderListNumbering(section: HTMLElement): void {
+		// 節の説明。変わるのは表示だけで、ファイルの番号は変わらないことを伝える
+		const description       = document.createElement('p');
+		description.className   = 'tms-mde-settings-description';
+		description.textContent = 'ライブプレビューとHTML出力・印刷で、番号付きリストの番号を階層ごとの表記で表示します。ファイルに書く番号は半角数字のままで、番号へキャレットを置くと数字に戻して編集できます。第9階層以降と、表記で表せない番号（0、丸数字の51以上など）は数字のまま表示します。';
+		section.appendChild(description);
+		LIST_NUMBERING_LEVEL_KEYS.forEach((levelKey, index) => this.addListNumberingRow(section, levelKey, index + 1));
+	}
+
+	/**
+	 * 1 つの階層の行を足す。文字種と囲みの選択、見本、両方を既定へ戻すボタンを並べる
+	 * @param section - 行を足す節
+	 * @param levelKey - 採番ルールの階層キー。`level1` など
+	 * @param levelNumber - 画面に出す階層の番号。1 始まり
+	 */
+	private addListNumberingRow(section: HTMLElement, levelKey: keyof ListNumberingSettings, levelNumber: number): void {
+		// 文字種の設定キー
+		const kindKey         = `listNumbering.${levelKey}.kind`;
+		// 囲みの設定キー
+		const enclosureKey    = `listNumbering.${levelKey}.enclosure`;
+		// 行のラベル。リセットボタンの読み上げにも使う
+		const labelText       = `第${levelNumber}階層`;
+		// 文字種の選択
+		const kindSelect      = this.createListNumberingSelect(kindKey, `${labelText}の文字種`, LIST_NUMBER_KIND_OPTIONS);
+		// 囲みの選択
+		const enclosureSelect = this.createListNumberingSelect(enclosureKey, `${labelText}の囲み`, LIST_NUMBER_ENCLOSURE_OPTIONS);
+		// 1〜3 番の見本。保存後の値で書き直す
+		const sample          = document.createElement('span');
+		sample.className      = 'tms-mde-settings-list-numbering-sample';
+		// 2 つの選択と見本をまとめる枠。行の入力列に置く
+		const controls        = document.createElement('div');
+		controls.className    = 'tms-mde-settings-list-numbering';
+		controls.append(kindSelect, enclosureSelect, sample);
+
+		// 行の見出し
+		const label       = document.createElement('span');
+		label.className   = 'tms-mde-settings-label';
+		label.textContent = labelText;
+		// 文字種と囲みの両方を既定へ戻すボタン
+		const reset       = document.createElement('button');
+		reset.type        = 'button';
+		reset.className   = 'tms-mde-settings-reset';
+		reset.textContent = 'リセット';
+		reset.setAttribute('aria-label', `${labelText}をリセット`);
+		// クリックでこの階層の文字種と囲みを既定へ戻す。ボタンの送信は止める
+		reset.addEventListener('click', (event) => {
+			event.preventDefault();
+			void this.resetListNumberingLevel(kindKey, enclosureKey);
+		});
+
+		// 行全体。他の設定行と同じ 3 列にする
+		const row     = document.createElement('div');
+		row.className = 'tms-mde-settings-row';
+		row.append(label, controls, reset);
+		section.appendChild(row);
+		this.bindings.push({ key: kindKey, control: kindSelect }, { key: enclosureKey, control: enclosureSelect });
+
+		/**
+		 * 保持している設定から、この階層の 1〜3 番の見本を書き直す
+		 * 保存とリセットのあとに syncControls が呼ぶ。表せない番号は数字で出す
+		 */
+		const updateSample = (): void => {
+			// その階層のルール。保存値が欠けていれば既定で埋める
+			const level        = resolveListNumbering(this.settings.listNumbering)[levelKey];
+			sample.textContent = `見本: ${[1, 2, 3].map((value) => formatListNumberLabel(level, value) ?? String(value)).join(' ')} …`;
+		};
+		this.listNumberingSampleUpdaters.push(updateSample);
+		updateSample();
+	}
+
+	/**
+	 * 採番ルールの選択を作り、変更でそのキーを保存する
+	 * 行の組み立ては呼び出し側が行い、バインド一覧への登録もしない
+	 * @param key - ドット区切りの設定キー
+	 * @param label - 読み上げ用のラベル
+	 * @param options - 値と表示名の組。並びがリストの順
+	 * @returns 作った選択
+	 */
+	private createListNumberingSelect(key: string, label: string, options: ReadonlyArray<readonly [string, string]>): HTMLSelectElement {
+		// 選択リスト。初期値は保持している設定値
+		const select = document.createElement('select');
+		options.forEach(([value, text]) => {
+			// 1 つの選択肢
+			const option       = document.createElement('option');
+			option.value       = value;
+			option.textContent = text;
+			select.appendChild(option);
+		});
+		select.value = String(this.getValue(key));
+		select.setAttribute('aria-label', label);
+		// 選択を変えたとき、その値を保存する
+		select.addEventListener('change', () => void this.saveValue(key, select.value, select));
+		return select;
+	}
+
+	/**
+	 * 1 つの階層の文字種と囲みを、順に既定へ戻す
+	 * 片方のリセットに失敗しても、もう片方は試す。結果は状態行に出る
+	 * @param kindKey - 文字種の設定キー
+	 * @param enclosureKey - 囲みの設定キー
+	 */
+	private async resetListNumberingLevel(kindKey: string, enclosureKey: string): Promise<void> {
+		await this.resetItem(kindKey);
+		await this.resetItem(enclosureKey);
 	}
 
 	/**
@@ -1696,6 +1813,8 @@ export class SettingsModal {
 				picker.value   = toColorInputValue(String(value ?? ''), fallback);
 			}
 		});
+		// 採番ルールの見本も、保存後の値へ合わせる
+		this.listNumberingSampleUpdaters.forEach((update) => update());
 	}
 
 	/**

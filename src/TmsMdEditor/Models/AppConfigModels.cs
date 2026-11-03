@@ -156,6 +156,11 @@ internal sealed class AppSettings
 	public ImageBorderSettings ImageBorder { get; set; } = new();
 
 	/// <summary>
+	/// 番号付きリストの階層ごとの採番ルール。Web 層の表示と書き出しだけに使い、文書の番号は変えない
+	/// </summary>
+	public ListNumberingSettings ListNumbering { get; set; } = new();
+
+	/// <summary>
 	/// 新規ファイルの文字コード名。空白は utf8 へ戻る。未知の名前は、その設定でファイルを書くときに失敗する
 	/// </summary>
 	public string NewFileEncoding { get; set; } = "utf8";
@@ -251,6 +256,89 @@ internal sealed class ImageBorderSettings
 	/// ホバー時の枠線色。空ならテーマのアクセント色を使う
 	/// </summary>
 	public string HoverColor { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 番号付きリストの 8 階層ぶんの採番ルール。第 9 階層以降は Web 層がソースの番号のまま出す
+/// 未知の文字種と囲みは、読込時に ConfigStore がその階層の既定へ戻す
+/// </summary>
+internal sealed class ListNumberingSettings
+{
+	/// <summary>
+	/// 第 1 階層。既定は半角数字とピリオド（1.）
+	/// </summary>
+	public ListNumberLevelSettings Level1 { get; set; } = ListNumberLevelSettings.Create("decimal", "period");
+
+	/// <summary>
+	/// 第 2 階層。既定は半角数字と半角括弧（(1)）
+	/// </summary>
+	public ListNumberLevelSettings Level2 { get; set; } = ListNumberLevelSettings.Create("decimal", "paren");
+
+	/// <summary>
+	/// 第 3 階層。既定は丸数字で囲みなし（①）
+	/// </summary>
+	public ListNumberLevelSettings Level3 { get; set; } = ListNumberLevelSettings.Create("circled", "none");
+
+	/// <summary>
+	/// 第 4 階層。既定はカタカナと半角括弧（(ア)）
+	/// </summary>
+	public ListNumberLevelSettings Level4 { get; set; } = ListNumberLevelSettings.Create("katakana", "paren");
+
+	/// <summary>
+	/// 第 5 階層。既定は平仮名と半角括弧（(あ)）
+	/// </summary>
+	public ListNumberLevelSettings Level5 { get; set; } = ListNumberLevelSettings.Create("hiragana", "paren");
+
+	/// <summary>
+	/// 第 6 階層。既定は英大文字と半角括弧（(A)）
+	/// </summary>
+	public ListNumberLevelSettings Level6 { get; set; } = ListNumberLevelSettings.Create("upper-alpha", "paren");
+
+	/// <summary>
+	/// 第 7 階層。既定は英小文字と半角括弧（(a)）
+	/// </summary>
+	public ListNumberLevelSettings Level7 { get; set; } = ListNumberLevelSettings.Create("lower-alpha", "paren");
+
+	/// <summary>
+	/// 第 8 階層。既定はローマ数字小文字と半角括弧（(i)）
+	/// </summary>
+	public ListNumberLevelSettings Level8 { get; set; } = ListNumberLevelSettings.Create("lower-roman", "paren");
+}
+
+/// <summary>
+/// 1 つの階層の採番ルール。文字種と囲みを別々に持ち、組み合わせで表示を決める
+/// </summary>
+internal sealed class ListNumberLevelSettings
+{
+	/// <summary>
+	/// 番号の文字種。decimal、fullwidth-decimal、circled、katakana、hiragana、upper-alpha、lower-alpha、upper-roman、lower-roman のどれか
+	/// 空は JSON の欠落と同じで、読込時に階層の既定へ戻る
+	/// </summary>
+	public string Kind { get; set; } = string.Empty;
+
+	/// <summary>
+	/// 番号の囲み。none、period、paren、right-paren、fullwidth-paren のどれか
+	/// 空は JSON の欠落と同じで、読込時に階層の既定へ戻る
+	/// </summary>
+	public string Enclosure { get; set; } = string.Empty;
+
+	/// <summary>
+	/// 文字種と囲みを指定してルールを作る。既定値の宣言に使う
+	/// </summary>
+	/// <param name="kind">番号の文字種。検査はしない</param>
+	/// <param name="enclosure">番号の囲み。検査はしない</param>
+	/// <returns>新しいルール</returns>
+	public static ListNumberLevelSettings Create(string kind, string enclosure)
+	{
+		// 指定どおりのルール
+		return new ListNumberLevelSettings
+		{
+			// 番号の文字種
+			Kind      = kind,
+			// 番号の囲み
+			Enclosure = enclosure,
+		};
+	}
 }
 
 /// <summary>

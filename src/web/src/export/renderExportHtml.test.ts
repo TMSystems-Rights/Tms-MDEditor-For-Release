@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildExportCss, decorateText, renderExportHtml, type ExportMermaidResult } from './renderExportHtml';
 import { compileCustomDecorationRules } from '../livePreview/customDecorations';
+import { resolveListNumbering } from '../livePreview/orderedListLabels';
 
 /**
  * 成功した Mermaid 結果を返す
@@ -218,6 +219,37 @@ describe('renderExportHtml', () => {
 		expect(html).toContain('checked');
 		expect(html).toContain('完了');
 		expect(html).toContain('未完了');
+	});
+
+	it('番号付きリストは採番ルールのラベルを文字で書き、ブラウザの番号は使わない', async () => {
+		// 第 1 階層は 3 から始まり、第 2 階層は入れ子の 2 項目
+		const html = await render('3. 外\n    1. 内一\n    2. 内二\n');
+		expect(html).toContain('<ol class="cm-md-numbered-list">');
+		expect(html).toContain('<span class="cm-md-list-number cm-md-list-label">3.</span>');
+		expect(html).toContain('<span class="cm-md-list-number cm-md-list-label">(1)</span>');
+		expect(html).toContain('<span class="cm-md-list-number cm-md-list-label"><span class="cm-md-list-label-text">(2)</span><span class="cm-md-list-label-ghost" aria-hidden="true">(1)</span></span>');
+		expect(html).toContain('.cm-md-numbered-list { padding-left: 1em; list-style: none; }');
+	});
+
+	it('書き出しにも設定した採番ルールを使う', async () => {
+		// 第 1 階層をカタカナの全角括弧にした書き出し
+		const html = await renderExportHtml({
+			// 番号 2 の 1 項目
+			markdown: '2. 項目\n',
+			// 明暗は結果に関係しない
+			theme: 'light',
+			// 第 1 階層だけ変えた採番ルール。他の階層は既定
+			listNumbering: resolveListNumbering({
+				// 第 1 階層。（イ）の形
+				level1: {
+					// カタカナ
+					kind: 'katakana',
+					// 全角括弧
+					enclosure: 'fullwidth-paren'
+				}
+			})
+		});
+		expect(html).toContain('<span class="cm-md-list-number cm-md-list-label">（イ）</span>');
 	});
 
 	it('Mermaid 成功時は SVG をインライン化する', async () => {

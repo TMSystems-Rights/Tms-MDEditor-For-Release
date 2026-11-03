@@ -20,6 +20,7 @@ import type { AppReadyPayload, AppSettings, ConfigGetResponse, CssSnippetsRespon
 import { dismissContextMenus, showCloseConfirmDialog, showContextMenuAtPoint, showEncodingMenu, showEolConvertMenu, showEolMixedDialog, showErrorMessage, showInsertTableDialog, showReloadEncodingDialog, showSaveAsOptionsDialog, type ContextMenuEntry } from './dialogs';
 import { applyCodeFontFamily, DEFAULT_CODE_FONT_FAMILY } from './codeFont';
 import { applyImageBorder, DEFAULT_IMAGE_BORDER } from './imageBorder';
+import { resolveListNumbering } from '../livePreview/orderedListLabels';
 import { applyTheme } from './theme';
 import { bindUiZoom, computeZoomedFontSize, formatUiZoomPercent, getUiZoom, handleUiZoomKeydown, resetUiZoom } from './uiZoom';
 import { buildTabTitle, buildWindowTitle, formatEncodingLabel, formatEolLabel, isLargeFile, normalizeEol } from '../utils/format';
@@ -110,6 +111,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 	loadRemoteImages: true,
 	attachmentFolder: '',
 	imageBorder: { ...DEFAULT_IMAGE_BORDER },
+	listNumbering: resolveListNumbering(null),
 	newFileEncoding: 'utf8',
 	newFileEol: 'crlf',
 	restoreSessionOnStartup: false,
@@ -1373,6 +1375,8 @@ export class AppController {
 				...DEFAULT_SETTINGS.imageBorder,
 				...settings.imageBorder
 			},
+			// 番号付きリストの採番ルール。欠けた階層と未知の値は既定で埋める
+			listNumbering: resolveListNumbering(settings.listNumbering),
 			// コンテキストメニュー。壊れた保存値は正規化して欠落を埋める
 			contextMenu: normalizeContextMenuSettings(settings.contextMenu)
 		};
@@ -1979,6 +1983,8 @@ export class AppController {
 			codeFontFamily: this.settings.codeFontFamily,
 			// 画像の枠
 			imageBorder: this.settings.imageBorder,
+			// 番号付きリストの採番ルール。エディタと同じラベルを書き出す
+			listNumbering: this.settings.listNumbering,
 			// 有効なスニペット CSS。無ければ空配列
 			snippetsCss: snippets,
 			// 無効なルールも含む装飾
