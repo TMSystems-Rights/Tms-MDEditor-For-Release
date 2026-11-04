@@ -4,9 +4,17 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.14.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.14.0)
+最新リリース: [v1.15.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.15.0)
 
 ## 変更内容
+
+### v1.15.0 の主な変更
+
+- ライブプレビューで、フェンス付きコードブロックの開始フェンス行と終了フェンス行を、コード行より濃い背景と角丸で表示する（開始行は上側、終了行は下側の角を丸める）
+- 開始フェンス行に、フェンスへ書いた言語名（`java` / `bash` / `text` など）を太字で表示する。キャレットを置くと ` ```java ` のソースに戻る
+- 開始フェンスに `title:` を書くと、言語名の後ろにタイトルも表示する（例: ` ```java title:"クラスサンプル その２" ` → `java: クラスサンプル その２`）。クォート無しは空白までの語、ダブルクォートで囲むとその中身を表示する
+- 開始行・終了行・言語名・タイトルにクラスと CSS 変数（`--tms-mde-color-code-fence-bg` / `--tms-mde-color-code-lang` / `--tms-mde-color-code-title` / `--tms-mde-code-fence-radius`）を付け、CSS スニペットで上書きできるようにする。開始行には言語名の `data-code-lang` 属性も付ける
+- CSS スニペットのサンプル（`css_snipets_sample/sample.css`）に、フェンス行とラベルの指定例を追加
 
 ### v1.14.0 の主な変更
 

@@ -389,6 +389,80 @@ describe('lineDecorations', () => {
 		expect(hiddenMark.length).toBe(0);
 	});
 
+	it('開始フェンス行と閉じフェンス行に専用クラスを付け、プレビューでは言語名とタイトルのラベルを出す', () => {
+		// バッククォート 3 つ。開きに言語名とクォート付きのタイトルを書く
+		const fence      = String.fromCharCode(96, 96, 96);
+		// 2 行目が開き、4 行目が閉じ。キャレットは先頭の plain
+		const state      = createMarkdownState(['plain', `${fence}java title:"クラスサンプル その２"`, 'class Hoge {}', fence].join('\n'));
+		// 行装飾。フェンスはすべてプレビュー行
+		const entries    = collectLineDecorationEntries(state, collectSourceLineNumbers(state));
+		// 開きフェンスの行
+		const opening    = state.doc.line(2);
+		// コード本文の行
+		const body       = state.doc.line(3);
+		// 閉じフェンスの行
+		const closing    = state.doc.line(4);
+		// 開きの行クラス。言語名の行属性も持つ
+		const startClass = entries.find((entry) => entry.from === opening.from && entry.decoration.spec.class?.includes('cm-md-fenced-code-start'));
+		// 言語名とタイトルのラベル。開きの行の中の点装飾
+		const labels     = entries.filter((entry) => entry.from === entry.to && entry.decoration.spec.widget?.language === 'java');
+		// 開きの行で隠す範囲。``` から情報文字列の末尾まで
+		const hidden     = entries.filter((entry) => entry.from >= opening.from && entry.to <= opening.to && entry.from < entry.to);
+
+		expect(startClass?.decoration.spec.attributes).toEqual({ 'data-code-lang': 'java' });
+		expect(entries.some((entry) => entry.from === closing.from && entry.decoration.spec.class?.includes('cm-md-fenced-code-end'))).toBe(true);
+		expect(entries.some((entry) => entry.from === body.from && /cm-md-fenced-code-(start|end)/.test(entry.decoration.spec.class ?? ''))).toBe(false);
+		expect(labels.map((entry) => entry.from)).toEqual([opening.to]);
+		expect(labels[0]?.decoration.spec.widget?.title).toBe('クラスサンプル その２');
+		expect(hidden.map((entry) => [entry.from - opening.from, entry.to - opening.from])).toEqual([[0, 3], [3, opening.length]]);
+		expect(() => buildDecorationSet(entries)).not.toThrow();
+	});
+
+	it('開始フェンス行がソース表示のときは言語名ラベルを出さず、行クラスは残す', () => {
+		// バッククォート 3 つ。開きの行にキャレットを置く
+		const fence   = String.fromCharCode(96, 96, 96);
+		// 開きに言語名があるフェンス
+		const doc     = ['plain', `${fence}bash`, 'echo 1', fence].join('\n');
+		// 開きの行がアクティブ。``` と言語名がそのまま見える
+		const state   = EditorState.create({
+			// 同じフェンス文書
+			doc,
+			// 開きフェンスの中の空キャレット
+			selection: {
+				// 選択の起点。開きの次
+				anchor: doc.indexOf(fence) + 1,
+				// 選択の終点。起点と同じなので空
+				head: doc.indexOf(fence) + 1
+			},
+			// フェンスのノードを得る Markdown サポート
+			extensions: [createTmsMarkdownSupport()]
+		});
+		// 行装飾。開きの行はソース
+		const entries = collectLineDecorationEntries(state, collectSourceLineNumbers(state));
+		// 開きフェンスの行
+		const opening = state.doc.line(2);
+
+		expect(entries.some((entry) => entry.from === opening.from && entry.decoration.spec.class?.includes('cm-md-fenced-code-start'))).toBe(true);
+		expect(entries.some((entry) => entry.decoration.spec.widget?.language === 'bash')).toBe(false);
+	});
+
+	it('言語名の無いフェンスにはラベルも行属性も付けず、閉じていないフェンスには閉じのクラスを付けない', () => {
+		// バッククォート 3 つ。言語名なしで閉じない
+		const fence      = String.fromCharCode(96, 96, 96);
+		// 2 行目が開き。文書末まで閉じない
+		const state      = createMarkdownState(['plain', fence, 'line 1', 'line 2'].join('\n'));
+		// 行装飾。フェンスはすべてプレビュー行
+		const entries    = collectLineDecorationEntries(state, collectSourceLineNumbers(state));
+		// 開きフェンスの行
+		const opening    = state.doc.line(2);
+		// 開きの行クラス。言語名が無いので行属性は無い
+		const startClass = entries.find((entry) => entry.from === opening.from && entry.decoration.spec.class?.includes('cm-md-fenced-code-start'));
+
+		expect(startClass?.decoration.spec.attributes).toBeUndefined();
+		expect(entries.some((entry) => entry.decoration.spec.widget !== undefined)).toBe(false);
+		expect(entries.some((entry) => entry.decoration.spec.class?.includes('cm-md-fenced-code-end'))).toBe(false);
+	});
+
 	it('コールアウト内コードブロックの行頭 > もプレビューでは隠す', () => {
 		// バッククォート 3 つ。引用の中のフェンス
 		const fence       = String.fromCharCode(96, 96, 96);

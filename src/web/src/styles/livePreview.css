@@ -387,6 +387,52 @@
 	font-family: var(--tms-mde-font-mono);
 }
 
+/* ----- 開始フェンス行と閉じフェンス行 ----- */
+
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-start {
+	border-top-left-radius: var(--tms-mde-code-fence-radius);
+	border-top-right-radius: var(--tms-mde-code-fence-radius);
+	background: var(--tms-mde-color-code-fence-bg);
+}
+
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-end {
+	border-bottom-right-radius: var(--tms-mde-code-fence-radius);
+	border-bottom-left-radius: var(--tms-mde-code-fence-radius);
+	background: var(--tms-mde-color-code-fence-bg);
+}
+
+/* ----- 引用とコールアウトの中のフェンス ----- */
+
+/* 行の左罫線が角丸に沿って曲がらないよう、引用の中では角を付けない */
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-start.cm-md-blockquote,
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-start.cm-md-callout,
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-end.cm-md-blockquote,
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-end.cm-md-callout {
+	border-radius: 0;
+}
+
+/* ----- 開始フェンス行の言語名とタイトル ----- */
+
+/* プレビュー時だけウィジェットとして挿入される。言語名・区切り・タイトルの 3 部分を包む */
+.tms-mde-editor-host .cm-md-fenced-code-label {
+	color: var(--tms-mde-color-code-lang);
+	font-weight: 700;
+	user-select: none;
+}
+
+/* タイトルの色は既定で言語名と同じ。スニペットが --tms-mde-color-code-title を定義したときだけ変わる */
+.tms-mde-editor-host .cm-md-fenced-code-title {
+	color: var(--tms-mde-color-code-title, var(--tms-mde-color-code-lang));
+}
+
+/*
+ * CodeMirror はウィジェットで終わる行の末尾へ <br> を足す
+ * 改行記号の ::after がその <br> の次の行へ回り、開始フェンス行が二行分になるため、ラベルがある行では <br> を描かない
+ */
+.tms-mde-editor-host .cm-line.cm-md-fenced-code-start:has(> .cm-md-fenced-code-label)>br:last-child {
+	display: none;
+}
+
 .tms-mde-editor-host .cm-layer.cm-selectionLayer .cm-selectionBackground {
 	background-color: var(--tms-mde-color-selection-bg);
 }

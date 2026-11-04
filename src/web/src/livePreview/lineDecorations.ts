@@ -13,11 +13,12 @@ import { calloutFoldField, isCalloutCollapsed } from './calloutFold';
 import { pushCalloutCollapseReplace, pushCalloutFoldWidget, pushCalloutTypeLabel } from './calloutFoldWidget';
 import { collectSourceLineNumbers, isPreviewLineNumber, selectionTouchesListMarker } from './cursorLine';
 import { pushCheckboxReplace } from './checkboxWidget';
+import { parseFencedCodeHeader, pushFencedCodeHeaderLabel } from './fencedCodeHeaderLabel';
 import { pushHiddenReplace } from './hiddenContent';
 import { pushBulletMarkerReplace, pushOrderedListLabelReplace } from './listMarkers';
 import { findWidestOrderedListLabel, formatOrderedListItemLabel, readListNumbering } from './orderedListLabels';
 import type { DecorationEntry } from './inlineDecorations';
-import { isMermaidFencedCode } from './mermaidWidget';
+import { extractFencedCodeInfo, isMermaidFencedCode } from './mermaidWidget';
 
 // ----------------------------------------------
 // 見出し
@@ -335,8 +336,32 @@ export function findCollapsedCalloutContainingRange(state: EditorState, from: nu
 }
 
 /**
+ * 閉じフェンスの行番号を返す
+ * 開始行より後ろにある CodeMark を閉じフェンスとみなす。文書末まで閉じていないフェンスは null
+ * @param node - FencedCode ノード
+ * @param state - エディタ状態
+ * @param startLine - 開始フェンスの行番号
+ * @returns 閉じフェンスの行番号。閉じていなければ null
+ */
+function findClosingFenceLine(node: SyntaxNode, state: EditorState, startLine: number): number | null {
+	for (let child = node.lastChild; child; child = child.prevSibling) {
+		// フェンス記号以外の子（本文、言語名、引用符）は閉じフェンスではない
+		if (child.name !== 'CodeMark') {
+			continue;
+		}
+
+		// 最後のフェンス記号が属する行。開始行と同じなら閉じていない
+		const lineNumber = state.doc.lineAt(child.from).number;
+		return lineNumber > startLine ? lineNumber : null;
+	}
+
+	return null;
+}
+
+/**
  * Fence コードブロックの装飾を追加する
  * 行スタイル（等幅フォント等）はアクティブ行でも維持し、CodeMark / CodeInfo だけプレビュー時に隠す
+ * 開始フェンス行と閉じフェンス行には、角丸と濃い背景用のクラスを足す。言語名とタイトルのラベルはプレビュー時だけ出す
  * @param node - FencedCode ノード
  * @param state - エディタ状態
  * @param entries - エントリ配列
@@ -350,21 +375,49 @@ function decorateFencedCode(node: SyntaxNode, state: EditorState, entries: Decor
 	}
 
 	// 開始フェンスの行番号
-	const startLine = state.doc.lineAt(node.from).number;
+	const startLine   = state.doc.lineAt(node.from).number;
 	// 終了位置の直前が属する行。空ノードは開始行と同じ
-	const endLine   = state.doc.lineAt(Math.max(node.from, node.to - 1)).number;
+	const endLine     = state.doc.lineAt(Math.max(node.from, node.to - 1)).number;
+	// 閉じフェンスの行番号。閉じていないフェンスは null で、最終行に終了の見た目を付けない
+	const closingLine = findClosingFenceLine(node, state, startLine);
+	// 開始フェンスに書いた言語名と `title:` の値。どちらも無ければラベルを出さない
+	const header      = parseFencedCodeHeader(extractFencedCodeInfo(state, node));
 
 	for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+		// 開始フェンス行。スニペットが言語別に装飾できるよう、言語名を行属性にも持たせる。言語名が無ければ行属性は付けない
+		if (lineNumber === startLine) {
+			pushLineClassAlways(entries, state, lineNumber, 'cm-md-fenced-code cm-md-fenced-code-start', header.language === '' ? undefined : { 'data-code-lang': header.language });
+			continue;
+		}
+
+		// 閉じフェンス行。閉じていないフェンスでは一致しない
+		if (lineNumber === closingLine) {
+			pushLineClassAlways(entries, state, lineNumber, 'cm-md-fenced-code cm-md-fenced-code-end');
+			continue;
+		}
+
 		pushLineClassAlways(entries, state, lineNumber, 'cm-md-fenced-code');
 	}
 
+	// ラベルの挿入位置。隠した情報文字列（CodeInfo）の直後で、無ければ開始フェンス行の末尾
+	let labelPos = state.doc.line(startLine).to;
 	node.cursor().iterate((child) => {
+		// 情報文字列の終端をラベルの位置にする。情報文字列そのものは下で隠す
+		if (child.name === 'CodeInfo') {
+			labelPos = child.to;
+		}
+
 		// QuoteMark はコールアウト内コードブロックの行頭 `>`（Obsidian 同様プレビューでは隠す）
 		// フェンス記号、言語名、引用符のどれかだけプレビュー時に隠す
 		if (child.name === 'CodeMark' || child.name === 'CodeInfo' || child.name === 'QuoteMark') {
 			pushHiddenMarkIfPreview(state, entries, child.from, child.to, sourceLineNumbers);
 		}
 	});
+
+	// 開始フェンス行がプレビューのときだけラベルを出す。ソース行では ``` と情報文字列がそのまま見える
+	if (isPreviewLineNumber(startLine, sourceLineNumbers)) {
+		pushFencedCodeHeaderLabel(entries, labelPos, header);
+	}
 }
 
 /**

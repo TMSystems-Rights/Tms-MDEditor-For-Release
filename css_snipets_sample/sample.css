@@ -46,6 +46,10 @@ body.tms-mde-body {
 
 	/* フェンス付きコードブロックの背景 */
 	--mde-snippet-code-block-bg: #f6f8fa;
+	/* 開始・終了フェンス行の背景（コード行より濃い色） */
+	--mde-snippet-code-fence-bg: #dfe4ea;
+	/* 開始フェンス行に出す言語名の文字色 */
+	--mde-snippet-code-lang-fg: #24292f;
 	/* インラインコードの半透明背景（必要なら .cm-md-code へ割り当て可） */
 	--mde-snippet-inline-code-bg: rgba(175, 184, 193, 0.35);
 	/* インラインコードの不透明背景（本ファイルではこちらを使用） */
@@ -126,6 +130,8 @@ html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
 	--mde-snippet-code-block-bg: #233f5a;
 	/* コードブロック内のアクティブ行（カーソルがある行） */
 	--mde-snippet-code-block-bg-active: #233f5a90;
+	--mde-snippet-code-fence-bg: #172c41;
+	--mde-snippet-code-lang-fg: #ffffff;
 	--mde-snippet-inline-code-bg: rgba(82, 156, 183, 0.35);
 	--mde-snippet-inline-code-bg-solid: #29474f;
 	--mde-snippet-inline-code-fg: var(--tms-mde-color-text);
@@ -395,6 +401,52 @@ html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
 .tms-mde-editor-host .cm-line.cm-md-fenced-code .cm-md-code {
 	background: transparent;
 }
+
+/*
+ * ---------------------------------------------------
+ * 開始フェンス行（```java）と終了フェンス行（```）
+ * ---------------------------------------------------
+ * 開始行には .cm-md-fenced-code-start、終了行には .cm-md-fenced-code-end が付きます
+ * 上の「フェンス内の各行の背景」より後ろに書き、カーソル行でも濃い色を保ちます
+ *
+ * 開始行には、言語名と title: の値が「java: タイトル」の形で表示されます
+ *   ```java title:タイトル          … 空白までの語を表示
+ *   ```java title:"タイトル その２"  … ダブルクォートの中身を表示
+ * 表示は次のクラスで組み立てられています
+ *   .cm-md-fenced-code-label      ラベル全体
+ *   .cm-md-fenced-code-lang       言語名（java など）
+ *   .cm-md-fenced-code-title-sep  区切りの「: 」
+ *   .cm-md-fenced-code-title      タイトル
+ *
+ * アプリ標準の CSS 変数でも変えられます
+ *   --tms-mde-color-code-fence-bg  開始・終了フェンス行の背景
+ *   --tms-mde-color-code-lang      言語名とタイトルの文字色
+ *   --tms-mde-color-code-title     タイトルだけの文字色（未定義なら言語名と同じ）
+ *   --tms-mde-code-fence-radius    上下端の角丸（既定 8px） */
+
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-fenced-code-start,
+.tms-mde-editor-host .cm-editor.tms-mde-cm-live-preview .cm-line.cm-md-fenced-code-end {
+	background: var(--mde-snippet-code-fence-bg) !important;
+}
+
+/* 開始フェンス行に出るラベル（言語名とタイトル） */
+.tms-mde-editor-host .cm-md-fenced-code-label {
+	color: var(--mde-snippet-code-lang-fg);
+	font-weight: 700;
+}
+
+/*
+ * タイトルだけ太字をやめる場合の例:
+ *   .tms-mde-editor-host .cm-md-fenced-code-title {
+ *       font-weight: 400;
+ *   } */
+
+/*
+ * 言語ごとに色を変える場合は、開始行の data-code-lang（言語名がそのまま入ります）で絞り込みます
+ * 例:
+ *   .tms-mde-editor-host .cm-line.cm-md-fenced-code-start[data-code-lang='java'] .cm-md-fenced-code-lang {
+ *       color: #f0a35e;
+ *   } */
 
 /*
  * ==============================

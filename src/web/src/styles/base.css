@@ -33,6 +33,10 @@
 	--tms-mde-color-syntax-property: #0369a1;
 	--tms-mde-color-syntax-invalid: #dc2626;
 	--tms-mde-color-code-bg: #eef2f6;
+	/* 開始・閉じフェンス行の背景。コード行（code-bg）より濃くし、ブロックの上下端を示す */
+	--tms-mde-color-code-fence-bg: #d3dbe6;
+	/* 開始フェンス行の言語名。ライトの淡い背景で読めるよう、白ではなく暗色にする */
+	--tms-mde-color-code-lang: #1f2937;
 
 	/* ---------------------------------------------- */
 	/* 操作色、選択、重なり順 */
@@ -73,6 +77,8 @@
 	--tms-mde-font-family: 'Segoe UI', 'Meiryo', sans-serif;
 	--tms-mde-font-mono: Consolas, 'Cascadia Mono', 'Meiryo UI', monospace;
 	--tms-mde-radius: 6px;
+	/* フェンス付きコードブロックの上下端の角丸。開始フェンス行の上側と閉じフェンス行の下側だけに効く */
+	--tms-mde-code-fence-radius: 8px;
 	--tms-mde-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
@@ -103,6 +109,8 @@ html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
 	--tms-mde-color-syntax-property: #7dd3fc;
 	--tms-mde-color-syntax-invalid: #f87171;
 	--tms-mde-color-code-bg: #343e5d;
+	--tms-mde-color-code-fence-bg: #232a40;
+	--tms-mde-color-code-lang: #ffffff;
 	--tms-mde-color-primary: var(--tms-accent);
 	--tms-mde-color-primary-hover: #60a5fa;
 	--tms-mde-color-link: #38bdf8;
@@ -150,6 +158,8 @@ body.tms-mde-theme-light {
 	--tms-mde-color-syntax-property: #0369a1;
 	--tms-mde-color-syntax-invalid: #dc2626;
 	--tms-mde-color-code-bg: #eef2f6;
+	--tms-mde-color-code-fence-bg: #d3dbe6;
+	--tms-mde-color-code-lang: #1f2937;
 	--tms-mde-color-link: #0284c7;
 	--tms-mde-color-link-hover: #0369a1;
 	--tms-mde-color-active-line: rgba(37, 99, 235, 0.08);
