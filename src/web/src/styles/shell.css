@@ -345,13 +345,26 @@
 	right: -3px;
 }
 
-.tms-mde-tab.is-active {
-	background: var(--tms-mde-color-bg);
-	color: var(--tms-mde-color-text);
-	border-color: var(--tms-mde-color-primary);
+.tms-mde-tab:hover {
+	/* 静止時の地色のままでは、ポインターが乗ったタブが分からない */
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 16%, var(--tms-mde-color-bg));
 }
 
-.tms-mde-tab.is-dirty .tms-mde-tab-title {
+.tms-mde-tab.is-active {
+	/* 非選択タブと同じ地色だと、枠色だけでは開いているタブが判別しにくい */
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 28%, var(--tms-mde-color-surface));
+	color: var(--tms-mde-color-text);
+	border-color: var(--tms-mde-color-primary);
+	font-weight: bold;
+}
+
+.tms-mde-tab.is-active:hover {
+	/* 選択中の 28% より濃くし、ホバーと選択中の差を残す */
+	background: color-mix(in srgb, var(--tms-mde-color-primary) 42%, var(--tms-mde-color-surface));
+}
+
+/* 未保存の題名は太くする。選択中タブは全体が bold なので、ここでは重ねない */
+.tms-mde-tab.is-dirty:not(.is-active) .tms-mde-tab-title {
 	font-weight: 600;
 }
 

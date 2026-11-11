@@ -60,6 +60,15 @@ describe('ペインエディタのスクロールレイアウト', () => {
 		expect(shellCss).toMatch(/\.tms-mde-pane-tab-bar-wrap\s*\{[^}]*user-select:\s*none;/s);
 	});
 
+	it('開いているタブの背景をアクセント色で塗り、題名を太字にする', () => {
+		expect(shellCss).toMatch(/\.tms-mde-tab\.is-active\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--tms-mde-color-primary\) 28%, var\(--tms-mde-color-surface\)\);[^}]*font-weight:\s*bold;/s);
+	});
+
+	it('ホバーでタブ背景の濃さを変える', () => {
+		expect(shellCss).toMatch(/\.tms-mde-tab:hover\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--tms-mde-color-primary\) 16%, var\(--tms-mde-color-bg\)\);/s);
+		expect(shellCss).toMatch(/\.tms-mde-tab\.is-active:hover\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--tms-mde-color-primary\) 42%, var\(--tms-mde-color-surface\)\);/s);
+	});
+
 	it('空行の行末記号をBRの次行へ流さない', () => {
 		// 空行の行末記号。BR だけの行と、その ::after の両方が対象
 		const emptyEolLine = '.cm-eol-marker-line:has(> br:only-child)';

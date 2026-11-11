@@ -4,9 +4,14 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.15.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.15.0)
+最新リリース: [v1.15.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.15.1)
 
 ## 変更内容
+
+### v1.15.1 の主な変更
+
+- 開いているタブの背景をアクセント色で塗り、題名を太字にして、どのタブが選択中か分かるようにする
+- タブへポインターを乗せたとき、非選択タブは薄いアクセント色、選択中タブは通常より濃い背景にする
 
 ### v1.15.0 の主な変更
 
