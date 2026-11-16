@@ -458,7 +458,7 @@ CSSスニペットの書き方の例は `css_snipets_sample/sample.css` を参�
 
 ## 仕様書
 
-`設計ドキュメント/0080_マークダウンエディタ（TMS-MDEditor）/020_仕様書/マークダウンエディタ（TMS-MDEditor）仕様書.md`
+`設計ドキュメント/0050_Windowsデスクトップアプリ/030_マークダウンエディタ（TMS-MDEditor）/020_仕様書/マークダウンエディタ（TMS-MDEditor）仕様書.md`
 
 ## ライセンス
 
