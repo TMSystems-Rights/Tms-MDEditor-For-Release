@@ -4,9 +4,20 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.15.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.15.1)
+最新リリース: [v1.16.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.16.0)
 
 ## 変更内容
+
+### v1.16.0 の主な変更
+
+- Mermaid 図の描画を Mermaid.js から Pele（Obsidian 1.15 と同じ描画ライブラリ）へ切り替える。図はテーマの色とエディタのフォントで描かれ、ダークテーマでも色を反転せずに表示する
+- 図をエディタの幅に合わせて縮め、縮んだ図は拡大縮小できるようにする（右上のボタン、Ctrl+ホイール、ドラッグで移動、ダブルクリックで拡大／元に戻す）
+- 図の中のリンク（`click` 指定）は、http / https のものだけをクリックで外部ブラウザに開く
+- 開始フェンスに `title:` を書いた Mermaid（例: ` ```mermaid title:"フロー図" `）が図にならず、コードのまま表示される不具合を修正。タイトルは図の上に見出しとして表示する
+- HTML 出力・PDF 出力・印刷の図も Pele で描き、本文のフォントとテーマの色に合わせる
+- 同梱しているサードパーティ製ソフトウェアのライセンス表示（`THIRD_PARTY_NOTICES.txt`）を、インストール先とポータブル版の `app` フォルダに含める
+- CSS スニペットのサンプル（`css_snipets_sample/sample.css`）の Mermaid の節を、`--pele-*` 変数の例に差し替え
+- Pele は Mermaid と配置の計算方法が異なるため、同じ図でもノードの位置や線の引き方が変わる。ラベルの `<br>`（改行）と `<b>`（太字）は使えるが、任意の HTML は使えない
 
 ### v1.15.1 の主な変更
 
