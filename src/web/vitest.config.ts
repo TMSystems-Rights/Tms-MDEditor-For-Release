@@ -11,7 +11,7 @@ export default defineConfig({
 	test: {
 		// Node 上で実行する。DOM が要るテストは各ファイルが用意する
 		environment: 'node',
-		// 実行するファイル。src 以下の *.test.ts だけ
-		include: ['src/**/*.test.ts']
+		// 実行するファイル。アプリ本体の src と、ビルド用プラグインの buildTools にある *.test.ts
+		include: ['src/**/*.test.ts', 'buildTools/**/*.test.ts']
 	}
 });

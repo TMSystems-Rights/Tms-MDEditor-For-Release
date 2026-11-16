@@ -454,3 +454,14 @@ CSSスニペットの書き方の例は `css_snipets_sample/sample.css` を参�
 UNLICENSED（現時点では利用許諾なし）
 
 このリポジトリのソースコードには、現時点でオープンソースライセンスを付与していません。
+
+### 同梱しているサードパーティ製ソフトウェア
+
+配布物には、.NET ランタイム、WebView2 SDK、CodeMirror、Mermaid などのサードパーティ製ソフトウェアを同梱しています。各ソフトウェアの著作権表示とライセンス条件は、インストール先（ポータブル版は `app` フォルダ）の `THIRD_PARTY_NOTICES.txt` に掲載しています。
+
+`THIRD_PARTY_NOTICES.txt` は `scripts/dist.ps1` が発行時に自動で作成します。
+
+- npm パッケージ: `src/web/buildTools/thirdPartyNotices.ts`（Vite プラグイン）が、本番バンドルへ実際に入ったパッケージのライセンス文を `webdist/THIRD_PARTY_NOTICES.txt` に書き出す
+- .NET ランタイムと NuGet パッケージ: `scripts/generate-third-party-notices.mjs` が、発行先の `TmsMdEditor.deps.json` と NuGet キャッシュからライセンス文を集め、npm の分と合わせて発行先の直下に書き出す
+
+依存パッケージを追加・更新した場合も、手作業での追記は不要です。

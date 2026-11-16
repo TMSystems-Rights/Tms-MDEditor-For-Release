@@ -34,7 +34,7 @@
 .NOTES
     例外:
     - Directory.Build.props から Version を読めない場合は throw する
-    - publish 成果物、icon.ico、portable-mode.json、README-PORTABLE.txt が無い場合は throw する
+    - publish 成果物、icon.ico、THIRD_PARTY_NOTICES.txt、portable-mode.json、README-PORTABLE.txt が無い場合は throw する
     - ステージ先または起動用の発行先が既にある場合は throw する。既存の配布物は削除しない
     - 起動用プロジェクトが無い、または発行に失敗した場合は throw する
     - 起動用 exe の表示名が TMS-MDEditor.portable でない場合は throw する
@@ -562,6 +562,8 @@ $launcherPublishFull = [System.IO.Path]::GetFullPath($LauncherPublishDir)
 $exePath = Join-Path $publishFull 'TmsMdEditor.exe'
 # 発行物に同梱されるアイコン。無いときは止める
 $iconPath = Join-Path $publishFull 'icon.ico'
+# 同梱ソフトウェアのライセンス表示。scripts/dist.ps1 が発行後に書く。無いときは止める
+$noticesPath = Join-Path $publishFull 'THIRD_PARTY_NOTICES.txt'
 # ポータブル動作の印。リポジトリの resources からステージへコピーする
 $markerSource = Join-Path $ProjectRoot 'resources\portable-mode.json'
 # ZIP 直下に置く説明。発行物の中には無い
@@ -597,6 +599,11 @@ if (-not (Test-Path -LiteralPath $exePath)) {
 # アイコンが無い発行物は ZIP にしない
 if (-not (Test-Path -LiteralPath $iconPath)) {
 	throw "publish 成果物に icon.ico がありません: $iconPath"
+}
+
+# ライセンス表示が無い発行物は、著作権表示を欠いたまま配布することになるので ZIP にしない
+if (-not (Test-Path -LiteralPath $noticesPath)) {
+	throw "publish 成果物に THIRD_PARTY_NOTICES.txt がありません: $noticesPath`nscripts/dist.ps1 から実行するか、node scripts/generate-third-party-notices.mjs で作成してください。"
 }
 
 # ポータブル印がリポジトリに無いときは止める
@@ -706,6 +713,11 @@ try {
 	# アイコンが app に無いときはショートカットの資源が欠ける
 	if ($names -notcontains "$zipAppPrefix/icon.ico") {
 		throw "ZIP に $zipAppPrefix/icon.ico がありません。"
+	}
+
+	# ライセンス表示が app に無いときは、同梱ソフトウェアの著作権表示が欠ける
+	if ($names -notcontains "$zipAppPrefix/THIRD_PARTY_NOTICES.txt") {
+		throw "ZIP に $zipAppPrefix/THIRD_PARTY_NOTICES.txt がありません。"
 	}
 
 	# ポータブル印が無いと、インストール版と同じデータ場所を見てしまう

@@ -39,3 +39,8 @@ data フォルダは初回起動時に作成されます。配布 ZIP には含�
 更新がある場合は、アプリが公式ページへ案内します。
 
 公式ページ: https://tm-systems.jp/#apps
+
+■ サードパーティ製ソフトウェアのライセンス
+
+このアプリには、.NET ランタイム、WebView2 SDK、CodeMirror、Mermaid などのサードパーティ製ソフトウェアが含まれています。
+各ソフトウェアの著作権表示とライセンス条件は、app\THIRD_PARTY_NOTICES.txt をご覧ください。

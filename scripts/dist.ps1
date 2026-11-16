@@ -4,6 +4,7 @@
 
 .DESCRIPTION
     Web と本体を Release でビルドし、自己完結の win-x64 を発行する
+    発行先直下へ、同梱したサードパーティ製ソフトウェアのライセンス表示 THIRD_PARTY_NOTICES.txt を書く
     Inno Setup でインストーラを作り、ポータブル ZIP と SHA-256 を dist へ出す
     発行先、ステージ先、起動用発行先が既に存在する場合は throw し、既存の配布成果物は削除しない
 
@@ -144,6 +145,19 @@ try {
 	& dotnet publish $projectPath -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -p:DebugType=None -p:DebugSymbols=false -o $publishPath
 	# 自己完結の発行に失敗したらインストーラを作らない
 	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+	# ----------------------------------------------
+	# ライセンス表示
+	# ----------------------------------------------
+
+	# 発行先直下へ THIRD_PARTY_NOTICES.txt を書く。インストーラとポータブル ZIP は発行先ごと同梱する
+	& node (Join-Path $repoRoot 'scripts\generate-third-party-notices.mjs') --publish-dir $publishPath --version $version
+	# ライセンス表示を作れないまま配布物を作らない。1 は入力の欠落、2 は引数の誤り
+	if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+	# ----------------------------------------------
+	# インストーラとポータブル ZIP
+	# ----------------------------------------------
 
 	& $isccCandidates[0] "/DMyAppVersion=$version" "/DMyPublishDir=$publishPath" $setupScript
 	# インストーラのコンパイルに失敗したら ZIP を作らない
