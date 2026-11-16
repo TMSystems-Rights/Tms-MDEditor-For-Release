@@ -42,5 +42,5 @@ data フォルダは初回起動時に作成されます。配布 ZIP には含�
 
 ■ サードパーティ製ソフトウェアのライセンス
 
-このアプリには、.NET ランタイム、WebView2 SDK、CodeMirror、Mermaid などのサードパーティ製ソフトウェアが含まれています。
+このアプリには、.NET ランタイム、WebView2 SDK、CodeMirror、Pele（Mermaid 図の描画）などのサードパーティ製ソフトウェアが含まれています。
 各ソフトウェアの著作権表示とライセンス条件は、app\THIRD_PARTY_NOTICES.txt をご覧ください。

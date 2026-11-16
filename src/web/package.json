@@ -22,9 +22,6 @@
 		"@codemirror/search": "^6.7.1",
 		"@codemirror/state": "^6.7.1",
 		"@codemirror/view": "^6.43.6",
-		"mermaid": "11.4.1"
-	},
-	"exhortignore": [
-		"mermaid"
-	]
+		"pele": "1.13.0"
+	}
 }

@@ -1,14 +1,14 @@
 /**
- * Mermaid フェンスの抽出と、描画結果のキャッシュを検証する
- * 描画モジュールはテスト用の差し替えを使い、本番の遅延ロードには依存しない
+ * Mermaid フェンスの抽出、プレビューの置換、Pele による書き出し用の SVG 化を検証する
+ * SVG 化は本物の Pele を Node 上で動かす。ウィジェットの描画は DOM が要るので、比較と高さの見積もりだけを見る
  * @file
  */
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState } from '@codemirror/state';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createTmsMarkdownSupport } from '../editor/createTmsMarkdown';
 import { collectBlockDecorationEntries } from './blockWidgets';
-import { MermaidWidget, clearMermaidCache, extractFencedCodeInfo, extractFencedCodeText, isCollapsedMermaidSvg, isMermaidCodeInfo, isMermaidFencedCode, lockMermaidSvgDisplaySize, preprocessMermaidSource, renderMermaidSource, setMermaidModuleForTest } from './mermaidWidget';
+import { MermaidWidget, buildMermaidRenderOptions, extractFencedCodeInfo, extractFencedCodeText, isMermaidCodeInfo, isMermaidFencedCode, renderMermaidSource } from './mermaidWidget';
 
 /**
  * Mermaid 判定用の Markdown 状態を作る
@@ -38,7 +38,9 @@ function findNode(state: EditorState, name: string) {
 	let found: import('@lezer/common').SyntaxNode | null = null;
 	syntaxTree(state).iterate({
 		/**
-		 *
+		 * 指定名の最初のノードを見つけたら探索を止める
+		 * @param ref - 走査中のノード
+		 * @returns 見つけたとき false。それ以外は未指定で探索を続ける
 		 */
 		enter(ref) {
 			// 指定名の最初の 1 つだけを採用し、探索を止める
@@ -53,12 +55,6 @@ function findNode(state: EditorState, name: string) {
 }
 
 describe('mermaidWidget', () => {
-	afterEach(() => {
-		setMermaidModuleForTest(null);
-		clearMermaidCache();
-		vi.unstubAllGlobals();
-	});
-
 	it('isMermaidCodeInfo は mermaid のみ真', () => {
 		expect(isMermaidCodeInfo('mermaid')).toBe(true);
 		expect(isMermaidCodeInfo('MERMAID')).toBe(true);
@@ -66,106 +62,26 @@ describe('mermaidWidget', () => {
 		expect(isMermaidCodeInfo('')).toBe(false);
 	});
 
-	it('preprocessMermaidSource は br を改行し装飾タグを除去する', () => {
-		// br と装飾タグを含むノードラベル。改行と平文だけ残す
-		const input = 'A["<b>x</b><br/>y <font color=\'orange\'>z</font>"]';
-		expect(preprocessMermaidSource(input)).toBe('A["x\ny z"]');
+	it('isMermaidCodeInfo は言語名の後ろに title: があっても先頭の言語名で判定する', () => {
+		expect(isMermaidCodeInfo('mermaid title:"フローチャート"')).toBe(true);
+		expect(isMermaidCodeInfo('  Mermaid  title:図')).toBe(true);
+		expect(isMermaidCodeInfo('mermaidjs')).toBe(false);
+		expect(isMermaidCodeInfo('title:"mermaid"')).toBe(false);
 	});
 
-	it('isCollapsedMermaidSvg は極小 viewBox / height=0 を検出し FO 単独では潰れたとしない', () => {
-		expect(isCollapsedMermaidSvg('<svg height="0"></svg>')).toBe(true);
-		expect(isCollapsedMermaidSvg('<svg viewBox="-8 -8 16 16"></svg>')).toBe(true);
-		expect(isCollapsedMermaidSvg('<svg viewBox="0 0 1014 652"><foreignObject width="0"></foreignObject></svg>')).toBe(false);
-		expect(isCollapsedMermaidSvg('<svg width="100%" height="200"></svg>')).toBe(false);
-	});
-
-	it('lockMermaidSvgDisplaySize はコンテナ幅へ収めた表示サイズを固定する', () => {
-		// 左右 20px ずつ。コンテナ幅 900 から引くと表示幅 860
-		vi.stubGlobal('getComputedStyle', () => ({
-			// 左の内側余白
-			paddingLeft: '20px',
-			// 右の内側余白
-			paddingRight: '20px'
-		}));
-
-		// viewBox は 1200×600。表示はコンテナへ収める
-		const attrs = new Map<string, string>([['viewBox', '0 0 1200 600']]);
-		// 固定前は空。幅と高さはあとから px で入る
-		const style = {
-			// 幅。空は未固定
-			width: '',
-			// 高さ。空は未固定
-			height: '',
-			// 最大幅。空は未固定
-			maxWidth: ''
-		};
-		// viewBox と style を持つ SVG。幅はコンテナへ収める
-		const svg   = {
-			// 属性を読む。無い名前は null
-			getAttribute: vi.fn((name: string) => attrs.get(name) ?? null),
-			// 属性を書く。表示サイズの固定先
-			setAttribute: vi.fn((name: string, value: string) => attrs.set(name, value)),
-			// 固定する style
-			style
-		} as unknown as SVGSVGElement;
-		// 幅 900 の枠。左右余白を引いた内側へ SVG を収める
-		const wrap  = {
-			// 枠の内側幅。px
-			clientWidth: 900,
-			// 枠の幅。clientWidth と同じ 900
-			getBoundingClientRect: vi.fn(() => ({ width: 900 }))
-		} as unknown as HTMLElement;
-
-		expect(lockMermaidSvgDisplaySize(svg, wrap)).toBe(true);
-		expect(attrs.get('width')).toBe('860');
-		expect(attrs.get('height')).toBe('430');
-		expect(style.width).toBe('860px');
-		expect(style.height).toBe('auto');
-		expect(style.maxWidth).toBe('none');
-	});
-
-	it('lockMermaidSvgDisplaySize は自然幅が収まる場合は拡大しない', () => {
-		// 余白 0。自然幅 480 はコンテナ 900 に収まるので拡大しない
-		vi.stubGlobal('getComputedStyle', () => ({
-			// 左の内側余白。0 は引かない
-			paddingLeft: '0px',
-			// 右の内側余白。0 は引かない
-			paddingRight: '0px'
-		}));
-
-		// viewBox は 480×240。自然幅のまま
-		const attrs = new Map<string, string>([['viewBox', '0 0 480 240']]);
-		// 固定前は空
-		const style = {
-			// 幅。空は未固定
-			width: '',
-			// 高さ。空は未固定
-			height: '',
-			// 最大幅。空は未固定
-			maxWidth: ''
-		};
-		// 自然幅の SVG。枠より狭いので拡大しない
-		const svg   = {
-			// 属性を読む。無い名前は null
-			getAttribute: vi.fn((name: string) => attrs.get(name) ?? null),
-			// 属性を書く。自然幅のまま入る
-			setAttribute: vi.fn((name: string, value: string) => attrs.set(name, value)),
-			// 固定する style
-			style
-		} as unknown as SVGSVGElement;
-		// 幅 900 の枠。自然幅 480 はこの中に収まる
-		const wrap  = {
-			// 枠の内側幅。px
-			clientWidth: 900,
-			// 枠の幅。clientWidth と同じ 900
-			getBoundingClientRect: vi.fn(() => ({ width: 900 }))
-		} as unknown as HTMLElement;
-
-		expect(lockMermaidSvgDisplaySize(svg, wrap)).toBe(true);
-		expect(attrs.get('width')).toBe('480');
-		expect(attrs.get('height')).toBe('240');
-		expect(style.width).toBe('480px');
-		expect(style.maxWidth).toBe('none');
+	it('title: 付きの Mermaid フェンスも図に置き換え、タイトルをウィジェットへ渡す', () => {
+		// タイトル付きの mermaid。Obsidian の書き方
+		const doc     = 'before\n```mermaid title:"フローチャートのサンプル"\nflowchart TB\n  A-->B\n```\nafter';
+		// カーソルは文書先頭。フェンスはプレビューになる
+		const state   = createState(doc, 0);
+		// MermaidWidget の装飾。無ければ未生成
+		const mermaid = collectBlockDecorationEntries(state).find((entry) => entry.decoration.spec.widget instanceof MermaidWidget);
+		expect(mermaid).toBeDefined();
+		// 置き換えたウィジェット
+		const widget = mermaid!.decoration.spec.widget as MermaidWidget;
+		expect(widget.title).toBe('フローチャートのサンプル');
+		expect(widget.source).toBe('flowchart TB\n  A-->B');
+		expect(widget.eq(new MermaidWidget(widget.source, '別のタイトル'))).toBe(false);
 	});
 
 	it('FencedCode から info / text を抽出する', () => {
@@ -191,7 +107,7 @@ describe('mermaidWidget', () => {
 		// MermaidWidget の装飾。無ければ未生成
 		const mermaid = entries.find((entry) => entry.decoration.spec.widget instanceof MermaidWidget);
 		expect(mermaid).toBeDefined();
-		expect(mermaid!.decoration.spec.widget).toBeInstanceOf(MermaidWidget);
+		expect((mermaid!.decoration.spec.widget as MermaidWidget).source).toContain('A-->B');
 	});
 
 	it('カーソルが Mermaid 内にあるときは replace しない', () => {
@@ -216,195 +132,81 @@ describe('mermaidWidget', () => {
 		expect(entries.some((entry) => entry.decoration.spec.widget instanceof MermaidWidget)).toBe(false);
 	});
 
-	it('renderMermaidSource は成功結果をキャッシュする', async () => {
-		// 初期化の呼出回数。キャッシュが効けば 1 回
-		const initialize = vi.fn();
-		// 成功 SVG を返す描画。2 回目は呼ばれない
-		const render     = vi.fn(async () => ({ svg: '<svg width="100%" height="200" data-test="ok"></svg>' }));
-		// 成功する mermaid。run はこのケースでは使わない
-		setMermaidModuleForTest({
-			// 初期化
-			initialize,
-			// SVG を返す描画
-			render,
-			// このケースでは呼ばない
-			run: vi.fn()
-		});
-		clearMermaidCache();
+	it('MermaidWidget は同じソースのときだけ再利用され、高さを行数から見積もる', () => {
+		// 3 行の図
+		const widget = new MermaidWidget('graph TD\n  A-->B\n  B-->C');
 
-		// 同じソースを 2 回描く。2 回目はキャッシュ
-		const source = 'graph TD\n  A-->B';
-		// 1 回目。描画を実行する
-		const first  = await renderMermaidSource(source, 'default');
-		// 2 回目。first と同じオブジェクト
-		const second = await renderMermaidSource(source, 'default');
-		// 成功結果。HTML ラベルは無いので html モード
-		expect(first).toEqual({
-			// 描画できた
-			ok: true,
-			// 返した SVG
-			svg: '<svg width="100%" height="200" data-test="ok"></svg>',
-			// HTML ラベルを含まない成功
-			mode: 'html'
-		});
-		expect(second).toBe(first);
-		expect(render).toHaveBeenCalledTimes(1);
-		// 初期化へ渡す設定。HTML ラベルとフローチャートの余白
-		expect(initialize).toHaveBeenCalledWith(
-			expect.objectContaining({
-				// ラベル内の HTML を許す
-				securityLevel: 'loose',
-				// HTML ラベルを使う
-				htmlLabels: true,
-				// フローチャートの幅と余白
-				flowchart: expect.objectContaining({
-					// 最大幅へ伸ばさない
-					useMaxWidth: false,
-					// 図の内側余白。px
-					padding: 15
-				})
-			})
-		);
+		expect(widget.eq(new MermaidWidget('graph TD\n  A-->B\n  B-->C'))).toBe(true);
+		expect(widget.eq(new MermaidWidget('graph TD\n  A-->C'))).toBe(false);
+		expect(widget.estimatedHeight).toBe(160);
+		expect(new MermaidWidget('x\n'.repeat(100)).estimatedHeight).toBe(640);
 	});
 
-	it('HTML ラベル入り図は HTML モードを維持する', async () => {
-		// HTML ラベルを維持する初期化
-		const initialize = vi.fn();
-		// 潰れていない SVG。平文へ落とさない
-		const render     = vi.fn(async () => ({ svg: '<svg width="480" height="240" viewBox="0 0 480 240"></svg>' }));
-		// HTML ラベルを描ける mermaid
-		setMermaidModuleForTest({
-			// 初期化
-			initialize,
-			// 十分な大きさの SVG
-			render,
-			// このケースでは呼ばない
-			run: vi.fn()
-		});
-		clearMermaidCache();
+	it('描画オプションは図のリンクを http(s) だけに絞る', () => {
+		expect(buildMermaidRenderOptions().linkSchemes).toEqual(['http', 'https']);
+	});
+});
 
-		// b と br を含む図。html モードのまま
-		const result = await renderMermaidSource('graph LR\nA["<b>x</b><br/>y"]', 'default');
-		// 成功結果。平文へは落とさない
-		expect(result).toEqual({
-			// 描画できた
-			ok: true,
-			// 返した SVG。viewBox がある
-			svg: '<svg width="480" height="240" viewBox="0 0 480 240"></svg>',
-			// HTML ラベルを残す
-			mode: 'html'
-		});
-		expect(render).toHaveBeenCalledTimes(1);
-		expect(render).toHaveBeenCalledWith(expect.any(String), 'graph LR\nA["<b>x</b><br/>y"]');
-		expect(initialize).toHaveBeenCalledWith(
-			expect.objectContaining({
-				// HTML ラベルを有効にしたまま
-				htmlLabels: true
-			})
-		);
+describe('renderMermaidSource', () => {
+	it('Pele で SVG にし、ラベルの改行と太字を図の中へ残す', async () => {
+		// <br> と <b> を含むラベル。Mermaid と同じ書き方
+		const result = await renderMermaidSource('flowchart LR\n  A[開始<br>2行目] --> B[<b>太字</b>]');
+
+		expect(result.ok).toBe(true);
+		// 成功したときの SVG。失敗なら空文字
+		const svg = result.ok ? result.svg : '';
+		expect(svg).toMatch(/^<svg [^>]*class="pele pele-flowchart"/);
+		expect(svg).toContain('<tspan x="0" y="-4.9">開始</tspan>');
+		expect(svg).toContain('2行目');
+		expect(svg).toContain('太字');
 	});
 
-	it('HTML ラベル入り図が潰れた場合のみ平文へフォールバックする', async () => {
-		// 1 回目は極小、2 回目は平文の十分な SVG
-		const render = vi.fn().mockResolvedValueOnce({ svg: '<svg width="16" height="16"></svg>' }).mockResolvedValueOnce({ svg: '<svg width="100%" height="200"></svg>' });
-		// HTML が潰れたときだけ平文で描き直す
-		setMermaidModuleForTest({
-			// 初期化。回数は見ない
-			initialize: vi.fn(),
-			// 極小の次に十分な SVG
-			render,
-			// このケースでは呼ばない
-			run: vi.fn()
-		});
-		clearMermaidCache();
+	it('呼び出しごとに SVG 内の id 接頭辞を変え、同じ図を並べても id が重ならない', async () => {
+		// 読み上げ用タイトルを持つ図。タイトルの id に接頭辞が付く
+		const source = 'flowchart LR\n  accTitle: 図\n  A --> B';
+		// 同じソースを 2 回描いた結果
+		const first  = await renderMermaidSource(source);
+		// 2 回目。接頭辞の通し番号が進む
+		const second = await renderMermaidSource(source);
 
-		// HTML ラベルが潰れる図。2 回目は平文
-		const result = await renderMermaidSource('graph LR\nA["<b>x</b><br/>y"]', 'default');
-		// 平文で描き直した成功
-		expect(result).toEqual({
-			// 2 回目は描画できた
-			ok: true,
-			// 平文で得た SVG
-			svg: '<svg width="100%" height="200"></svg>',
-			// HTML を捨てた
-			mode: 'plain'
-		});
-		expect(render).toHaveBeenCalledTimes(2);
-		expect(render).toHaveBeenNthCalledWith(1, expect.any(String), 'graph LR\nA["<b>x</b><br/>y"]');
-		expect(render).toHaveBeenNthCalledWith(2, expect.any(String), 'graph LR\nA["x\ny"]');
+		// それぞれのタイトルの id。描けなければ undefined
+		const firstId  = first.ok ? /id="(tms-mde-mermaid-\d+)-title"/.exec(first.svg)?.[1] : undefined;
+		// 2 回目のタイトルの id
+		const secondId = second.ok ? /id="(tms-mde-mermaid-\d+)-title"/.exec(second.svg)?.[1] : undefined;
+		expect(firstId).toBeDefined();
+		expect(secondId).toBeDefined();
+		expect(firstId).not.toBe(secondId);
 	});
 
-	it('HTML ラベル以外の潰れた描画は平文へフォールバックする', async () => {
-		// HTML ラベルが無くても、極小なら平文で描き直す
-		const render = vi.fn().mockResolvedValueOnce({ svg: '<svg width="16" height="16"></svg>' }).mockResolvedValueOnce({ svg: '<svg width="100%" height="200"></svg>' });
-		// 1 回目が潰れた図を平文でやり直す
-		setMermaidModuleForTest({
-			// 初期化。回数は見ない
-			initialize: vi.fn(),
-			// 極小の次に十分な SVG
-			render,
-			// このケースでは呼ばない
-			run: vi.fn()
-		});
-		clearMermaidCache();
+	it('渡したフォントと大きさで測り、SVG の font 指定にも使う', async () => {
+		// 本文フォントを指定した描画
+		const result = await renderMermaidSource('flowchart LR\n  A --> B', { fontFamily: 'Consolas, monospace', fontSize: 20 });
 
-		// HTML ラベルの無い図。それでも潰れたら平文
-		const result = await renderMermaidSource('graph LR\nA-->B', 'default');
-		// 平文で描き直した成功
-		expect(result).toEqual({
-			// 2 回目は描画できた
-			ok: true,
-			// 平文で得た SVG
-			svg: '<svg width="100%" height="200"></svg>',
-			// 平文へ落とした
-			mode: 'plain'
-		});
-		expect(render).toHaveBeenCalledTimes(2);
+		// 成功したときの SVG
+		const svg = result.ok ? result.svg : '';
+		expect(svg).toContain('font:20px ');
+		expect(svg).toContain('font-family:var(--pele-font,Consolas, monospace)');
 	});
 
-	it('構文エラー時は error を返す', async () => {
-		// 描画が構文エラーを投げる mermaid
-		setMermaidModuleForTest({
-			// 初期化。エラー前に呼ばれ得る
-			initialize: vi.fn(),
-			// 1 行目の構文エラー
-			render: vi.fn(async () => {
-				throw new Error('Parse error on line 1');
-			}),
-			// このケースでは呼ばない
-			run: vi.fn()
-		});
-		clearMermaidCache();
+	it('http(s) 以外のリンクは図に残さない', async () => {
+		// ftp と https のリンクを 1 つずつ持つ図
+		const result = await renderMermaidSource('flowchart LR\n  A --> B\n  click A "ftp://example.com"\n  click B "https://example.com"');
 
-		// mermaid ではない文字列。エラー文言を返す
-		const result = await renderMermaidSource('not mermaid', 'default');
-		// 失敗。SVG は持たない
-		expect(result).toEqual({
-			// 描画できなかった
-			ok: false,
-			// 投げられたメッセージ
-			error: 'Parse error on line 1'
-		});
+		// 成功したときの SVG
+		const svg = result.ok ? result.svg : '';
+		expect(svg).toContain('<a href="https://example.com/"');
+		expect(svg).not.toContain('ftp://');
 	});
 
-	it('空 SVG はエラーとして扱う', async () => {
-		// 空の SVG を返す mermaid。成功にはしない
-		setMermaidModuleForTest({
-			// 初期化
-			initialize: vi.fn(),
-			// SVG が空
-			render: vi.fn(async () => ({ svg: '' })),
-			// このケースでは呼ばない
-			run: vi.fn()
-		});
-		clearMermaidCache();
+	it('構文エラーは例外にせず、位置付きの理由を返す', async () => {
+		// 矢印の先が無い図
+		const result = await renderMermaidSource('flowchart LR\n  A -->');
 
-		// 図としては正しいが、結果の SVG が空
-		const result = await renderMermaidSource('graph TD; A-->B', 'default');
 		expect(result.ok).toBe(false);
-		// 失敗のときだけエラー文言を見る。成功ならこの分岐に入らない
-		if (!result.ok) {
-			expect(result.error).toContain('空');
-		}
+		expect(result.ok ? '' : result.error).toContain('Parse error on line 2');
+	});
+
+	it('空のブロックは描かずに理由を返す', async () => {
+		expect(await renderMermaidSource('  \n')).toEqual({ ok: false, error: '空の Mermaid ブロックです' });
 	});
 });

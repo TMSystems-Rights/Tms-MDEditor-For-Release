@@ -495,11 +495,15 @@ html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) {
  * ==============================
  * Mermaid 図
  * ==============================
- * アプリ既定の見た目をほぼ使い、高さ制限とフォントだけ上書きしています */
+ * 図は Pele（https://pele.run）が SVG で描きます
+ * 色・角丸・フォントは --pele-* 変数で変えられます。変数の一覧は https://pele.run/theming
+ * .cm-md-mermaid はエディタの図とエクスポートの図の両方に付いています
+ * ここではノードの角丸だけを上書きしています。色はアプリのテーマに従います
+ * フォントはエディタフォント（エクスポートは本文フォント）が使われます。--pele-font を変えると、
+ * エクスポートでは文字幅の計測とずれてラベルがはみ出すことがあります */
 
-.tms-mde-editor-host .cm-md-mermaid-wrap {
-	max-height: min(70vh, 720px);
-	font-family: 'trebuchet ms', Verdana, Arial, 'Segoe UI', Meiryo, sans-serif;
+.tms-mde-editor-host .cm-md-mermaid {
+	--pele-radius: 6px;
 }
 
 /*

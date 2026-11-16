@@ -23,7 +23,7 @@ import { splitImageAlt, splitWikiEmbedTarget } from '../livePreview/imageSize';
 import { splitWikiLinkAlias } from '../livePreview/wikiLink';
 import { findCalloutInfo } from '../livePreview/lineDecorations';
 import { findWidestOrderedListLabel, formatOrderedListItemLabel, resolveListNumbering } from '../livePreview/orderedListLabels';
-import { extractFencedCodeInfo, extractFencedCodeText, isMermaidFencedCode, renderMermaidSource } from '../livePreview/mermaidWidget';
+import { extractFencedCodeInfo, extractFencedCodeText, isMermaidFencedCode, renderMermaidSource, type MermaidRenderFont } from '../livePreview/mermaidWidget';
 import { extractTableData, type TableCellNode } from '../livePreview/tableWidget';
 import { buildTableOccupancy, cellAlignmentClassNames, isCoveredTableCell, parseCellSpan, readTableLayout } from '../livePreview/tableMerge';
 import { clampColumnWidth, clampRowHeight } from '../livePreview/tableResize';
@@ -96,8 +96,8 @@ export type RenderExportHtmlOptions = {
 	outline?: Partial<ExportOutlineSettings>;
 	/** 画像を Data URL などへ解決する。null は未解決。PDF では media 相対パスも返す。省略時は代替表示 */
 	resolveImage?: (request: ExportImageRequest) => Promise<string | null>;
-	/** Mermaid を SVG にする。省略時は同梱の描画 */
-	renderMermaid?: (source: string, theme: 'default' | 'dark') => Promise<ExportMermaidResult>;
+	/** Mermaid を SVG にする。省略時は同梱の Pele で描く。色は書き出し CSS の --pele-* 変数が決める */
+	renderMermaid?: (source: string, font: MermaidRenderFont) => Promise<ExportMermaidResult>;
 };
 
 /**
@@ -123,7 +123,9 @@ type ExportContext = {
 	/** 画像解決。失敗時は null を返す */
 	resolveImage: (request: ExportImageRequest) => Promise<string | null>;
 	/** Mermaid を SVG にする */
-	renderMermaid: (source: string, theme: 'default' | 'dark') => Promise<ExportMermaidResult>;
+	renderMermaid: (source: string, font: MermaidRenderFont) => Promise<ExportMermaidResult>;
+	/** 図のラベルの文字幅を測るフォント。書き出し CSS の本文フォントと同じ */
+	mermaidFont: MermaidRenderFont;
 };
 
 /** HTML へ文字として出さない構文マーク。記号自体は別の要素へ置き換える */
@@ -182,7 +184,9 @@ export async function renderExportHtml(options: RenderExportHtmlOptions): Promis
 		// 番号付きリストの採番ルール。欠けた階層と未知の値は既定で埋める
 		listNumbering: resolveListNumbering(options.listNumbering),
 		resolveImage: options.resolveImage ?? unresolvedExportImage,
-		renderMermaid: options.renderMermaid ?? defaultRenderMermaid
+		renderMermaid: options.renderMermaid ?? defaultRenderMermaid,
+		// 図のラベルを測るフォント。書き出し CSS の本文フォントと大きさにそろえる
+		mermaidFont: resolveExportMermaidFont(options.editorFontFamily, options.editorFontSize)
 	};
 
 	const body              = await renderBlocks(context, tree.topNode);
@@ -606,16 +610,41 @@ async function unresolvedExportImage(): Promise<null> {
 	return null;
 }
 
+/** 本文フォントの指定が無いときに図のラベルを測るフォント。書き出し CSS の --tms-mde-font-family の既定と同じ */
+const DEFAULT_EXPORT_MERMAID_FONT_FAMILY = '"Segoe UI", "Meiryo", sans-serif';
+
+/** 本文の大きさの指定が無いときの、図のラベルの大きさ（px）。ブラウザの既定と同じ */
+const DEFAULT_EXPORT_MERMAID_FONT_SIZE = 16;
+
 /**
- * 同梱の描画で Mermaid を SVG にする
+ * 書き出す図のラベルのフォントを決める
+ * 本文フォントと同じ値を測り、SVG 側は書き出し CSS の --pele-font で同じフォントを使う
+ * @param fontFamily - 本文フォント。空白だけ、または未指定なら既定
+ * @param fontSize - 本文の大きさ（px）。有限でないときは 16。8〜72 に丸めるのは本文の CSS と同じ
+ * @returns Pele へ渡すフォントと大きさ
+ */
+export function resolveExportMermaidFont(fontFamily: string | undefined, fontSize: number | undefined): MermaidRenderFont {
+	// 数値として見るサイズ。未指定は NaN で既定を使う
+	const numericFontSize = fontSize ?? Number.NaN;
+	// 図のラベルを測るフォント
+	return {
+		// 本文と同じフォント。空なら書き出し CSS の既定
+		fontFamily: fontFamily?.trim() ? sanitizeCssFontFamily(fontFamily) : DEFAULT_EXPORT_MERMAID_FONT_FAMILY,
+		// 本文と同じ大きさ（px）。有限でなければ既定
+		fontSize: Number.isFinite(numericFontSize) ? Math.min(72, Math.max(8, Math.round(numericFontSize))) : DEFAULT_EXPORT_MERMAID_FONT_SIZE
+	};
+}
+
+/**
+ * 同梱の Pele で Mermaid を SVG にする
  * 失敗しても例外にはせず、結果の ok を false にする
  * @param source - 図のソース
- * @param theme - 図の明暗。文書がダークのときだけ dark
+ * @param font - ラベルを測るフォントと大きさ
  * @returns 成功時は SVG、失敗時は理由を含む結果
  */
-async function defaultRenderMermaid(source: string, theme: 'default' | 'dark'): Promise<ExportMermaidResult> {
+async function defaultRenderMermaid(source: string, font: MermaidRenderFont): Promise<ExportMermaidResult> {
 	// 同梱描画の結果。失敗でも例外にはしない
-	const result = await renderMermaidSource(source, theme);
+	const result = await renderMermaidSource(source, font);
 	// SVG が得られた
 	if (result.ok) {
 		// 書き出しが図として埋め込む結果
@@ -1032,10 +1061,8 @@ async function renderFencedCode(context: ExportContext, node: SyntaxNode): Promi
 	if (isMermaidFencedCode(context.state, node)) {
 		// 図のソース。フェンス記号は含まない
 		const source = extractFencedCodeText(context.state, node);
-		// 図の明暗。文書がダークのときだけ dark
-		const theme  = context.theme === 'dark' ? 'dark' : 'default';
-		// 描画結果。失敗しても HTML 変換は続ける
-		const result = await context.renderMermaid(source, theme);
+		// 描画結果。明暗は書き出し CSS の --pele-* 変数が決めるので渡さない。失敗しても HTML 変換は続ける
+		const result = await context.renderMermaid(source, context.mermaidFont);
 		// 成功し、SVG があり、script を含まない。どれか欠ければ図にはしない
 		if (result.ok && result.svg && isSafeSvg(result.svg)) {
 			return `<figure class="cm-md-mermaid">${result.svg}</figure>`;

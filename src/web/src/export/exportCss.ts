@@ -225,8 +225,22 @@ export const EXPORT_PREVIEW_CSS = `
 	border: 1px dashed var(--tms-mde-color-border);
 	color: var(--tms-mde-color-text-muted);
 }
-.tms-mde-export .cm-md-mermaid { margin: 0.75em 0; overflow: auto; }
-.tms-mde-export .cm-md-mermaid svg { max-width: 100%; height: auto; }
+/* 図は Pele の SVG。色はテーマ変数から --pele-* へ渡し、面の色は本文色を背景へ混ぜて作る。SVG 側に既定色があるので、この指定が無くても明るい配色で表示できる */
+.tms-mde-export .cm-md-mermaid {
+	--pele-bg: var(--tms-mde-color-bg);
+	--pele-fg: var(--tms-mde-color-text);
+	--pele-muted: var(--tms-mde-color-text-muted);
+	--pele-line: var(--tms-mde-color-text);
+	--pele-surface: color-mix(in srgb, var(--tms-mde-color-text) 5%, var(--tms-mde-color-bg));
+	--pele-surface-alt: color-mix(in srgb, var(--tms-mde-color-text) 10%, var(--tms-mde-color-bg));
+	--pele-border: color-mix(in srgb, var(--tms-mde-color-text) 46%, var(--tms-mde-color-bg));
+	--pele-accent: var(--tms-mde-color-primary);
+	--pele-font-mono: var(--tms-mde-font-mono);
+	margin: 0.75em 0;
+	overflow: auto;
+}
+/* 図は中央に置く。SVG の inline style が幅を 100% までに縮める */
+.tms-mde-export .cm-md-mermaid > svg.pele { display: block; margin-right: auto; margin-left: auto; }
 .tms-mde-export .cm-md-mermaid-error { color: var(--tms-mde-color-error); }
 .tms-mde-export .cm-md-checkbox { margin-right: 0.4em; vertical-align: -0.15em; accent-color: var(--tms-mde-color-primary); }
 /* 番号はラベルを文字で書くため、ブラウザの番号は出さない。ラベルが項目の内側に入るぶん左の余白を詰める */

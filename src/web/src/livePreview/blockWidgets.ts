@@ -11,7 +11,7 @@ import { documentContextFacet } from './documentContext';
 import { classifyImageSource, pushImageReplace, type ImageSpec } from './imageWidget';
 import { splitImageAlt, splitWikiEmbedTarget } from './imageSize';
 import type { DecorationEntry } from './inlineDecorations';
-import { extractFencedCodeText, isMermaidFencedCode, pushMermaidReplace } from './mermaidWidget';
+import { extractFencedCodeText, extractMermaidTitle, isMermaidFencedCode, pushMermaidReplace } from './mermaidWidget';
 import { extractTableData, pushTableReplace } from './tableWidget';
 import { isHtmlTableBlock } from './htmlTable';
 import { pushHtmlTableReplace } from './htmlTableWidget';
@@ -164,7 +164,9 @@ export function collectBlockDecorationEntries(state: EditorState, sourceLineNumb
 
 				// 描画する Mermaid ソース。情報文字列の行は含めない
 				const source = extractFencedCodeText(state, ref.node);
-				pushMermaidReplace(entries, ref.from, ref.to, source);
+				// 図の上に出すタイトル。開始フェンスに title: が無ければ空文字
+				const title  = extractMermaidTitle(state, ref.node);
+				pushMermaidReplace(entries, ref.from, ref.to, source, title);
 				return false;
 			}
 

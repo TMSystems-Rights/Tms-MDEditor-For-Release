@@ -4,7 +4,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildExportCss, decorateText, renderExportHtml, type ExportMermaidResult } from './renderExportHtml';
+import { buildExportCss, decorateText, renderExportHtml, resolveExportMermaidFont, type ExportMermaidResult } from './renderExportHtml';
+import type { MermaidRenderFont } from '../livePreview/mermaidWidget';
 import { compileCustomDecorationRules } from '../livePreview/customDecorations';
 import { resolveListNumbering } from '../livePreview/orderedListLabels';
 
@@ -258,6 +259,39 @@ describe('renderExportHtml', () => {
 			renderMermaid: mermaidOk
 		});
 		expect(html).toContain('<figure class="cm-md-mermaid"><svg><g>ok</g></svg></figure>');
+	});
+
+	it('Mermaid の描画を省略したときは同梱の Pele で SVG にし、ダークでも色は CSS 変数に任せる', async () => {
+		// 描画関数を渡さない書き出し。ダークでも SVG は同じで、色は CSS の --pele-* が決める
+		const html = await render('```mermaid\nflowchart LR\n  A[開始] --> B[終了]\n```\n', {
+			// 暗いテーマの書き出し
+			theme: 'dark'
+		});
+		expect(html).toMatch(/<figure class="cm-md-mermaid"><svg [^>]*class="pele pele-flowchart"/);
+		expect(html).toContain('開始');
+		expect(html).toContain('--pele-fg: var(--tms-mde-color-text);');
+	});
+
+	it('Mermaid の描画へ本文フォントと大きさを渡す', async () => {
+		// 描画関数が受け取ったフォント。呼ばれなければ null
+		let received: MermaidRenderFont | null = null;
+		await render('```mermaid\ngraph TD; A-->B\n```\n', {
+			// 本文フォント
+			editorFontFamily: 'Consolas, monospace',
+			// 本文の大きさ（px）
+			editorFontSize: 18,
+			/**
+			 * 受け取ったフォントを記録し、成功を返す
+			 * @param _source - 図のソース。使わない
+			 * @param font - 書き出しが渡したフォント
+			 * @returns 固定の成功結果
+			 */
+			renderMermaid: async (_source, font) => {
+				received = font;
+				return mermaidOk();
+			}
+		});
+		expect(received).toEqual({ fontFamily: 'Consolas, monospace', fontSize: 18 });
 	});
 
 	it('Mermaid 失敗時はエラーとソースを出す', async () => {
@@ -604,5 +638,17 @@ describe('decorateText', () => {
 
 	it('ソース改行を br にする', () => {
 		expect(decorateText('1行目\n2行目', [])).toBe('1行目<br>2行目');
+	});
+});
+
+describe('resolveExportMermaidFont', () => {
+	it('本文フォントと大きさをそのまま使い、大きさは本文の CSS と同じく 8〜72 に丸める', () => {
+		expect(resolveExportMermaidFont('Consolas, monospace', 18.4)).toEqual({ fontFamily: 'Consolas, monospace', fontSize: 18 });
+		expect(resolveExportMermaidFont('Consolas', 100)).toEqual({ fontFamily: 'Consolas', fontSize: 72 });
+	});
+
+	it('未指定のときは書き出し CSS の既定フォントと 16px', () => {
+		expect(resolveExportMermaidFont(undefined, undefined)).toEqual({ fontFamily: '"Segoe UI", "Meiryo", sans-serif', fontSize: 16 });
+		expect(resolveExportMermaidFont('  ', Number.NaN)).toEqual({ fontFamily: '"Segoe UI", "Meiryo", sans-serif', fontSize: 16 });
 	});
 });

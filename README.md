@@ -457,7 +457,7 @@ UNLICENSED（現時点では利用許諾なし）
 
 ### 同梱しているサードパーティ製ソフトウェア
 
-配布物には、.NET ランタイム、WebView2 SDK、CodeMirror、Mermaid などのサードパーティ製ソフトウェアを同梱しています。各ソフトウェアの著作権表示とライセンス条件は、インストール先（ポータブル版は `app` フォルダ）の `THIRD_PARTY_NOTICES.txt` に掲載しています。
+配布物には、.NET ランタイム、WebView2 SDK、CodeMirror、Pele（Mermaid 図の描画）などのサードパーティ製ソフトウェアを同梱しています。各ソフトウェアの著作権表示とライセンス条件は、インストール先（ポータブル版は `app` フォルダ）の `THIRD_PARTY_NOTICES.txt` に掲載しています。
 
 `THIRD_PARTY_NOTICES.txt` は `scripts/dist.ps1` が発行時に自動で作成します。
 

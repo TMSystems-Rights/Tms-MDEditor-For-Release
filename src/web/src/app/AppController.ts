@@ -45,9 +45,8 @@ import { captureNoteViewPosition, normalizeNoteViewPositionDocument, NoteViewPos
 import { collapseAllHeadings, expandAllHeadings, expandHeadingAt, getCollapsedHeadingFroms, hasCollapsedHeadings, hasFoldableHeadings } from '../editor/headingFold';
 import { buildOutlineTree, collectOutlineAncestorFroms, collectFoldableOutlineFroms, collectOutlineItems, computeOutlineListScrollTop, findActiveOutlineItemIndex, jumpToOutlineItem, preserveEditorFocusOnOutlineMouseDown, type OutlineItem, type OutlineTreeNode } from '../outline/outline';
 import { calculateOutlineWidth, clampOutlineWidth, DEFAULT_OUTLINE_WIDTH, OUTLINE_KEYBOARD_RESIZE_STEP } from '../outline/outlineResize';
-import { renderExportHtml, type ExportImageRequest, type ExportMermaidResult } from '../export/renderExportHtml';
+import { renderExportHtml, type ExportImageRequest } from '../export/renderExportHtml';
 import { rememberExportMedia, type ExportMediaFile } from '../export/exportMedia';
-import { renderMermaidSource } from '../livePreview/mermaidWidget';
 import { buildTableMenuEnabledState, isTableMenuAction, type TableMenuAction } from './tableMenu';
 
 /**
@@ -1994,9 +1993,7 @@ export class AppController {
 			// 書き出し側のアウトライン
 			outline: this.settings.export.outline,
 			// file のときは印刷用の画像解決、inline のときは Data URL 解決
-			resolveImage: imageMode === 'file' ? (request) => this.resolvePrintImage(request, media) : (request) => this.resolveExportImage(request),
-			// Mermaid を書き出し用に描く
-			renderMermaid: this.renderExportMermaid.bind(this)
+			resolveImage: imageMode === 'file' ? (request) => this.resolvePrintImage(request, media) : (request) => this.resolveExportImage(request)
 		});
 		// 書き出した HTML と、file のときにコピーする画像。inline では media は空
 		return { html, media };
@@ -2061,18 +2058,6 @@ export class AppController {
 		} catch {
 			return null;
 		}
-	}
-
-	/**
-	 * エクスポート用に Mermaid を SVG 化する
-	 * @param source - ソース
-	 * @param theme - テーマ
-	 * @returns 成功時は SVG、失敗時は理由を含む結果
-	 */
-	private async renderExportMermaid(source: string, theme: 'default' | 'dark'): Promise<ExportMermaidResult> {
-		// SVG 化の結果。失敗時は ok が false で error がある
-		const result = await renderMermaidSource(source, theme);
-		return result.ok ? { ok: true, svg: result.svg } : { ok: false, error: result.error };
 	}
 
 	/**

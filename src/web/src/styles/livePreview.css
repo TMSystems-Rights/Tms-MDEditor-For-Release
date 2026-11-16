@@ -957,76 +957,63 @@
 /* Mermaid */
 /* ---------------------------------------------- */
 
+/*
+ * 図は Pele が SVG で描く。色はアプリのテーマ変数から --pele-* へ渡し、ダークでも描き直さずに切り替わる
+ * 面の色は本文色を背景へ混ぜて作る。Pele 既定の白地での濃さ（面 5%、入れ子の面 10%、枠 46%）に合わせた
+ * 文字のフォントは指定しない。Pele がエディタのフォントを読み、ラベルの幅を測る
+ */
 .tms-mde-editor-host .cm-md-mermaid-wrap {
+	--pele-bg: var(--tms-mde-color-bg);
+	--pele-fg: var(--tms-mde-color-text);
+	--pele-muted: var(--tms-mde-color-text-muted);
+	--pele-line: var(--tms-mde-color-text);
+	--pele-surface: color-mix(in srgb, var(--tms-mde-color-text) 5%, var(--tms-mde-color-bg));
+	--pele-surface-alt: color-mix(in srgb, var(--tms-mde-color-text) 10%, var(--tms-mde-color-bg));
+	--pele-border: color-mix(in srgb, var(--tms-mde-color-text) 46%, var(--tms-mde-color-bg));
+	--pele-accent: var(--tms-mde-color-primary);
+	--pele-error: var(--tms-mde-color-error);
+	--pele-font-mono: var(--tms-mde-font-mono);
 	display: block;
 	box-sizing: border-box;
 	width: 100%;
 	max-width: 100%;
 	margin: 0.4em 0;
-	padding: 0.75em 1em;
-	overflow-x: auto;
-	/* エディタ字体を継承しない（HTML ラベル計測と描画の不一致＝見切れ防止） */
-	color: #222;
-	font-family: 'trebuchet ms', verdana, arial, 'Segoe UI', Meiryo, sans-serif;
-	font-size: 16px;
-	line-height: 1.25;
-	background: #f7f7f7;
-	border: 1px solid var(--tms-mde-color-border, rgba(127, 127, 127, 0.35));
-	border-radius: 4px;
+	padding: 0.5em 0;
 }
 
-/* Mermaid 内部は content-box 前提。グローバル border-box による寸法ずれを避ける */
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid,
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid * {
-	box-sizing: content-box;
+/* 開始フェンスの title: の値。コードブロックの開始フェンス行と同じ色と角丸にし、スニペットの --tms-mde-color-code-title にも従う */
+.tms-mde-editor-host .cm-md-mermaid-wrap .cm-md-mermaid-title {
+	margin-bottom: 0.5em;
+	padding: 0.15em 0.5em;
+	border-radius: var(--tms-mde-code-fence-radius);
+	color: var(--tms-mde-color-code-title, var(--tms-mde-color-code-lang));
+	font-family: var(--tms-mde-font-mono);
+	font-weight: 700;
+	background: var(--tms-mde-color-code-fence-bg);
+	user-select: none;
 }
 
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid foreignObject {
-	overflow: visible;
+/* Pele が描く先。拡大縮小ボタンの位置の基準になる */
+.tms-mde-editor-host .cm-md-mermaid-wrap .cm-md-mermaid {
+	position: relative;
+	line-height: normal;
 }
 
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid .nodeLabel,
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid .edgeLabel,
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid .label {
-	line-height: 1.25;
-	font-size: 16px;
-	font-family: inherit;
-}
-
-.tms-mde-editor-host .cm-md-mermaid-status {
-	color: #666;
-	font-size: 0.9em;
-}
-
-.tms-mde-editor-host .cm-md-mermaid-error {
-	color: var(--tms-mde-color-danger, #c0392b);
-	font-size: 0.9em;
-	white-space: pre-wrap;
-}
-
-.tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg {
+/* 図は中央に置く。幅は Pele が枠に合わせて縮める */
+.tms-mde-editor-host .cm-md-mermaid-wrap .cm-md-mermaid>svg.pele {
 	display: block;
-	width: 100%;
-	max-width: none;
-	height: auto;
 	margin-right: auto;
 	margin-left: auto;
 }
 
-/* Obsidian 同様: 既定テーマのまま SVG を反転してダーク外観にする（classDef 色を維持） */
-body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-wrap,
-html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap {
-	color: var(--tms-mde-color-text);
-	background: transparent;
-	border-color: var(--tms-mde-color-border);
-}
-
-body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg,
-html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-wrap .mermaid>svg {
-	filter: invert(100%) hue-rotate(180deg) saturate(1.25);
-}
-
-body.tms-mde-theme-dark .tms-mde-editor-host .cm-md-mermaid-status,
-html[data-os-theme='dark'] body.tms-mde-body:not(.tms-mde-theme-light) .tms-mde-editor-host .cm-md-mermaid-status {
+.tms-mde-editor-host .cm-md-mermaid-status {
 	color: var(--tms-mde-color-text-muted);
+	font-size: 0.9em;
+}
+
+/* Pele を読み込めなかったときの理由。構文エラーは Pele が図の枠の中へ出す */
+.tms-mde-editor-host .cm-md-mermaid-error {
+	color: var(--tms-mde-color-error);
+	font-size: 0.9em;
+	white-space: pre-wrap;
 }
