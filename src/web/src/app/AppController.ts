@@ -36,6 +36,7 @@ import { isPointInHorizontalScrollbar, shouldOpenUntitledTabOnTabBarDoubleClick 
 import { calculatePaneDropPlacement, type PaneDropPlacement } from '../split/tabDrop';
 import { createDraggableTabElement } from '../split/tabElement';
 import { calculateTabDropIndex, shouldCloseWindowAfterTabRemoval } from '../split/tabTransfer';
+import { pickTabAfterRemoval, recordTabFocus } from '../split/tabFocusHistory';
 import { SettingsModal } from '../settings/SettingsModal';
 import { applyCssSnippets, getCssSnippetsReloadStatus } from '../settings/cssSnippets';
 import { CONTEXT_MENU_ITEM_LABELS, createDefaultContextMenuSettings, isContextMenuSeparator, normalizeContextMenuSettings } from '../settings/contextMenuSettings';
@@ -73,6 +74,8 @@ type PaneRuntime = {
 	editorStates: Map<string, EditorState>;
 	/** タブ ID から表示モード */
 	viewModes: Map<string, ViewMode>;
+	/** 選んだ順のタブ ID。末尾が直近。選択中のタブを閉じたときの戻り先を決める。並びから外したタブは除く */
+	recentTabIds: string[];
 };
 
 /**
@@ -238,7 +241,9 @@ export class AppController {
 				tabIds: [],
 				activeTabId: null,
 				editorStates: new Map(),
-				viewModes: new Map()
+				viewModes: new Map(),
+				// 選択履歴。最初のタブを選んだときから積む
+				recentTabIds: []
 			}
 		]
 	]);
@@ -1547,7 +1552,9 @@ export class AppController {
 			// 1 件も残らないペインは作らない
 			if (tabIds.length === 0) continue;
 			// セッションが選んでいたタブ。開けていなければ undefined
-			const activeTab = runtimeBySessionTabId.get(savedPane.activeTabId);
+			const activeTab   = runtimeBySessionTabId.get(savedPane.activeTabId);
+			// 復元後に選ぶタブ ID。セッションの選択が残っていなければ先頭
+			const activeTabId = activeTab && tabIds.includes(activeTab.tabId) ? activeTab.tabId : tabIds[0];
 			// 復元したペイン。選択タブが残っていなければ先頭
 			restoredPanes.set(savedPane.paneId, {
 				// セッションが付けていたペイン ID
@@ -1555,11 +1562,13 @@ export class AppController {
 				// 残ったタブの並び
 				tabIds,
 				// 選択タブ。残っていなければ先頭
-				activeTabId: activeTab && tabIds.includes(activeTab.tabId) ? activeTab.tabId : tabIds[0],
+				activeTabId,
 				// ペインごとのエディタ状態
 				editorStates,
 				// ペインごとの表示モード
-				viewModes
+				viewModes,
+				// 選択履歴。セッションは履歴を持たないため、選択中のタブだけから始める
+				recentTabIds: [activeTabId]
 			});
 		}
 
@@ -1666,6 +1675,8 @@ export class AppController {
 		void this.flushNoteViewPositions();
 		// そのペインにまだ無いタブは、先に登録する
 		if (!pane.tabIds.includes(tabId)) this.addTabToPane(nextTab, paneId);
+		// 閉じたときに戻れるよう、このペインで直近に選んだタブとして積む
+		pane.recentTabIds = recordTabFocus(pane.recentTabIds, tabId);
 		pane.activeTabId  = tabId;
 		this.activePaneId = paneId;
 		this.activeTabId  = tabId;
@@ -1720,7 +1731,9 @@ export class AppController {
 			}
 		}
 
-		pane.tabIds = pane.tabIds.filter((entry) => entry !== tabId);
+		// 閉じる前の並びでの位置。選択中だったときの次のタブを決めるのに使う
+		const closedIndex = pane.tabIds.indexOf(tabId);
+		pane.tabIds       = pane.tabIds.filter((entry) => entry !== tabId);
 		pane.editorStates.delete(tabId);
 		pane.viewModes.delete(tabId);
 		// 最後のペインから外れたときだけ、タブ本体と未保存の表示位置を捨てる
@@ -1751,9 +1764,9 @@ export class AppController {
 			this.paneLayout      = removePane(this.paneLayout, paneId) ?? createPaneLayout(adjacentPaneId ?? AppController.INITIAL_PANE_ID);
 			this.panes.delete(paneId);
 			this.activePaneId = adjacentPaneId ?? listPaneIds(this.paneLayout)[0];
-			// 閉じたタブが選択中だったときは、残った先頭を選ぶ。タブが残っていなければ null
-		} else if (pane.activeTabId === tabId) {
-			pane.activeTabId = pane.tabIds[0] ?? null;
+		} else {
+			// ペインが残るときは、閉じたタブを履歴から除く。選択中だったなら直前に選んでいたタブ、無ければ1つ左へ移す
+			this.selectTabAfterRemoval(pane, tabId, closedIndex);
 		}
 
 		// 前面ペイン。畳んだ直後に ID が無いときは undefined
@@ -1764,6 +1777,23 @@ export class AppController {
 		void this.updateWindowTitle();
 
 		return true;
+	}
+
+	/**
+	 * ペインの並びから外したタブを選択履歴からも除き、それが選択中だったときは次に前面にするタブへ移す
+	 * 次のタブは直前に選んでいたタブとし、履歴に残るタブが無ければ外したタブの1つ左とする。並びからは呼び出し側が先に外しておく
+	 * @param pane - タブを外したペイン。activeTabId と recentTabIds を書き換える
+	 * @param removedTabId - 外したタブ ID
+	 * @param removedIndex - 外す前の並びでの位置。単位は添字
+	 */
+	private selectTabAfterRemoval(pane: PaneRuntime, removedTabId: string, removedIndex: number): void {
+		pane.recentTabIds = pane.recentTabIds.filter((tabId) => tabId !== removedTabId);
+		// 外したタブが選択中でなければ、選択はそのままにする
+		if (pane.activeTabId !== removedTabId) return;
+
+		pane.activeTabId = pickTabAfterRemoval(pane.tabIds, pane.recentTabIds, removedIndex);
+		// 次のタブを選べたときだけ、直近の選択として履歴へ積む。残るタブが無ければ null のまま
+		if (pane.activeTabId) pane.recentTabIds = recordTabFocus(pane.recentTabIds, pane.activeTabId);
 	}
 
 	/**
@@ -2769,7 +2799,9 @@ export class AppController {
 			// 分割先のエディタ状態
 			editorStates: new Map([[tab.tabId, state]]),
 			// 分割先の表示モード。ペイン側が無ければタブの値
-			viewModes: new Map([[tab.tabId, sourcePane.viewModes.get(tab.tabId) ?? tab.viewMode]])
+			viewModes: new Map([[tab.tabId, sourcePane.viewModes.get(tab.tabId) ?? tab.viewMode]]),
+			// 選択履歴。載せたタブから始める
+			recentTabIds: [tab.tabId]
 		});
 		this.paneLayout   = splitPane(this.paneLayout, sourcePane.paneId, paneId, splitId, direction);
 		this.activePaneId = paneId;
@@ -2809,8 +2841,10 @@ export class AppController {
 			if (viewMode) targetPane.viewModes.set(tabId, viewMode);
 		}
 
-		targetPane.activeTabId = sourcePane.activeTabId ?? targetPane.activeTabId;
-		this.paneLayout        = removePane(this.paneLayout, sourcePane.paneId) ?? createPaneLayout(targetPane.paneId);
+		// 畳むペインの選択履歴を、隣の履歴より新しいものとして後ろへ足す。畳む側の選択中タブが直近になる
+		targetPane.recentTabIds = sourcePane.recentTabIds.reduce((history, tabId) => recordTabFocus(history, tabId), targetPane.recentTabIds);
+		targetPane.activeTabId  = sourcePane.activeTabId ?? targetPane.activeTabId;
+		this.paneLayout         = removePane(this.paneLayout, sourcePane.paneId) ?? createPaneLayout(targetPane.paneId);
 		this.panes.delete(sourcePane.paneId);
 		this.activePaneId = targetPane.paneId;
 		this.activeTabId  = targetPane.activeTabId;
@@ -3591,12 +3625,15 @@ export class AppController {
 		const viewMode = sourcePane.viewModes.get(sourceTabId);
 		// 表示モードがあるときだけ移動先へ写す
 		if (viewMode) targetPane.viewModes.set(sourceTabId, viewMode);
-		sourcePane.editorStates.delete(sourceTabId);
-		sourcePane.viewModes.delete(sourceTabId);
-		targetPane.activeTabId = sourceTabId;
+		targetPane.activeTabId  = sourceTabId;
+		targetPane.recentTabIds = recordTabFocus(targetPane.recentTabIds, sourceTabId);
 
-		// 移動元の選択が動いたタブなら、残った先頭を選択する。残らなければ null
-		if (sourcePane.activeTabId === sourceTabId) sourcePane.activeTabId = sourcePane.tabIds[0] ?? null;
+		// 別ペインへ移したときだけ、移動元から状態と履歴を外し、選択が動いたタブなら直前に選んでいたタブ、無ければ1つ左を選ぶ。同じペイン内の並べ替えは移動元と移動先が同じなので外さない
+		if (sourcePane !== targetPane) {
+			sourcePane.editorStates.delete(sourceTabId);
+			sourcePane.viewModes.delete(sourceTabId);
+			this.selectTabAfterRemoval(sourcePane, sourceTabId, sourceIndex);
+		}
 		// 移動元が空になり、他のペインが残っているときだけ、そのペインをレイアウトから外す。どちらか一方では外さない
 		if (sourcePane.tabIds.length === 0 && this.panes.size > 1) {
 			this.paneLayout = removePane(this.paneLayout, sourcePaneId) ?? createPaneLayout(targetPaneId);
@@ -3642,7 +3679,9 @@ export class AppController {
 			// 新しいペインのエディタ状態
 			editorStates: new Map([[tab.tabId, state]]),
 			// 新しいペインの表示モード
-			viewModes: new Map([[tab.tabId, viewMode]])
+			viewModes: new Map([[tab.tabId, viewMode]]),
+			// 選択履歴。載せたタブから始める
+			recentTabIds: [tab.tabId]
 		});
 		this.paneLayout = splitPane(this.paneLayout, targetPaneId, paneId, splitId, placement.direction, placement.newPanePosition);
 
@@ -3652,11 +3691,13 @@ export class AppController {
 			const keepOriginalView = sourcePane.paneId === targetPaneId && sourcePane.tabIds.length === 1;
 			// 最後の1枚でないときだけ、移動元からタブと状態を外す
 			if (!keepOriginalView) {
-				sourcePane.tabIds = sourcePane.tabIds.filter((tabId) => tabId !== tab.tabId);
+				// 外す前の並びでの位置。選択中だったときの次のタブを決めるのに使う
+				const removedIndex = sourcePane.tabIds.indexOf(tab.tabId);
+				sourcePane.tabIds  = sourcePane.tabIds.filter((tabId) => tabId !== tab.tabId);
 				sourcePane.editorStates.delete(tab.tabId);
 				sourcePane.viewModes.delete(tab.tabId);
-				// 外したタブが選択中なら、残った先頭を選ぶ。残らなければ null
-				if (sourcePane.activeTabId === tab.tabId) sourcePane.activeTabId = sourcePane.tabIds[0] ?? null;
+				// 外したタブを履歴から除く。選択中だったなら直前に選んでいたタブ、無ければ1つ左を選ぶ
+				this.selectTabAfterRemoval(sourcePane, tab.tabId, removedIndex);
 			}
 			// 移動元が空になったら、そのペインをレイアウトから外す
 			if (sourcePane.tabIds.length === 0) {
@@ -5108,7 +5149,9 @@ export class AppController {
 			// エディタ状態は空
 			editorStates: new Map(),
 			// 表示モードは空
-			viewModes: new Map()
+			viewModes: new Map(),
+			// 選択履歴は空
+			recentTabIds: []
 		});
 	}
 
