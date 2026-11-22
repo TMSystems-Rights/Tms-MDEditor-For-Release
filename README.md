@@ -4,9 +4,15 @@ Windows 11 向けの軽量 Markdown エディタ。C# / .NET 8 / WinForms + WebV
 
 リポジトリ: [TMSystems-Rights/Tms-MDEditor-For-Release](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release)
 
-最新リリース: [v1.16.0](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.16.0)
+最新リリース: [v1.16.1](https://github.com/TMSystems-Rights/Tms-MDEditor-For-Release/releases/tag/v1.16.1)
 
 ## 変更内容
+
+### v1.16.1 の主な変更
+
+- 選択中のタブを閉じたとき、そのペインで直前に選んでいたタブへ戻る。戻れるタブが無いときは、閉じたタブの1つ左のタブを選ぶ（これまでは常に左端のタブが選ばれ、タブが多いと左端までスクロールしていた）
+- タブをドラッグで別のペインへ移したとき、移動元のペインでも同じ規則で次のタブを選ぶ
+- 同じペインの中でタブをドラッグして並べ替えると、動かしたタブではなく左端のタブが選ばれ、そのタブのカーソル位置と表示モードが失われる不具合を修正
 
 ### v1.16.0 の主な変更
 
